@@ -28,6 +28,8 @@ export interface GameEvent {
   id: string;
   title: string;
   text: string;
+  image?: string;
+  character?: string;
   choices: EventChoice[];
 }
 
@@ -39,6 +41,7 @@ export interface Survivor {
   skill: string;
   atk: number;
   med: number;
+  avatar?: string;
 }
 
 export interface Profession {

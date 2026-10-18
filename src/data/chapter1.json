@@ -1,4 +1,4 @@
-{
+﻿{
   "id": "ch1",
   "name": "第一章 · 离乡",
   "nodes": [
@@ -21,6 +21,7 @@
     "ev_start": {
       "id": "ev_start",
       "title": "楼下",
+      "image": "/assets/start.jpg",
       "text": "楼下停着一辆房车，车主没来得及开走。钥匙插在遮阳板后面，油箱还有半箱。车窗上贴着的全家福，被雨泡花了一角。",
       "choices": [
         { "text": "检查一遍车况再出发", "effects": { "fuel": 2 } },
@@ -30,6 +31,7 @@
     "ev_gas": {
       "id": "ev_gas",
       "title": "加油站",
+      "image": "/assets/gas.jpg",
       "text": "油枪早就没电了。但油罐埋在地下，便利店的货架上还有手摇泵卖——九十九块，标签都没撕。",
       "choices": [
         { "text": "摇泵抽油，装满备用油桶", "effects": { "stamina": -2, "fuel": 5 } },
@@ -40,6 +42,7 @@
     "ev_market": {
       "id": "ev_market",
       "title": "废弃超市",
+      "image": "/assets/market.jpg",
       "text": "脚印很新。有人比你们先到，走的时候没关灯。",
       "choices": [
         { "text": "摸黑搜仓库", "effects": { "stamina": -2, "food": 5 } },
@@ -50,6 +53,8 @@
     "ev_camp": {
       "id": "ev_camp",
       "title": "河边营地",
+      "image": "/assets/camp.jpg",
+      "character": "lin_wan",
       "text": "一个女人在烧一摞病历。火光映着她的脸，她说：烧掉的人，就救不回来了。",
       "choices": [
         { "text": "分她一半食物，请她上车", "effects": { "food": -4 }, "recruit": "lin_wan" },
@@ -60,6 +65,8 @@
     "ev_bridge": {
       "id": "ev_bridge",
       "title": "跨江大桥",
+      "image": "/assets/bridge.jpg",
+      "character": "chen_mo",
       "text": "桥中央停着一辆货车。司机把一具尸体轻轻放进江里，然后擦了擦手。",
       "choices": [
         { "text": "帮他扶正货箱，邀他同行", "effects": { "stamina": -2 }, "recruit": "chen_mo" },

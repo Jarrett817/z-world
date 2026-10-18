@@ -1,4 +1,4 @@
-{
+﻿{
   "lin_wan": {
     "id": "lin_wan",
     "name": "林晚",
@@ -6,7 +6,8 @@
     "desc": "烧掉病历的人，比谁都清楚救不回的有多多。",
     "skill": "急救",
     "atk": 2,
-    "med": 5
+    "med": 5,
+    "avatar": "/assets/lin_wan.jpg"
   },
   "chen_mo": {
     "id": "chen_mo",
@@ -15,6 +16,7 @@
     "desc": "话少，手稳。拖过车，也埋过人。",
     "skill": "驾驶",
     "atk": 4,
-    "med": 0
+    "med": 0,
+    "avatar": "/assets/chen_mo.jpg"
   }
 }
