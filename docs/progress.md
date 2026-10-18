@@ -1,5 +1,14 @@
 # 开发日志
 
+## 2026-10-18 · 视觉层接入：AI 场景图 + 立绘
+
+- 生成 8 张 AI 绘画素材（橙青末日色调、This War of Mine 风）：6 场景图（start/gas/market/camp/bridge/ending，landscape_16_9）+ 2 立绘（林晚/陈默，portrait_4_3），存 public/assets/*.jpg
+- EventDialog 改版：顶部场景大图 + 渐变遮罩 + 右下角悬浮立绘（有 character 时）；章节结算页配图
+- TeamPanel 改横排卡片，左侧 avatar 头像
+- 数据层：GameEvent 加 image/character 字段，Survivor 加 avatar 字段，EventEffects 加 fuel
+- 教训：`trae-api-cn.mchost.guru/api/ide/v1/text_to_image` 是异步占位图语义（返回 176626 字节占位，不可用）；改用 GenerateImage 工具直接出图（自动存 .jpg）
+- 验证：typecheck 通过；浏览器实测零红色报错、图片 200、场景大图渲染正常
+
 ## 2026-10-18 · 房车化重构：职业 + 燃料 + 车厢布局
 
 ### 设计定稿（用户拍板）
