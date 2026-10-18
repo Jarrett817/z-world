@@ -1,5 +1,17 @@
 # 开发日志
 
+## 2026-10-18 · 驾驶化重构：横版卷轴替代点选地图
+
+用户反馈：点选节点=文字游戏，要「车辆驾驶的真实感、行路感」。
+
+- **DriveScene**（删 MapScene）：三层视差——AI 远景城市剪影（0.15x）/中景路边废墟（0.5x）/路面虚线（1x）；房车剪影（橙色暖窗+车灯光柱+车轮转动+悬挂正弦起伏）
+- **操控**：屏幕油门/刹车踏板 + 键盘 D/A/方向键；速度物理 0~80km/h，accel 40 / brake 90 / drag 8
+- **Game 状态机**：phase（profession/event/route/driving/finished）；edges 改 `{from,to,km}` 数据驱动；燃料按公里烧（fuelPerKm 0.2）；**半路油尽触发 ev_stall 事件**（徒步找油 stamina-3 fuel+2），选完继续赶路（travel 进度保留）
+- **RouteChoice**：岔路口路线卡（名称+公里数）替代点地图
+- 存档升 v3；fuel 改浮点（HUD floor 显示）；driveTick 对 React 按 0.1km 节流 emit
+- 验证：bun 冒烟全流程 PASS（职业→序章→选路→驾驶→抵达→招募→终章；燃料/里程数学核对）；浏览器实测五层视觉渲染正常、零报错
+- 素材：parallax_far/parallax_mid（3750x1250 平铺剪影，已裁右下角水印至 3380x1140）、stall.jpg（抛锚事件图）
+
 ## 2026-10-18 · 视觉层接入：AI 场景图 + 立绘
 
 - 生成 8 张 AI 绘画素材（橙青末日色调、This War of Mine 风）：6 场景图（start/gas/market/camp/bridge/ending，landscape_16_9）+ 2 立绘（林晚/陈默，portrait_4_3），存 public/assets/*.jpg
