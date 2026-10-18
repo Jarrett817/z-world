@@ -21,7 +21,7 @@ export function HudBar({ onOpenRV }: { onOpenRV: () => void }) {
         <span>🥫 食物 <b className="text-[#e8862e]">{state.food}</b></span>
         <span>⚡ 体力 <b className="text-[#e8862e]">{state.stamina}</b></span>
         <span>🔥 士气 <b className="text-[#e8862e]">{state.morale}</b></span>
-        <span>⛽ 燃料 <b className="text-[#e8862e]">{state.fuel}</b></span>
+        <span>⛽ 燃料 <b className="text-[#e8862e]">{Math.floor(state.fuel)}</b></span>
         <button
           onClick={onOpenRV}
           className="pointer-events-auto ml-3 rounded border border-[#4a3f35] px-3 py-1 text-xs text-[#8a7d6d] hover:border-[#e8862e] hover:text-[#e8862e]"

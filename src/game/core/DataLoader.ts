@@ -60,11 +60,18 @@ export interface Facility {
   effect: { staminaMax?: number; foodMax?: number; staminaPerMove?: number };
 }
 
+export interface Edge {
+  from: string;
+  to: string;
+  km: number;
+}
+
 interface ChapterData {
   id: string;
   name: string;
   nodes: MapNode[];
-  edges: string[][];
+  fuelPerKm: number;
+  edges: Edge[];
   events: Record<string, GameEvent>;
 }
 
@@ -113,12 +120,15 @@ export class DataLoader {
     return this.chapter.nodes.find((n) => n.id === id) ?? null;
   }
 
-  static getNeighbors(id: string): string[] {
-    const out: string[] = [];
-    for (const [a, b] of this.chapter.edges) {
-      if (a === id) out.push(b);
-      else if (b === id) out.push(a);
-    }
-    return out;
+  static getFuelPerKm(): number {
+    return this.chapter.fuelPerKm;
+  }
+
+  static getOutgoing(id: string): Edge[] {
+    return this.chapter.edges.filter((e) => e.from === id);
+  }
+
+  static getEdge(from: string, to: string): Edge | null {
+    return this.chapter.edges.find((e) => e.from === from && e.to === to) ?? null;
   }
 }

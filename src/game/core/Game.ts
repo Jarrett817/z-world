@@ -7,8 +7,18 @@ export interface PlacedFacility {
   y: number;
 }
 
+export type Phase = 'profession' | 'event' | 'route' | 'driving' | 'finished';
+
+export interface Travel {
+  from: string;
+  to: string;
+  km: number;
+  done: number;
+}
+
 export interface GameState {
   profession: string | null;
+  phase: Phase;
   currentNode: string;
   visited: string[];
   food: number;
@@ -18,6 +28,7 @@ export interface GameState {
   team: Survivor[];
   currentEvent: GameEvent | null;
   finished: boolean;
+  travel: Travel | null;
   rvLayout: PlacedFacility[];
 }
 
@@ -27,6 +38,7 @@ const BASE_CAPS = { food: 20, stamina: 10, fuel: 12 };
 
 const INITIAL: GameState = {
   profession: null,
+  phase: 'profession',
   currentNode: 'start',
   visited: ['start'],
   food: 8,
@@ -36,6 +48,7 @@ const INITIAL: GameState = {
   team: [],
   currentEvent: null,
   finished: false,
+  travel: null,
   rvLayout: [...DataLoader.getRvConfig().initialLayout],
 };
 
@@ -100,51 +113,90 @@ class GameClass {
       this.state.morale + (p.bonus.morale ?? 0),
       this.state.fuel,
     );
-    this.set({ profession: id, ...r, currentEvent: ev });
+    this.set({ profession: id, ...r, currentEvent: ev, phase: ev ? 'event' : 'route' });
   }
 
-  // ---- 地图逻辑 ----
-  getReachable(): string[] {
-    if (this.state.finished || this.state.currentEvent || !this.state.profession) return [];
-    if (this.state.fuel <= 0) return [];
-    return DataLoader.getNeighbors(this.state.currentNode).filter(
-      (id) => !this.state.visited.includes(id),
-    );
+  // ---- 驾驶逻辑 ----
+  private lastEmittedDone = 0;
+
+  /** 当前节点可选的未访问路线 */
+  getRoutes(): { to: string; km: number }[] {
+    if (this.state.phase !== 'route') return [];
+    return DataLoader.getOutgoing(this.state.currentNode)
+      .filter((e) => !this.state.visited.includes(e.to))
+      .map((e) => ({ to: e.to, km: e.km }));
   }
 
-  moveTo(nodeId: string): boolean {
-    if (!this.getReachable().includes(nodeId)) return false;
-    const node = DataLoader.getNode(nodeId);
-    if (!node) return false;
+  chooseRoute(to: string): boolean {
+    if (this.state.phase !== 'route') return false;
+    const edge = DataLoader.getEdge(this.state.currentNode, to);
+    if (!edge || this.state.visited.includes(to)) return false;
+    this.lastEmittedDone = 0;
+    this.set({
+      travel: { from: edge.from, to: edge.to, km: edge.km, done: 0 },
+      phase: 'driving',
+    });
+    return true;
+  }
 
-    // 医疗角：每次移动恢复体力
-    let staminaRegen = 0;
-    for (const p of this.state.rvLayout) {
-      const f = DataLoader.getFacility(p.facilityId);
-      staminaRegen += f?.effect.staminaPerMove ?? 0;
+  /** 场景每帧调用；deltaKm 为本帧行驶里程。React 同步按 0.1km 节流 */
+  driveTick(deltaKm: number): void {
+    const t = this.state.travel;
+    if (this.state.phase !== 'driving' || !t || deltaKm <= 0) return;
+
+    const done = Math.min(t.km, t.done + deltaKm);
+    const fuel = Math.max(0, this.state.fuel - deltaKm * DataLoader.getFuelPerKm());
+
+    if (fuel <= 0) {
+      this.lastEmittedDone = done;
+      this.set({
+        fuel: 0,
+        travel: { ...t, done },
+        currentEvent: DataLoader.getEvent('ev_stall'),
+        phase: 'event',
+      });
+      return;
     }
 
-    const r = this.clamp(
-      this.state.food,
-      this.state.stamina + staminaRegen,
-      this.state.morale,
-      this.state.fuel - 1,
-    );
+    if (done >= t.km) {
+      this.arrive(t.to, fuel);
+      return;
+    }
+
+    if (done - this.lastEmittedDone >= 0.1) {
+      this.lastEmittedDone = done;
+      this.set({ fuel, travel: { ...t, done } });
+    } else {
+      this.state = { ...this.state, fuel, travel: { ...t, done } };
+    }
+  }
+
+  private arrive(to: string, fuel: number): void {
+    const node = DataLoader.getNode(to);
+    let stamina = this.state.stamina;
+    for (const p of this.state.rvLayout) {
+      stamina += DataLoader.getFacility(p.facilityId)?.effect.staminaPerMove ?? 0;
+    }
+    const r = this.clamp(this.state.food, stamina, this.state.morale, fuel);
+    this.lastEmittedDone = 0;
 
     const patch: Partial<GameState> = {
-      currentNode: nodeId,
-      visited: [...this.state.visited, nodeId],
+      currentNode: to,
+      visited: [...this.state.visited, to],
+      travel: null,
       ...r,
     };
-
-    if (nodeId === 'end') patch.finished = true;
-    else if (node.eventId) {
+    if (to === 'end') {
+      patch.phase = 'finished';
+      patch.finished = true;
+    } else if (node?.eventId) {
       const ev = DataLoader.getEvent(node.eventId);
-      if (ev) patch.currentEvent = ev;
+      patch.currentEvent = ev;
+      patch.phase = 'event';
+    } else {
+      patch.phase = 'route';
     }
-
     this.set(patch);
-    return true;
   }
 
   // ---- 事件 ----
@@ -172,6 +224,17 @@ class GameClass {
       if (s && !this.state.team.some((m) => m.id === s.id)) {
         patch.team = [...this.state.team, s];
       }
+    }
+
+    // 抛锚事件选完继续赶路；普通事件后进选路/终局
+    if (ev.id === 'ev_stall' && this.state.travel) {
+      patch.phase = 'driving';
+    } else {
+      const hasNext = DataLoader.getOutgoing(this.state.currentNode).some(
+        (e) => !this.state.visited.includes(e.to),
+      );
+      patch.phase = hasNext ? 'route' : 'finished';
+      if (!hasNext) patch.finished = true;
     }
 
     this.set(patch);

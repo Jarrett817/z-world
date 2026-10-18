@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { MapScene } from './scenes/MapScene';
+import { DriveScene } from './scenes/DriveScene';
 
 export function createGame(parent: HTMLElement): Phaser.Game {
   return new Phaser.Game({
@@ -12,6 +12,6 @@ export function createGame(parent: HTMLElement): Phaser.Game {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
-    scene: [MapScene],
+    scene: [DriveScene],
   });
 }

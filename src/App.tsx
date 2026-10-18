@@ -5,6 +5,7 @@ import { EventDialog } from './ui/EventDialog';
 import { TeamPanel } from './ui/TeamPanel';
 import { ProfessionSelect } from './ui/ProfessionSelect';
 import { RVPanel } from './ui/RVPanel';
+import { RouteChoice } from './ui/RouteChoice';
 
 export function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -24,6 +25,7 @@ export function App() {
       <HudBar onOpenRV={() => setShowRV(true)} />
       <EventDialog />
       <TeamPanel />
+      <RouteChoice />
       {showRV && <RVPanel onClose={() => setShowRV(false)} />}
       <ProfessionSelect />
     </div>

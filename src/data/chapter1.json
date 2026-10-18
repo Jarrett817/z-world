@@ -9,13 +9,14 @@
     { "id": "bridge", "name": "跨江大桥", "x": 900, "y": 340, "eventId": "ev_bridge" },
     { "id": "end", "name": "城区入口", "x": 1130, "y": 340 }
   ],
+  "fuelPerKm": 0.2,
   "edges": [
-    ["start", "gas"],
-    ["start", "market"],
-    ["gas", "camp"],
-    ["market", "camp"],
-    ["camp", "bridge"],
-    ["bridge", "end"]
+    { "from": "start", "to": "gas", "km": 6 },
+    { "from": "start", "to": "market", "km": 8 },
+    { "from": "gas", "to": "camp", "km": 10 },
+    { "from": "market", "to": "camp", "km": 7 },
+    { "from": "camp", "to": "bridge", "km": 12 },
+    { "from": "bridge", "to": "end", "km": 9 }
   ],
   "events": {
     "ev_start": {
@@ -60,6 +61,15 @@
         { "text": "分她一半食物，请她上车", "effects": { "food": -4 }, "recruit": "lin_wan" },
         { "text": "请她上车", "recruit": "lin_wan" },
         { "text": "不打扰她", "effects": { "morale": -1 } }
+      ]
+    },
+    "ev_stall": {
+      "id": "ev_stall",
+      "title": "燃油耗尽",
+      "image": "/assets/stall.jpg",
+      "text": "发动机咳了两声，熄火了。油表指针贴着红线，一动不动。后备箱里还剩一个空油桶。",
+      "choices": [
+        { "text": "背上油桶，沿公路徒步找油", "effects": { "stamina": -3, "fuel": 2 } }
       ]
     },
     "ev_bridge": {
