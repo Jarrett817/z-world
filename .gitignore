@@ -13,3 +13,7 @@ logs/
 *.log
 .DS_Store
 Thumbs.db
+
+blender/dl/
+blender/seq/
+blender/*.png

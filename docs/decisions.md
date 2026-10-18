@@ -1,5 +1,14 @@
 # 决策记录
 
+## 2026-10-19 · 3D 预渲染管线落地：房车/人物/场景全面 3D 化
+
+**路线确定**：Sketchfab 免费 CC-BY 模型 → Blender 无头渲染（`blender -b --python`）→ PNG 序列帧/立绘 → Phaser 贴图。不走实时 3D。
+
+- **房车**：GMC Motorhome（lionsharp）+ 程序化装甲（防撞杠/车顶架/探照灯/侧裙甲/备胎/排气管），橙黑配色，8 帧车轮转动序列帧接入 DriveScene 替换 2D 贴片
+- **人物**：林晚=Anime Nurse 模型，陈默=Stylized anime character 模型，渲染正面半身像做头像
+- **场景**：Destroyed Building shell 渲染黄昏废墟做驾驶中景
+- **工作流**：Blender MCP socket 易被 factory reset 杀掉，改用 `blender -b --python` 无头模式更稳定；模型下载走 Sketchfab `/v3/models/{uid}/download`（S3 预签名 URL 不带 Authorization 头）
+
 ## 2026-10-19 · 驾驶表现层转向 3D：2D 车轮贴片方案否决
 
 **背景**：房车实图（rv.png）接入后，用「从车身抠出 3 个轮子做独立 sprite、按车速旋转」的 2D 方案实现车轮转动。浏览器实测对位准确、零报错，但转动视觉效果用户判定不达标——2D 贴片旋转做不出真实的车轮滚动感。

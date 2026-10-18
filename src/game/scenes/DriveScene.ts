@@ -17,7 +17,7 @@ export class DriveScene extends Phaser.Scene {
   private mid!: Phaser.GameObjects.TileSprite;
   private road!: Phaser.GameObjects.Graphics;
   private rv!: Phaser.GameObjects.Container;
-  private wheels: Phaser.GameObjects.Image[] = [];
+  private rvBody!: Phaser.GameObjects.Sprite;
   private dash!: Phaser.GameObjects.Text;
   private hint!: Phaser.GameObjects.Text;
   private pedalGas!: Phaser.GameObjects.Container;
@@ -35,10 +35,9 @@ export class DriveScene extends Phaser.Scene {
   preload(): void {
     this.load.image('far', '/assets/parallax_far.jpg');
     this.load.image('mid', '/assets/parallax_mid.jpg');
-    this.load.image('rv', '/assets/rv.png');
-    this.load.image('wheel1', '/assets/wheel1.png');
-    this.load.image('wheel2', '/assets/wheel2.png');
-    this.load.image('wheel3', '/assets/wheel3.png');
+    for (let i = 1; i <= 8; i++) {
+      this.load.image(`rv_${i}`, `/assets/rv3d/rv_0${i}.png`);
+    }
   }
 
   create(): void {
@@ -46,9 +45,19 @@ export class DriveScene extends Phaser.Scene {
     this.far = this.add.tileSprite(0, 0, W, 500, 'far').setOrigin(0, 0);
     this.far.setTileScale(500 / 1140, 500 / 1140);
 
-    // 中景：路边废墟（缩放到高 380，贴路面上沿）
+    // 中景：路边废墟（3D 渲染 1920x720，缩放到高 380，贴路面上沿）
     this.mid = this.add.tileSprite(0, ROAD_Y - 300, W, 380, 'mid').setOrigin(0, 0);
-    this.mid.setTileScale(380 / 1140, 380 / 1140);
+    this.mid.setTileScale(380 / 720, 380 / 720);
+
+    // 房车行驶动画（3D 预渲染 8 帧车轮转动序列）
+    if (!this.anims.exists('rv_drive')) {
+      this.anims.create({
+        key: 'rv_drive',
+        frames: [1, 2, 3, 4, 5, 6, 7, 8].map((i) => ({ key: `rv_${i}` })),
+        frameRate: 12,
+        repeat: -1,
+      });
+    }
 
     // 路面
     this.road = this.add.graphics();
@@ -121,30 +130,20 @@ export class DriveScene extends Phaser.Scene {
   }
 
   private buildRV(): Phaser.GameObjects.Container {
-    // 房车实图（rv.png 已抠白底，1773x1011）
-    const RV_H = 210;
-    const S = RV_H / 1011; // 源图 → 屏幕缩放比
-    const body = this.add.image(0, 0, 'rv').setOrigin(0.5, 1);
-    body.setDisplaySize(1773 * S, RV_H);
+    // 3D 预渲染序列帧（1280x720，车身占中间条带），显示为高 260
+    const RV_H = 260;
+    const S = RV_H / 720;
+    const body = this.add.sprite(0, 0, 'rv_1').setOrigin(0.5, 1);
+    body.setDisplaySize(1280 * S, RV_H);
+    body.play('rv_drive');
+    this.rvBody = body;
 
-    // 车灯光柱（车头朝右，大灯位置约在 +165, -60）
+    // 车灯光柱（车头朝右）
     const beam = this.add.graphics();
     beam.fillStyle(0xe8a04c, 0.07);
-    beam.fillTriangle(165, -60, 560, -100, 560, -10);
+    beam.fillTriangle(195, -68, 560, -110, 560, -20);
 
-    // 独立轮子：圆形裁图覆盖在原轮位置，按车速旋转
-    const defs = [
-      { key: 'wheel1', cx: 383, cy: 872 },
-      { key: 'wheel2', cx: 685, cy: 886 },
-      { key: 'wheel3', cx: 1376, cy: 864 },
-    ];
-    this.wheels = defs.map((d) => {
-      const img = this.add.image((d.cx - 1773 / 2) * S, (d.cy - 1011) * S, d.key);
-      img.setDisplaySize(300 * S, 300 * S);
-      return img;
-    });
-
-    return this.add.container(RV_X, ROAD_Y + 4, [beam, body, ...this.wheels]);
+    return this.add.container(RV_X, ROAD_Y + 4, [beam, body]);
   }
 
   update(_time: number, deltaMs: number): void {
@@ -164,9 +163,15 @@ export class DriveScene extends Phaser.Scene {
     this.far.tilePositionX += pxSpeed * 0.15 * dt;
     this.mid.tilePositionX += pxSpeed * 0.5 * dt;
 
-    // 轮子转动（角速度 = 线速度 / 轮半径）
-    const wheelR = 140 * (210 / 1011);
-    for (const w of this.wheels) w.rotation += (pxSpeed * dt) / wheelR;
+    // 房车动效：悬挂起伏 + 动画速度跟随车速（停车时定格）
+    const speedRatio = this.speed / MAX_SPEED;
+    this.rv.y = ROAD_Y + 4 + Math.sin(_time / 90) * 2.2 * speedRatio;
+    if (this.speed > 1) {
+      this.rvBody.anims.resume();
+      this.rvBody.anims.timeScale = 0.3 + speedRatio * 1.4;
+    } else {
+      this.rvBody.anims.pause();
+    }
 
     // 路面与虚线
     this.dashPhase = (this.dashPhase + pxSpeed * dt) % 80;
@@ -179,10 +184,6 @@ export class DriveScene extends Phaser.Scene {
     for (let x = -this.dashPhase; x < W; x += 80) {
       this.road.fillRect(x, ROAD_Y + 78, 44, 6);
     }
-
-    // 房车动效：悬挂起伏
-    const speedRatio = this.speed / MAX_SPEED;
-    this.rv.y = ROAD_Y + 4 + Math.sin(_time / 90) * 2.2 * speedRatio;
 
     // 里程推进
     if (driving && this.speed > 0) {
