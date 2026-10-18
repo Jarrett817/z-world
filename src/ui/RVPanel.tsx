@@ -33,11 +33,17 @@ export function RVPanel({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        {/* 车厢网格 */}
+        {/* 车厢网格（背景：房车内部实景） */}
         <div
-          className="relative rounded border-2 border-[#4a3f35] bg-[#1a1614]"
+          className="relative overflow-hidden rounded border-2 border-[#4a3f35]"
           style={{ width: cfg.gridWidth * CELL, height: cfg.gridHeight * CELL }}
         >
+          <img
+            src="/assets/rv_interior.jpg"
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+          <div className="absolute inset-0 bg-[#161210]/45" />
           {/* 格子线 */}
           {Array.from({ length: cfg.gridWidth * cfg.gridHeight }, (_, i) => {
             const x = i % cfg.gridWidth;

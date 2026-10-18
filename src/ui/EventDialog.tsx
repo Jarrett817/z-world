@@ -55,7 +55,7 @@ export function EventDialog() {
               <img
                 src={character.avatar}
                 alt={character.name}
-                className="absolute -bottom-10 right-6 h-24 w-24 rounded-lg border-2 border-[#e8862e] object-cover shadow-lg"
+                className="absolute -bottom-10 right-6 h-24 w-24 rounded-lg border-2 border-[#e8862e] object-cover object-top shadow-lg"
               />
             )}
           </div>

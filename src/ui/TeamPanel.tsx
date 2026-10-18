@@ -18,7 +18,7 @@ export function TeamPanel() {
                 <img
                   src={m.avatar}
                   alt={m.name}
-                  className="h-14 w-14 shrink-0 rounded border border-[#4a3f35] object-cover"
+                  className="h-14 w-14 shrink-0 rounded border border-[#4a3f35] object-cover object-top"
                 />
               )}
               <div className="min-w-0">

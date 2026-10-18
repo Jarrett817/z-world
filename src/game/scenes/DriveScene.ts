@@ -17,8 +17,6 @@ export class DriveScene extends Phaser.Scene {
   private mid!: Phaser.GameObjects.TileSprite;
   private road!: Phaser.GameObjects.Graphics;
   private rv!: Phaser.GameObjects.Container;
-  private wheelL!: Phaser.GameObjects.Graphics;
-  private wheelR!: Phaser.GameObjects.Graphics;
   private dash!: Phaser.GameObjects.Text;
   private hint!: Phaser.GameObjects.Text;
   private pedalGas!: Phaser.GameObjects.Container;
@@ -36,6 +34,7 @@ export class DriveScene extends Phaser.Scene {
   preload(): void {
     this.load.image('far', '/assets/parallax_far.jpg');
     this.load.image('mid', '/assets/parallax_mid.jpg');
+    this.load.image('rv', '/assets/rv.png');
   }
 
   create(): void {
@@ -118,49 +117,17 @@ export class DriveScene extends Phaser.Scene {
   }
 
   private buildRV(): Phaser.GameObjects.Container {
-    const body = this.add.graphics();
-    // 车身剪影
-    body.fillStyle(0x0d0a08, 1);
-    body.fillRoundedRect(-130, -120, 260, 100, 12);
-    // 车顶空调
-    body.fillRect(-60, -134, 70, 14);
-    // 驾驶舱斜面
-    body.fillTriangle(130, -20, 130, -96, 168, -20);
-    // 车窗：篝火橙暖光
-    body.fillStyle(0xe8862e, 0.9);
-    body.fillRoundedRect(-110, -100, 46, 34, 4);
-    body.fillRoundedRect(-54, -100, 46, 34, 4);
-    body.fillRoundedRect(2, -100, 46, 34, 4);
-    body.fillRoundedRect(58, -100, 46, 34, 4);
-    // 大灯
-    body.fillStyle(0xf0c060, 1);
-    body.fillCircle(166, -26, 6);
+    // 房车实图（rv.png 已抠白底，1773x1011）
+    const RV_H = 210;
+    const body = this.add.image(0, 0, 'rv').setOrigin(0.5, 1);
+    body.setDisplaySize((RV_H * 1773) / 1011, RV_H);
 
-    // 车灯光柱
+    // 车灯光柱（车头朝右，大灯位置约在 +165, -60）
     const beam = this.add.graphics();
     beam.fillStyle(0xe8a04c, 0.07);
-    beam.fillTriangle(168, -26, 560, -60, 560, 20);
+    beam.fillTriangle(165, -60, 560, -100, 560, -10);
 
-    // 车轮
-    const mkWheel = (x: number): Phaser.GameObjects.Graphics => {
-      const w = this.add.graphics();
-      w.fillStyle(0x0d0a08, 1);
-      w.fillCircle(0, 0, 26);
-      w.lineStyle(4, 0x3d332b, 1);
-      w.strokeCircle(0, 0, 26);
-      w.lineStyle(3, 0x6b5d4f, 1);
-      for (let i = 0; i < 4; i++) {
-        const a = (Math.PI / 2) * i;
-        w.lineBetween(0, 0, Math.cos(a) * 22, Math.sin(a) * 22);
-      }
-      w.setPosition(x, 0);
-      return w;
-    };
-    this.wheelL = mkWheel(-80);
-    this.wheelR = mkWheel(80);
-
-    const c = this.add.container(RV_X, ROAD_Y - 8, [beam, body, this.wheelL, this.wheelR]);
-    return c;
+    return this.add.container(RV_X, ROAD_Y + 4, [beam, body]);
   }
 
   update(_time: number, deltaMs: number): void {
@@ -192,12 +159,9 @@ export class DriveScene extends Phaser.Scene {
       this.road.fillRect(x, ROAD_Y + 78, 44, 6);
     }
 
-    // 房车动效：悬挂起伏 + 车轮转动
+    // 房车动效：悬挂起伏
     const speedRatio = this.speed / MAX_SPEED;
-    this.rv.y = ROAD_Y - 8 + Math.sin(_time / 90) * 2.2 * speedRatio;
-    const wheelSpin = (pxSpeed * dt) / 26;
-    this.wheelL.rotation += wheelSpin;
-    this.wheelR.rotation += wheelSpin;
+    this.rv.y = ROAD_Y + 4 + Math.sin(_time / 90) * 2.2 * speedRatio;
 
     // 里程推进
     if (driving && this.speed > 0) {
