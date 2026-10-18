@@ -1,0 +1,98 @@
+# 开发日志
+
+## 2026-10-18 · 引擎迁移：Cocos → Phaser，原型重新跑通
+
+### 背景
+
+Cocos 原型卡在「点击无响应」的编辑器层问题，且手写 .scene/.meta 反复踩私有序列化格式的坑。用户明确拒绝编辑器拖拽工作流 → 整体迁移到全代码技术栈。
+
+### 本次完成
+
+- 清理全部 Cocos 工程文件（assets/library/temp/settings 等），保留 docs 和 git
+- 新工程：Vite + React 19 + Tailwind v4 + TypeScript + Phaser
+- 核心逻辑零改动移植：Game 状态机（subscribe/emit + 不可变 state）、DataLoader（直接 import JSON）、SaveManager（window.localStorage）
+- MapScene：graphics 画连线、circle+text 画节点、zone.setInteractive 接 pointerdown（替代 Cocos 触摸层体系，点击天然可靠）
+- React UI 三件套：HudBar / EventDialog / TeamPanel（末日暖调：#e8862e 篝火橙 + #2a2320 面板）
+- 数据原样迁移：chapter1.json（6 节点 4 事件）+ survivors.json（林晚/陈默）
+
+### 验证结果（浏览器实测）
+
+- ✅ 页面渲染正常，控制台零红色错误
+- ✅ 点击节点 → 事件弹窗 → 选项生效（食物 10→16、体力 10→7，移动-1+选项-2 符合设计）
+- ✅ 修复：React StrictMode 双挂载导致 Phaser 报错 → 入口去掉 StrictMode + redraw 加守卫
+
+### 架构
+
+```
+src/
+├── main.tsx / App.tsx        # 入口（无 StrictMode）+ Phaser 容器与 UI 覆盖层
+├── index.css                 # Tailwind v4 + 全局深色
+├── game/
+│   ├── PhaserGame.ts         # Phaser.Game 配置（1280x720 FIT）
+│   ├── scenes/MapScene.ts    # 地图渲染 + 点击 → Game.moveTo
+│   └── core/                 # 引擎无关，可整体复用
+│       ├── Game.ts           # 状态机（useSyncExternalStore 桥）
+│       ├── DataLoader.ts     # import JSON
+│       └── SaveManager.ts    # localStorage
+├── ui/                       # HudBar / EventDialog / TeamPanel（React + Tailwind）
+└── data/                     # chapter1.json + survivors.json
+```
+
+### 下一步
+
+- AI 立绘风格定稿（MJ/SD 试验图）→ 图标/宣传图 → 开 TapTap 预约
+- 软著申请启动（45-60 天周期）
+- 远期：Capacitor 打 APK + TradPlus 桥接；微信小游戏适配
+
+---
+
+## 2026-10-18 · 最小可玩原型骨架完成（Cocos 版，已废弃）
+
+### 本次完成
+
+- **TapTap 游戏草稿创建**：「末世：我要当救世主」appId 982388，RPG / APK
+- **推进方向**：开预约（素材暂缓，待原型出来后再补图标/宣传图/截图）
+- **最小原型代码骨架**（纯代码驱动 UI，零美术资源依赖）：
+
+```
+assets/
+├── scene/main.scene            # 手写场景（Canvas + Camera + Main 入口）
+├── scripts/
+│   ├── Main.ts                 # 入口：加载数据 → 初始化状态 → 组装 UI
+│   ├── core/
+│   │   ├── Game.ts             # 游戏状态机（移动/事件/招募/存档）
+│   │   ├── DataLoader.ts       # JSON 数据加载（章节/幸存者）
+│   │   └── SaveManager.ts      # localStorage 存档
+│   └── ui/
+│       ├── UIHelper.ts         # 主题色 + 代码创建 UI 工具函数
+│       ├── MapView.ts          # 地图：节点/连线绘制 + 点击移动
+│       ├── EventDialog.ts      # 事件弹窗：标题/正文/选项
+│       ├── TeamPanel.ts        # 队伍面板：幸存者卡片列表
+│       └── HudBar.ts           # 顶部 HUD：章节名/资源/队伍按钮
+└── resources/data/
+    ├── chapter1.json           # 第一章：6 节点 4 事件（加油站/超市/营地/大桥）
+    └── survivors.json          # 2 名幸存者：林晚（医生）、陈默（司机）
+```
+
+### 核心玩法闭环（已实现）
+
+地图节点移动（体力消耗）→ 触发事件弹窗 → 选项影响资源/招募幸存者 → 队伍面板查看同伴 → 自动存档 → 抵达终点显示章节完成
+
+### 验证方式
+
+1. 用 Cocos Dashboard 打开 `D:\Projects\z-world`
+2. 编辑器首次打开会自动生成缺失的 .meta 文件（属正常）
+3. 双击打开 `assets/scene/main.scene`
+4. 点编辑器顶部「预览」按钮（浏览器打开）
+5. 预期：看到深色地图 + 6 个节点，点击相邻节点移动，事件弹窗正常
+
+### 已知待验证项
+
+- 手写 main.scene 在编辑器中的兼容性（如报错需手工建场景：Canvas 1280x720 + Camera + 空节点挂 Main 脚本）
+- Label 字体显示（系统默认字体）
+
+### 下一步
+
+- 原型验证通过 → AI 立绘风格定稿（MJ/SD 试验图）→ 生成图标/宣传图 → 开预约
+- 原型验证失败 → 按报错修正
+- 并行：软著申请启动

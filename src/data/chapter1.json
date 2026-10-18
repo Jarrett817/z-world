@@ -1,0 +1,62 @@
+{
+  "id": "ch1",
+  "name": "第一章 · 离乡",
+  "nodes": [
+    { "id": "start", "name": "废弃的家", "x": 140, "y": 340 },
+    { "id": "gas", "name": "加油站", "x": 380, "y": 460, "eventId": "ev_gas" },
+    { "id": "market", "name": "废弃超市", "x": 380, "y": 200, "eventId": "ev_market" },
+    { "id": "camp", "name": "河边营地", "x": 640, "y": 340, "eventId": "ev_camp" },
+    { "id": "bridge", "name": "跨江大桥", "x": 900, "y": 340, "eventId": "ev_bridge" },
+    { "id": "end", "name": "城区入口", "x": 1130, "y": 340 }
+  ],
+  "edges": [
+    ["start", "gas"],
+    ["start", "market"],
+    ["gas", "camp"],
+    ["market", "camp"],
+    ["camp", "bridge"],
+    ["bridge", "end"]
+  ],
+  "events": {
+    "ev_gas": {
+      "id": "ev_gas",
+      "title": "加油站",
+      "text": "冷柜还活着。压缩机嗡嗡地响，像什么都没发生过。",
+      "choices": [
+        { "text": "搬空货架上的罐头", "effects": { "food": 6, "stamina": -2 } },
+        { "text": "只拿够吃两天的", "effects": { "food": 3 } },
+        { "text": "在柜台后面坐一会儿", "effects": { "morale": 1 } }
+      ]
+    },
+    "ev_market": {
+      "id": "ev_market",
+      "title": "废弃超市",
+      "text": "脚印很新。有人比你们先到，走的时候没关灯。",
+      "choices": [
+        { "text": "摸黑搜仓库", "effects": { "stamina": -2, "food": 5 } },
+        { "text": "只拿门口散落的", "effects": { "food": 2 } },
+        { "text": "从正门退出去", "effects": { "morale": -1 } }
+      ]
+    },
+    "ev_camp": {
+      "id": "ev_camp",
+      "title": "河边营地",
+      "text": "一个女人在烧一摞病历。火光映着她的脸，她说：烧掉的人，就救不回来了。",
+      "choices": [
+        { "text": "分她一半食物，请她同行", "effects": { "food": -4 }, "recruit": "lin_wan" },
+        { "text": "请她同行", "recruit": "lin_wan" },
+        { "text": "不打扰她", "effects": { "morale": -1 } }
+      ]
+    },
+    "ev_bridge": {
+      "id": "ev_bridge",
+      "title": "跨江大桥",
+      "text": "桥中央停着一辆货车。司机把一具尸体轻轻放进江里，然后擦了擦手。",
+      "choices": [
+        { "text": "帮他扶正货箱，邀他入队", "effects": { "stamina": -2 }, "recruit": "chen_mo" },
+        { "text": "拿走他不要的工具", "effects": { "food": 3 } },
+        { "text": "默默走过去", "effects": {} }
+      ]
+    }
+  }
+}
