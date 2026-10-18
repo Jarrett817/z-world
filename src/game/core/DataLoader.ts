@@ -1,5 +1,7 @@
 import chapter1 from '../../data/chapter1.json';
 import survivors from '../../data/survivors.json';
+import professions from '../../data/professions.json';
+import rv from '../../data/rv.json';
 
 export interface MapNode {
   id: string;
@@ -9,9 +11,16 @@ export interface MapNode {
   eventId?: string;
 }
 
+export interface EventEffects {
+  food?: number;
+  stamina?: number;
+  morale?: number;
+  fuel?: number;
+}
+
 export interface EventChoice {
   text: string;
-  effects?: { food?: number; stamina?: number; morale?: number };
+  effects?: EventEffects;
   recruit?: string;
 }
 
@@ -32,6 +41,22 @@ export interface Survivor {
   med: number;
 }
 
+export interface Profession {
+  id: string;
+  name: string;
+  desc: string;
+  bonus: { food?: number; stamina?: number; morale?: number };
+}
+
+export interface Facility {
+  id: string;
+  name: string;
+  desc: string;
+  w: number;
+  h: number;
+  effect: { staminaMax?: number; foodMax?: number; staminaPerMove?: number };
+}
+
 interface ChapterData {
   id: string;
   name: string;
@@ -40,9 +65,18 @@ interface ChapterData {
   events: Record<string, GameEvent>;
 }
 
+interface RvConfig {
+  gridWidth: number;
+  gridHeight: number;
+  facilities: Record<string, Facility>;
+  initialLayout: { facilityId: string; x: number; y: number }[];
+}
+
 export class DataLoader {
   private static chapter: ChapterData = chapter1 as ChapterData;
   private static survivorMap: Record<string, Survivor> = survivors as Record<string, Survivor>;
+  private static professionMap: Record<string, Profession> = professions as Record<string, Profession>;
+  private static rv: RvConfig = rv as RvConfig;
 
   static getChapter(): ChapterData {
     return this.chapter;
@@ -54,6 +88,22 @@ export class DataLoader {
 
   static getSurvivor(id: string): Survivor | null {
     return this.survivorMap[id] ?? null;
+  }
+
+  static getProfessions(): Profession[] {
+    return Object.values(this.professionMap);
+  }
+
+  static getProfession(id: string): Profession | null {
+    return this.professionMap[id] ?? null;
+  }
+
+  static getRvConfig(): RvConfig {
+    return this.rv;
+  }
+
+  static getFacility(id: string): Facility | null {
+    return this.rv.facilities[id] ?? null;
   }
 
   static getNode(id: string): MapNode | null {

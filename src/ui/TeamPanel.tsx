@@ -6,7 +6,7 @@ export function TeamPanel() {
   return (
     <div className="absolute bottom-4 right-4 w-64 rounded-lg border border-[#4a3f35] bg-[#2a2320]/90 p-4">
       <h3 className="mb-3 text-sm font-bold text-[#e8862e]">
-        队伍（{state.team.length}）
+        车上的人（{state.team.length}）
       </h3>
       {state.team.length === 0 ? (
         <p className="text-xs text-[#8a7d6d]">还没有同伴。路上会遇到。</p>

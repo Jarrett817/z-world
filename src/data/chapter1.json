@@ -2,7 +2,7 @@
   "id": "ch1",
   "name": "第一章 · 离乡",
   "nodes": [
-    { "id": "start", "name": "废弃的家", "x": 140, "y": 340 },
+    { "id": "start", "name": "家", "x": 140, "y": 340, "eventId": "ev_start" },
     { "id": "gas", "name": "加油站", "x": 380, "y": 460, "eventId": "ev_gas" },
     { "id": "market", "name": "废弃超市", "x": 380, "y": 200, "eventId": "ev_market" },
     { "id": "camp", "name": "河边营地", "x": 640, "y": 340, "eventId": "ev_camp" },
@@ -18,14 +18,23 @@
     ["bridge", "end"]
   ],
   "events": {
+    "ev_start": {
+      "id": "ev_start",
+      "title": "楼下",
+      "text": "楼下停着一辆房车，车主没来得及开走。钥匙插在遮阳板后面，油箱还有半箱。车窗上贴着的全家福，被雨泡花了一角。",
+      "choices": [
+        { "text": "检查一遍车况再出发", "effects": { "fuel": 2 } },
+        { "text": "把全家福揭下来收好，上车", "effects": { "morale": 1 } }
+      ]
+    },
     "ev_gas": {
       "id": "ev_gas",
       "title": "加油站",
-      "text": "冷柜还活着。压缩机嗡嗡地响，像什么都没发生过。",
+      "text": "油枪早就没电了。但油罐埋在地下，便利店的货架上还有手摇泵卖——九十九块，标签都没撕。",
       "choices": [
-        { "text": "搬空货架上的罐头", "effects": { "food": 6, "stamina": -2 } },
-        { "text": "只拿够吃两天的", "effects": { "food": 3 } },
-        { "text": "在柜台后面坐一会儿", "effects": { "morale": 1 } }
+        { "text": "摇泵抽油，装满备用油桶", "effects": { "stamina": -2, "fuel": 5 } },
+        { "text": "搜便利店", "effects": { "food": 3 } },
+        { "text": "在遮阳棚下坐一会儿再走", "effects": { "morale": 1 } }
       ]
     },
     "ev_market": {
@@ -43,8 +52,8 @@
       "title": "河边营地",
       "text": "一个女人在烧一摞病历。火光映着她的脸，她说：烧掉的人，就救不回来了。",
       "choices": [
-        { "text": "分她一半食物，请她同行", "effects": { "food": -4 }, "recruit": "lin_wan" },
-        { "text": "请她同行", "recruit": "lin_wan" },
+        { "text": "分她一半食物，请她上车", "effects": { "food": -4 }, "recruit": "lin_wan" },
+        { "text": "请她上车", "recruit": "lin_wan" },
         { "text": "不打扰她", "effects": { "morale": -1 } }
       ]
     },
@@ -53,9 +62,9 @@
       "title": "跨江大桥",
       "text": "桥中央停着一辆货车。司机把一具尸体轻轻放进江里，然后擦了擦手。",
       "choices": [
-        { "text": "帮他扶正货箱，邀他入队", "effects": { "stamina": -2 }, "recruit": "chen_mo" },
-        { "text": "拿走他不要的工具", "effects": { "food": 3 } },
-        { "text": "默默走过去", "effects": {} }
+        { "text": "帮他扶正货箱，邀他同行", "effects": { "stamina": -2 }, "recruit": "chen_mo" },
+        { "text": "拿走他不要的工具", "effects": { "fuel": 2, "food": 1 } },
+        { "text": "默默开过去", "effects": {} }
       ]
     }
   }

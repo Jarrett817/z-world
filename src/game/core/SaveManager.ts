@@ -1,4 +1,4 @@
-const KEY = 'zworld_save_v1';
+const KEY = 'zworld_save_v2';
 
 export class SaveManager {
   static load<T>(): T | null {

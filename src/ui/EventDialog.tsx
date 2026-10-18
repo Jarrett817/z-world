@@ -1,13 +1,14 @@
 import { Game } from '../game/core/Game';
 import { useGameState } from './HudBar';
 
-function effectLabel(e?: { food?: number; stamina?: number; morale?: number }): string {
+function effectLabel(e?: { food?: number; stamina?: number; morale?: number; fuel?: number }): string {
   if (!e) return '';
   const parts: string[] = [];
   const fmt = (n: number, name: string) => parts.push(`${name}${n > 0 ? '+' : ''}${n}`);
   if (e.food) fmt(e.food, '食物');
   if (e.stamina) fmt(e.stamina, '体力');
   if (e.morale) fmt(e.morale, '士气');
+  if (e.fuel) fmt(e.fuel, '燃料');
   return parts.join(' · ');
 }
 
@@ -21,7 +22,7 @@ export function EventDialog() {
         <div className="w-[520px] rounded-lg border border-[#4a3f35] bg-[#2a2320] p-8 shadow-2xl">
           <h2 className="mb-3 text-xl font-bold text-[#e8862e]">第一章 · 完</h2>
           <p className="mb-6 leading-relaxed text-[#e8ded2]">
-            城区的轮廓在晨雾里显出来。队伍里 {state.team.length} 个人，食物还剩 {state.food}。
+            城区的轮廓在晨雾里显出来。车上 {state.team.length} 个人，燃料还剩 {state.fuel}。
             路还长。
           </p>
           <button
