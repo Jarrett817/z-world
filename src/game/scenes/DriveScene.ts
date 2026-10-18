@@ -17,6 +17,7 @@ export class DriveScene extends Phaser.Scene {
   private mid!: Phaser.GameObjects.TileSprite;
   private road!: Phaser.GameObjects.Graphics;
   private rv!: Phaser.GameObjects.Container;
+  private wheels: Phaser.GameObjects.Image[] = [];
   private dash!: Phaser.GameObjects.Text;
   private hint!: Phaser.GameObjects.Text;
   private pedalGas!: Phaser.GameObjects.Container;
@@ -35,6 +36,9 @@ export class DriveScene extends Phaser.Scene {
     this.load.image('far', '/assets/parallax_far.jpg');
     this.load.image('mid', '/assets/parallax_mid.jpg');
     this.load.image('rv', '/assets/rv.png');
+    this.load.image('wheel1', '/assets/wheel1.png');
+    this.load.image('wheel2', '/assets/wheel2.png');
+    this.load.image('wheel3', '/assets/wheel3.png');
   }
 
   create(): void {
@@ -119,15 +123,28 @@ export class DriveScene extends Phaser.Scene {
   private buildRV(): Phaser.GameObjects.Container {
     // 房车实图（rv.png 已抠白底，1773x1011）
     const RV_H = 210;
+    const S = RV_H / 1011; // 源图 → 屏幕缩放比
     const body = this.add.image(0, 0, 'rv').setOrigin(0.5, 1);
-    body.setDisplaySize((RV_H * 1773) / 1011, RV_H);
+    body.setDisplaySize(1773 * S, RV_H);
 
     // 车灯光柱（车头朝右，大灯位置约在 +165, -60）
     const beam = this.add.graphics();
     beam.fillStyle(0xe8a04c, 0.07);
     beam.fillTriangle(165, -60, 560, -100, 560, -10);
 
-    return this.add.container(RV_X, ROAD_Y + 4, [beam, body]);
+    // 独立轮子：圆形裁图覆盖在原轮位置，按车速旋转
+    const defs = [
+      { key: 'wheel1', cx: 383, cy: 872 },
+      { key: 'wheel2', cx: 685, cy: 886 },
+      { key: 'wheel3', cx: 1376, cy: 864 },
+    ];
+    this.wheels = defs.map((d) => {
+      const img = this.add.image((d.cx - 1773 / 2) * S, (d.cy - 1011) * S, d.key);
+      img.setDisplaySize(300 * S, 300 * S);
+      return img;
+    });
+
+    return this.add.container(RV_X, ROAD_Y + 4, [beam, body, ...this.wheels]);
   }
 
   update(_time: number, deltaMs: number): void {
@@ -146,6 +163,10 @@ export class DriveScene extends Phaser.Scene {
     // 视差滚动
     this.far.tilePositionX += pxSpeed * 0.15 * dt;
     this.mid.tilePositionX += pxSpeed * 0.5 * dt;
+
+    // 轮子转动（角速度 = 线速度 / 轮半径）
+    const wheelR = 140 * (210 / 1011);
+    for (const w of this.wheels) w.rotation += (pxSpeed * dt) / wheelR;
 
     // 路面与虚线
     this.dashPhase = (this.dashPhase + pxSpeed * dt) % 80;

@@ -1,9 +1,16 @@
 import { useState } from 'react';
+import { motion } from 'motion/react';
 import { Game } from '../game/core/Game';
 import { DataLoader, Facility } from '../game/core/DataLoader';
 import { useGameState } from './HudBar';
 
 const CELL = 56;
+
+// 幸存者工位（相对车厢网格容器的百分比位置）与当前活计
+const CREW_SPOTS: Record<string, { left: string; top: string; task: string }> = {
+  chen_mo: { left: '8%', top: '28%', task: '检查车况' },
+  lin_wan: { left: '27%', top: '26%', task: '整理药品' },
+};
 
 function effectText(f: Facility): string {
   const parts: string[] = [];
@@ -44,6 +51,29 @@ export function RVPanel({ onClose }: { onClose: () => void }) {
             className="absolute inset-0 h-full w-full object-cover"
           />
           <div className="absolute inset-0 bg-[#161210]/45" />
+          {/* 已招募幸存者：在各自工位忙碌 */}
+          {state.team.map((m, i) => {
+            const spot = CREW_SPOTS[m.id];
+            if (!spot) return null;
+            return (
+              <motion.div
+                key={m.id}
+                className="pointer-events-none absolute z-10 flex -translate-x-1/2 flex-col items-center"
+                style={{ left: spot.left, top: spot.top }}
+                animate={{ y: [0, -3, 0] }}
+                transition={{ duration: 2.4, repeat: Infinity, delay: i * 0.9, ease: 'easeInOut' }}
+              >
+                <img
+                  src={m.avatar}
+                  alt={m.name}
+                  className="h-20 w-14 rounded-md border border-[#e8862e]/50 object-cover object-top shadow-[0_2px_8px_rgba(0,0,0,0.6)]"
+                />
+                <span className="mt-0.5 whitespace-nowrap rounded bg-[#161210]/85 px-1.5 py-px text-[10px] text-[#e8ded2]">
+                  {m.name} · {spot.task}
+                </span>
+              </motion.div>
+            );
+          })}
           {/* 格子线 */}
           {Array.from({ length: cfg.gridWidth * cfg.gridHeight }, (_, i) => {
             const x = i % cfg.gridWidth;
@@ -66,7 +96,7 @@ export function RVPanel({ onClose }: { onClose: () => void }) {
                 key={i}
                 onClick={() => Game.removeFacilityAt(p.x, p.y)}
                 title={`${f.name}（点击拆除）`}
-                className="absolute flex cursor-pointer items-center justify-center rounded border border-[#e8862e]/50 bg-[#e8862e]/15 text-xs text-[#e8862e] hover:bg-red-900/30 hover:text-red-300"
+                className="absolute z-20 flex cursor-pointer items-center justify-center rounded border border-[#e8862e]/50 bg-[#e8862e]/15 text-xs text-[#e8862e] hover:bg-red-900/30 hover:text-red-300"
                 style={{ left: p.x * CELL, top: p.y * CELL, width: f.w * CELL, height: f.h * CELL }}
               >
                 {f.name}
