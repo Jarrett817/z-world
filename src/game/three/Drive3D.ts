@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { Game, Weather } from '../core/Game';
+import { Game, RoadKind, Weather } from '../core/Game';
 
 const MAX_SPEED = 80; // km/h
 const ACCEL = 40; // km/h 每秒
@@ -27,6 +27,7 @@ interface SideObj {
   kind: 'zombie' | 'prop';
   active: boolean;
   mixer?: THREE.AnimationMixer; // 丧尸动画
+  hitDmg?: number; // 丧尸撞击伤害（随天数增强）
 }
 
 interface BlockObj {
@@ -38,6 +39,17 @@ interface BlockObj {
   hit: boolean; // 已撞击过（防重复扣耐久）
   flying: boolean; // 软路障被撞飞动画
   flyT: number;
+}
+
+/** 路边遭遇点：补给点 / 废车堆 / 求助者 / 堵路 */
+interface RoadEventObj {
+  group: THREE.Group;
+  z: number;
+  x: number;
+  kind: RoadKind;
+  active: boolean;
+  done: boolean; // 已触发过（防重复触发）
+  pulse: number; // 指示光脉冲相位
 }
 
 const WEATHER_LABEL: Record<Weather, string> = { clear: '晴', rain: '雨', fog: '雾', snow: '雪' };
@@ -61,6 +73,10 @@ export class Drive3D {
   private camInterior = new THREE.PerspectiveCamera(60, 1, 0.1, 100); // 车内画中画
   private camMode: CamMode = 'chase';
 
+  // 主循环/光照
+  private dayFactor = 0.5;
+  private pendingRoad: RoadEventObj | null = null;
+
   // 房车
   private rv: THREE.Group | null = null;
 
@@ -83,6 +99,7 @@ export class Drive3D {
   // 世界对象
   private props: SideObj[] = [];
   private blocks: BlockObj[] = [];
+  private roadEvents: RoadEventObj[] = [];
   private dashes: THREE.Mesh[] = [];
 
   // 模型源
@@ -90,6 +107,17 @@ export class Drive3D {
   private zombieClips: THREE.AnimationClip[] = [];
   private softSources: THREE.Object3D[] = [];
   private hardSources: THREE.Object3D[] = [];
+  /** 下载的场景模型源（废弃建筑/集装箱/枯树等） */
+  private sceneSources: THREE.Object3D[] = [];
+
+  // 光照（昼夜）
+  private sun!: THREE.DirectionalLight;
+  private hemi!: THREE.HemisphereLight;
+  private headlight!: THREE.SpotLight;
+
+  // 遭遇/生成节奏
+  private roadTimer = 0;
+  private nightLamps: THREE.Mesh[] = []; // 路灯灯头（夜晚增强）
 
   // 天气
   private rain!: THREE.Points;
@@ -118,12 +146,18 @@ export class Drive3D {
     this.scene.background = new THREE.Color(0x1c1a18);
     this.scene.fog = new THREE.Fog(0x24211e, 40, 260);
 
-    // 光照：主光暖白（篝火橙系）+ 环境冷灰青
-    const sun = new THREE.DirectionalLight(0xd9c9a8, 2.2);
-    sun.position.set(-20, 40, -30);
-    this.scene.add(sun);
-    const hemi = new THREE.HemisphereLight(0x8a9aa8, 0x2a2320, 0.55);
-    this.scene.add(hemi);
+    // 光照：主光暖白（篝火橙系）+ 环境冷灰青；昼夜循环中动态调整
+    this.sun = new THREE.DirectionalLight(0xd9c9a8, 2.2);
+    this.sun.position.set(-20, 40, -30);
+    this.scene.add(this.sun);
+    this.hemi = new THREE.HemisphereLight(0x8a9aa8, 0x2a2320, 0.55);
+    this.scene.add(this.hemi);
+    // 车头灯（夜晚开启）：跟随车头朝前方照射
+    this.headlight = new THREE.SpotLight(0xffe6b8, 0, 120, Math.PI / 5, 0.45, 0.9);
+    this.headlight.position.set(0, 2.4, -6);
+    this.headlight.target.position.set(0, 1.5, -30);
+    this.scene.add(this.headlight);
+    this.scene.add(this.headlight.target);
 
     // HUD
     this.telemetryEl = document.createElement('div');
@@ -146,7 +180,7 @@ export class Drive3D {
   }
 
   async start(): Promise<void> {
-    await Promise.all([this.loadRV(), this.loadProps()]);
+    await Promise.all([this.loadRV(), this.loadProps(), this.loadSceneModels()]);
     if (this.disposed) return;
     this.loop();
   }
@@ -218,6 +252,36 @@ export class Drive3D {
     });
   }
 
+  /** 加载下载的场景模型（废弃建筑/集装箱/枯树等）；文件未就绪时静默跳过，程序化元素兜底 */
+  private async loadSceneModels(): Promise<void> {
+    const loader = new GLTFLoader();
+    const paths = [
+      '/assets/props/scene_building.glb',
+      '/assets/props/scene_container.glb',
+      '/assets/props/scene_tree.glb',
+    ];
+    for (const p of paths) {
+      try {
+        const gltf = await loader.loadAsync(p);
+        gltf.scene.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh) {
+            o.castShadow = false;
+            o.receiveShadow = false;
+            const m = o as THREE.Mesh;
+            const mats = Array.isArray(m.material) ? m.material : [m.material];
+            for (const mat of mats) {
+              const mm = mat as THREE.MeshStandardMaterial;
+              if (mm && 'roughness' in mm) mm.roughness = Math.max(mm.roughness, 0.7);
+            }
+          }
+        });
+        this.sceneSources.push(gltf.scene);
+      } catch {
+        // 模型尚未就绪：跳过
+      }
+    }
+  }
+
   // ---- 公路骨架（静态） ----
   private buildRoad(): void {
     // 大地
@@ -274,8 +338,17 @@ export class Drive3D {
 
   private makeProp(x: number): THREE.Group {
     const g = new THREE.Group();
+    // 优先复用下载的场景模型（废弃建筑/集装箱/枯树等）
+    if (this.sceneSources.length > 0 && Math.random() < 0.55) {
+      const src = this.sceneSources[Math.floor(Math.random() * this.sceneSources.length)];
+      const m = src.clone();
+      m.scale.setScalar(rng(0.7, 1.5));
+      m.rotation.y = rng(0, Math.PI * 2);
+      g.add(m);
+      return g;
+    }
     const roll = Math.random();
-    if (roll < 0.4) {
+    if (roll < 0.3) {
       // 枯树：柱 + 分枝
       const trunk = new THREE.Mesh(
         new THREE.CylinderGeometry(0.18, 0.3, 3 + Math.random() * 2, 5),
@@ -290,7 +363,7 @@ export class Drive3D {
       top.position.y = 3.4;
       top.scale.set(1, 0.8, 1);
       g.add(top);
-    } else if (roll < 0.75) {
+    } else if (roll < 0.55) {
       // 废墟：碎 box 堆
       const n = 2 + Math.floor(Math.random() * 3);
       for (let i = 0; i < n; i++) {
@@ -302,8 +375,8 @@ export class Drive3D {
         b.rotation.y = rng(0, Math.PI);
         g.add(b);
       }
-    } else {
-      // 路灯：柱 + 灯头（自发光）
+    } else if (roll < 0.75) {
+      // 路灯：柱 + 灯头（自发光，夜晚增强）
       const pole = new THREE.Mesh(
         new THREE.CylinderGeometry(0.08, 0.08, 4.2, 6),
         new THREE.MeshStandardMaterial({ color: 0x1f1c1a, roughness: 0.8 }),
@@ -318,30 +391,176 @@ export class Drive3D {
       g.add(arm);
       const lamp = new THREE.Mesh(
         new THREE.SphereGeometry(0.16, 8, 8),
-        new THREE.MeshStandardMaterial({ color: 0xe8a04c, emissive: 0xd98e2e, emissiveIntensity: 3 }),
+        new THREE.MeshStandardMaterial({ color: 0xe8a04c, emissive: 0xd98e2e, emissiveIntensity: 0.6 }),
       );
       lamp.position.set(Math.sign(x) * -1.5, 4.2, 0);
       g.add(lamp);
+      this.nightLamps.push(lamp);
+    } else if (roll < 0.9) {
+      // 广告牌：立柱 + 残旧灯箱面板
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.09, 0.12, 3.2, 6),
+        new THREE.MeshStandardMaterial({ color: 0x24201c, roughness: 0.9 }),
+      );
+      pole.position.y = 1.6;
+      g.add(pole);
+      const panel = new THREE.Mesh(
+        new THREE.BoxGeometry(3, 1.9, 0.14),
+        new THREE.MeshStandardMaterial({ color: 0x3a2f26, roughness: 1 }),
+      );
+      panel.position.y = 3.1;
+      g.add(panel);
+      const glow = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.5, 1.4),
+        new THREE.MeshStandardMaterial({
+          color: 0x8a6a3a,
+          emissive: 0x7a4a24,
+          emissiveIntensity: 0.5,
+          roughness: 0.8,
+        }),
+      );
+      glow.position.set(0, 3.1, Math.sign(x) * 0.08);
+      glow.rotation.y = 0;
+      g.add(glow);
+    } else {
+      // 集装箱：锈蚀箱体 + 顶部细节
+      const box = new THREE.Mesh(
+        new THREE.BoxGeometry(rng(3.5, 4.5), 2.2, 2),
+        new THREE.MeshStandardMaterial({ color: Math.random() > 0.5 ? 0x5a4a2e : 0x4a5a6b, roughness: 1 }),
+      );
+      box.position.y = 1.1;
+      g.add(box);
+      const rib = new THREE.Mesh(
+        new THREE.BoxGeometry(3.5, 0.12, 0.14),
+        new THREE.MeshStandardMaterial({ color: 0x3a3026, roughness: 1 }),
+      );
+      rib.position.y = 0.35;
+      g.add(rib);
     }
     return g;
   }
 
   private spawnZombie(): void {
     if (!this.zombieSource) return;
+    // 丧尸随生存天数增强：更快、更大、撞得更疼
+    const level = Game.getZombieLevel();
     const side = Math.random() > 0.5 ? 1 : -1;
     const x = side * (Math.random() * 3 + 2);
     const g = this.zombieSource.clone(true);
     g.position.set(x, GROUND_Y, Z_SPAWN);
     const roll = Math.random();
     g.rotation.y = roll > 0.5 ? Math.PI : 0; // 面朝车
-    g.scale.setScalar(1.05 + Math.random() * 0.3);
+    g.scale.setScalar((1.05 + Math.random() * 0.3) * (1 + level * 0.04));
     // 随机挑一个走/跑动画
     const mixer = new THREE.AnimationMixer(g);
     const clip =
       this.zombieClips.find((c) => /walk|run/i.test(c.name)) ?? this.zombieClips[0];
     if (clip) mixer.clipAction(clip).play();
     this.scene.add(g);
-    this.props.push({ group: g, z: Z_SPAWN, speed: 1.4 + Math.random() * 1.2, kind: 'zombie', active: true, mixer });
+    this.props.push({
+      group: g,
+      z: Z_SPAWN,
+      speed: (1.4 + Math.random() * 1.2) * (1 + level * 0.12),
+      kind: 'zombie',
+      active: true,
+      mixer,
+      hitDmg: 3 + level * 2,
+    });
+  }
+
+  // ---- 路边遭遇 ----
+  private spawnRoadEvent(): void {
+    const kinds: RoadKind[] = ['supply', 'wreck', 'survivor', 'block'];
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    const x = rng(-4.2, 4.2);
+    const g = this.buildRoadEventVisual(kind);
+    g.position.set(x, GROUND_Y, Z_SPAWN);
+    this.scene.add(g);
+    this.roadEvents.push({ group: g, z: Z_SPAWN, x, kind, active: true, done: false, pulse: Math.random() * 10 });
+  }
+
+  private buildRoadEventVisual(kind: RoadKind): THREE.Group {
+    const g = new THREE.Group();
+    if (kind === 'supply') {
+      const box = new THREE.Mesh(
+        new THREE.BoxGeometry(1.6, 1.1, 1.6),
+        new THREE.MeshStandardMaterial({ color: 0x8a5a2a, roughness: 0.9 }),
+      );
+      box.position.y = 0.55;
+      g.add(box);
+      const lid = new THREE.Mesh(
+        new THREE.BoxGeometry(1.7, 0.12, 1.7),
+        new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.9 }),
+      );
+      lid.position.y = 1.15;
+      g.add(lid);
+    } else if (kind === 'wreck' || kind === 'block') {
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(kind === 'block' ? 4.4 : 2.2, 0.85, kind === 'block' ? 2.0 : 4.2),
+        new THREE.MeshStandardMaterial({ color: 0x3a3128, roughness: 1 }),
+      );
+      body.position.y = 0.55;
+      body.rotation.y = kind === 'block' ? 0 : rng(0, Math.PI);
+      g.add(body);
+      for (let i = 0; i < 4; i++) {
+        const w = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.36, 0.36, 0.3, 10),
+          new THREE.MeshStandardMaterial({ color: 0x1f1c1a, roughness: 1 }),
+        );
+        w.rotation.x = Math.PI / 2;
+        w.position.set((i % 2 === 0 ? 1 : -1) * (kind === 'block' ? 1.4 : 0.8), 0.36, i < 2 ? 0.9 : -0.9);
+        g.add(w);
+      }
+    } else {
+      // 求助者：人形剪影占位（后续接入人物 3D 模型替换）
+      const body = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.26, 0.7, 4, 8),
+        new THREE.MeshStandardMaterial({ color: 0x4a3f35, roughness: 1 }),
+      );
+      body.position.y = 0.85;
+      g.add(body);
+      const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.2, 10, 8),
+        new THREE.MeshStandardMaterial({ color: 0x6b5848, roughness: 1 }),
+      );
+      head.position.y = 1.62;
+      g.add(head);
+    }
+    // 底部光环 + 竖直光柱（脉冲指示）
+    const glowMat = new THREE.MeshStandardMaterial({
+      color: 0xffb45e,
+      emissive: 0xff8a2e,
+      emissiveIntensity: 1.6,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.06, 6, 24), glowMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.08;
+    g.add(ring);
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.1, 0.1, 5, 6, 1, true),
+      glowMat.clone(),
+    );
+    const beamMat = beam.material as THREE.MeshStandardMaterial;
+    beamMat.opacity = 0.3;
+    beamMat.depthWrite = false;
+    beam.position.y = 2.6;
+    g.add(beam);
+    return g;
+  }
+
+  private roadHint(kind: RoadKind): string {
+    switch (kind) {
+      case 'supply':
+        return '路边补给点！空格停车搜刮';
+      case 'wreck':
+        return '废弃车堆！空格停车处理';
+      case 'survivor':
+        return '有人求救！空格停车搭救';
+      case 'block':
+        return '道路被堵！空格停车处理';
+    }
   }
 
   // ---- 路障生成 ----
@@ -421,6 +640,15 @@ export class Drive3D {
     if (e.key === '1') this.setCam('chase');
     if (e.key === '2') this.setCam('cockpit');
     if (e.key === '3') this.setCam('rooftop');
+    if (e.key === 'p' || e.key === 'P') Game.togglePark();
+    if (e.key === ' ') {
+      e.preventDefault();
+      if (this.pendingRoad) {
+        const k = this.pendingRoad.kind;
+        this.pendingRoad = null;
+        Game.openRoadEvent(k);
+      }
+    }
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
@@ -481,6 +709,11 @@ export class Drive3D {
     const state = Game.getState();
     const driving = state.phase === 'driving';
 
+    // 游戏时钟推进（驾驶与事件阶段都走时间）
+    if (driving || state.phase === 'event') {
+      Game.advanceClock(dt);
+    }
+
     // 耐久影响极速：耐久越低车越肉
     const maxSpeed = MAX_SPEED * (0.5 + 0.5 * (state.durability / 100));
 
@@ -498,9 +731,17 @@ export class Drive3D {
     if (weather === 'rain') brake = BRAKE * 0.7;
     if (weather === 'snow') accel = ACCEL * 0.6;
 
-    if (driving && this.gasHeld && state.fuel > 0) this.speed += accel * dt;
-    else if (this.brakeHeld) this.speed -= brake * dt;
-    else this.speed -= DRAG * dt;
+    const parked = state.parked && driving;
+    if (parked) {
+      // 停车：快速刹停
+      this.speed = Math.max(0, this.speed - brake * 2.5 * dt);
+    } else if (driving && this.gasHeld && state.fuel > 0) {
+      this.speed += accel * dt;
+    } else if (this.brakeHeld) {
+      this.speed -= brake * dt;
+    } else {
+      this.speed -= DRAG * dt;
+    }
     this.speed = Math.max(0, Math.min(maxSpeed, this.speed));
 
     // 推背感：猛加速→相机后仰下沉+车身前倾（快起慢落）；急刹→反向前顶
@@ -544,7 +785,7 @@ export class Drive3D {
         this.scene.remove(p.group);
         p.active = false;
         this.bump(0.45);
-        Game.zombieHit();
+        Game.zombieHit(p.hitDmg ?? 3);
       }
     }
     this.props = this.props.filter((p) => p.active);
@@ -587,8 +828,33 @@ export class Drive3D {
     }
     this.blocks = this.blocks.filter((b) => b.active);
 
+    // 路边遭遇：滚动 + 接近提示（按空格触发）
+    for (const re of this.roadEvents) {
+      re.z += worldSpeed * dt;
+      re.group.position.z = re.z;
+      re.pulse += dt;
+      // 光环脉冲
+      const ring = re.group.children.find(
+        (c) => (c as THREE.Mesh).isMesh && (c as THREE.Mesh).geometry.type === 'TorusGeometry',
+      ) as THREE.Mesh | undefined;
+      if (ring) {
+        const m = ring.material as THREE.MeshStandardMaterial;
+        if (m) m.emissiveIntensity = 1.2 + Math.sin(re.pulse * 3) * 0.8;
+      }
+      if (re.z > Z_LOOP) {
+        this.scene.remove(re.group);
+        re.active = false;
+        continue;
+      }
+      if (!re.done && re.z > -9 && re.z < 3 && Math.abs(re.group.position.x - this.offsetX) < 3.4) {
+        re.done = true;
+        this.pendingRoad = re;
+      }
+    }
+    this.roadEvents = this.roadEvents.filter((r) => r.active);
+
     // 丧尸生成（仅行驶时）
-    if (driving && this.speed > 5) {
+    if (driving && !parked && this.speed > 5) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
         const rate = 1.5 - (this.speed / MAX_SPEED) * 1.0;
@@ -598,7 +864,7 @@ export class Drive3D {
     }
 
     // 路障生成（行驶时，约每 3.5-6s 一个）
-    if (driving && this.speed > 5) {
+    if (driving && !parked && this.speed > 5) {
       this.blockTimer -= dt;
       if (this.blockTimer <= 0) {
         this.blockTimer = rng(3.5, 6);
@@ -606,8 +872,20 @@ export class Drive3D {
       }
     }
 
+    // 路边遭遇生成（行驶时，约每 10-18s 一个，最多同时 3 个）
+    if (driving && !parked && this.speed > 8) {
+      this.roadTimer -= dt;
+      if (this.roadTimer <= 0) {
+        this.roadTimer = rng(10, 18);
+        if (this.roadEvents.length < 3) this.spawnRoadEvent();
+      }
+    }
+
+    // 昼夜光照
+    this.updateLighting(state.hour, state.weather);
+
     // 天气
-    this.renderWeather(weather, dt);
+    this.renderWeather(weather, dt, this.dayFactor);
 
     // 里程推进
     if (driving && this.speed > 0) {
@@ -664,27 +942,71 @@ export class Drive3D {
     }
   }
 
-  private renderWeather(weather: Weather, dt: number): void {
-    // 雾
+  private renderWeather(weather: Weather, dt: number, dayFactor: number): void {
+    // 天气基调 + 昼夜调制背景与雾
+    let base: THREE.Color;
+    let fogNear = 40;
+    let fogFar = 260;
     if (weather === 'fog') {
-      this.scene.fog = new THREE.Fog(0x2a2622, 18, 120);
-      this.scene.background = new THREE.Color(0x2a2622);
+      base = new THREE.Color(0x2a2622);
+      fogNear = 18;
+      fogFar = 120;
     } else if (weather === 'rain') {
-      this.scene.fog = new THREE.Fog(0x1c2226, 30, 200);
-      this.scene.background = new THREE.Color(0x14181c);
+      base = new THREE.Color(0x1c2226);
+      fogNear = 30;
+      fogFar = 200;
     } else if (weather === 'snow') {
-      this.scene.fog = new THREE.Fog(0x20242a, 30, 190);
-      this.scene.background = new THREE.Color(0x14161a);
+      base = new THREE.Color(0x20242a);
+      fogNear = 30;
+      fogFar = 190;
     } else {
-      this.scene.fog = new THREE.Fog(0x24211e, 40, 260);
-      this.scene.background = new THREE.Color(0x1c1a18);
+      base = new THREE.Color(0x2a2724);
     }
+    const nightMix = Math.max(0, 1 - dayFactor);
+    const tint = base.clone().lerp(new THREE.Color(0x0c0f14), nightMix * 0.75);
+    this.scene.background = tint;
+    this.scene.fog = new THREE.Fog(tint, fogNear, fogFar);
 
     this.rain.visible = weather === 'rain';
     this.snow.visible = weather === 'snow';
     if (this.rain.visible) this.stepParticles(this.rain, 16 * dt, 0.5);
     if (this.snow.visible) this.stepParticles(this.snow, 3 * dt, 0.15);
     this.weather = weather;
+  }
+
+  /** 昼夜光照：阳光色温/强度、环境光、车头灯、路灯随游戏小时变化 */
+  private updateLighting(hour: number, weather: Weather): void {
+    let dayFactor = 0;
+    if (hour >= 5 && hour <= 20) {
+      dayFactor = Math.sin(((hour - 5) / 15) * Math.PI);
+    }
+    dayFactor = Math.max(0.12, dayFactor);
+    this.dayFactor = dayFactor;
+
+    // 阳光色温：清晨/黄昏偏橙，正午偏白
+    const t = Math.abs(hour - 12) / 12;
+    const sunColor = new THREE.Color(1.0, 0.94 - t * 0.28, 0.82 - t * 0.42);
+    // 雨雪天阳光打折扣
+    const dim = weather === 'rain' || weather === 'snow' ? 0.6 : 1;
+    this.sun.color.copy(sunColor);
+    this.sun.intensity = dayFactor * 2.2 * dim;
+    this.sun.position.set(-20, 40, -30);
+
+    // 环境光：夜晚更冷更暗
+    this.hemi.intensity = 0.15 + dayFactor * 0.4;
+    this.hemi.color.setHSL(0.58, 0.2, 0.42 + dayFactor * 0.18);
+
+    // 车头灯：夜晚开启，跟随车身横向偏移
+    const nightOn = hour < 5 || hour >= 20 || dayFactor < 0.35;
+    this.headlight.intensity = nightOn ? 26 : 0;
+    this.headlight.position.x = this.offsetX * 0.9;
+    this.headlight.target.position.x = this.offsetX * 0.9;
+
+    // 路灯灯头：夜晚增强
+    for (const lamp of this.nightLamps) {
+      const m = lamp.material as THREE.MeshStandardMaterial;
+      if (m) m.emissiveIntensity = nightOn ? 3.2 : 0.35;
+    }
   }
 
   private stepParticles(points: THREE.Points, fall: number, sway: number): void {
@@ -699,11 +1021,21 @@ export class Drive3D {
   }
 
   private updateHud(driving: boolean, weather: Weather): void {
-    const durability = Game.getState().durability;
+    const s = Game.getState();
+    const hh = Math.floor(s.hour);
+    const mm = Math.floor((s.hour - hh) * 60);
+    const time = `D${s.day} ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
     this.telemetryEl.textContent = driving
-      ? `${Math.round(this.speed)} km/h · 车况${Math.round(durability)}%`
-      : `车况${Math.round(durability)}%`;
-    this.hintEl.textContent = `${CAM_HINT[this.camMode]} · ${WEATHER_LABEL[weather]} · 1/2/3 视角，D 油门 A 刹车 Q/E 左右躲避`;
+      ? `${Math.round(this.speed)} km/h · 车况${Math.round(s.durability)}% · ${time}`
+      : `车况${Math.round(s.durability)}% · ${time}`;
+
+    let hint = `${CAM_HINT[this.camMode]} · ${WEATHER_LABEL[weather]} · D 油门 A 刹车 Q/E 躲避 1/2/3 视角`;
+    if (s.parked) hint += ' · P 继续行驶';
+    else hint += ' · P 停车';
+    if (this.pendingRoad) {
+      hint = `【${this.roadHint(this.pendingRoad.kind)}】`;
+    }
+    this.hintEl.textContent = hint;
     this.pipEl.style.display = this.camMode === 'cockpit' ? 'block' : 'none';
   }
 

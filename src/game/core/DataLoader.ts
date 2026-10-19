@@ -16,12 +16,20 @@ export interface EventEffects {
   stamina?: number;
   morale?: number;
   fuel?: number;
+  /** 维修套件增减 */
+  repairKit?: number;
+  /** 车辆耐久增减 */
+  durability?: number;
+  /** 游戏内小时增减（休息/绕路） */
+  hour?: number;
 }
 
 export interface EventChoice {
   text: string;
   effects?: EventEffects;
   recruit?: string;
+  /** 直接修复耐久（如拆铁皮修车） */
+  repair?: number;
 }
 
 export interface GameEvent {
@@ -41,6 +49,8 @@ export interface Survivor {
   skill: string;
   atk: number;
   med: number;
+  /** 是否会开车：会开车的队友入队后可替玩家驾驶 */
+  driver?: boolean;
   avatar?: string;
 }
 

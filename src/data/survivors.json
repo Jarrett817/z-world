@@ -7,6 +7,7 @@
     "skill": "急救",
     "atk": 2,
     "med": 5,
+    "driver": false,
     "avatar": "/assets/linwan_normal.jpg"
   },
   "chen_mo": {
@@ -17,6 +18,18 @@
     "skill": "驾驶",
     "atk": 4,
     "med": 0,
+    "driver": true,
     "avatar": "/assets/chenmo_normal.jpg"
+  },
+  "ivory": {
+    "id": "ivory",
+    "name": "苏薇",
+    "title": "前外贸跟单",
+    "desc": "高跟鞋踩进废墟也走得稳，她说这是职业素养。",
+    "skill": "谈判",
+    "atk": 3,
+    "med": 2,
+    "driver": false,
+    "avatar": "/assets/avatars/b_white.jpg"
   }
 }
