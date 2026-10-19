@@ -20,17 +20,17 @@ export function EventDialog() {
   if (state.finished) {
     return (
       <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70">
-        <div className="w-[560px] overflow-hidden rounded-lg border border-[#4a3f35] bg-[#2a2320] shadow-2xl">
+        <div className="w-[560px] overflow-hidden rounded-lg border border-[#38bdf8/40] bg-[#051a2e] shadow-2xl">
           <img src="/assets/ending.jpg" alt="" className="h-56 w-full object-cover" />
           <div className="p-8">
-            <h2 className="mb-3 text-xl font-bold text-[#e8862e]">第一章 · 完</h2>
+            <h2 className="mb-3 text-xl font-bold text-[#4cc9ff]">第一章 · 完</h2>
             <p className="mb-6 leading-relaxed text-[#e8ded2]">
               城区的轮廓在晨雾里显出来。车上 {state.team.length} 个人，燃料还剩 {state.fuel}。
               路还长。
             </p>
             <button
               onClick={() => Game.reset()}
-              className="w-full rounded bg-[#e8862e] py-2 font-bold text-[#161210] hover:bg-[#f09a48]"
+              className="w-full rounded bg-[#4cc9ff] py-2 font-bold text-[#161210] hover:bg-[#4cc9ff]"
             >
               重新开始
             </button>
@@ -46,24 +46,24 @@ export function EventDialog() {
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70">
-      <div className="w-[560px] overflow-hidden rounded-lg border border-[#4a3f35] bg-[#2a2320] shadow-2xl">
+      <div className="w-[560px] overflow-hidden rounded-lg border border-[#38bdf8/40] bg-[#051a2e] shadow-2xl">
         {ev.image && (
           <div className="relative">
             <img src={ev.image} alt="" className="h-56 w-full object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#2a2320] via-transparent to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#051a2e] via-transparent to-transparent" />
             {character?.avatar && (
               <img
                 src={character.avatar}
                 alt={character.name}
-                className="absolute -bottom-10 right-6 h-24 w-24 rounded-lg border-2 border-[#e8862e] object-cover object-top shadow-lg"
+                className="absolute -bottom-10 right-6 h-24 w-24 rounded-lg border-2 border-[#4cc9ff] object-cover object-top shadow-lg"
               />
             )}
           </div>
         )}
         <div className="p-8 pt-6">
-          <h2 className="mb-1 text-xl font-bold text-[#e8862e]">{ev.title}</h2>
+          <h2 className="mb-1 text-xl font-bold text-[#4cc9ff]">{ev.title}</h2>
           {character && (
-            <p className="mb-2 text-xs text-[#8a7d6d]">
+            <p className="mb-2 text-xs text-[#7dd3fc/70]">
               {character.name} · {character.title}
             </p>
           )}
@@ -77,10 +77,10 @@ export function EventDialog() {
                 <button
                   key={i}
                   onClick={() => Game.applyChoice(i)}
-                  className="rounded border border-[#4a3f35] px-4 py-3 text-left hover:border-[#e8862e] hover:bg-[#33291f]"
+                  className="rounded border border-[#38bdf8/40] px-4 py-3 text-left hover:border-[#4cc9ff] hover:bg-[#1e3a5f]"
                 >
                   <div className="text-[#e8ded2]">{c.text}</div>
-                  {meta && <div className="mt-1 text-xs text-[#8a7d6d]">{meta}</div>}
+                  {meta && <div className="mt-1 text-xs text-[#7dd3fc/70]">{meta}</div>}
                 </button>
               );
             })}

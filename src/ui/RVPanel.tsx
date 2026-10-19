@@ -29,12 +29,12 @@ export function RVPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70">
-      <div className="rounded-lg border border-[#4a3f35] bg-[#2a2320] p-6">
+      <div className="rounded-lg border border-[#38bdf8/40] bg-[#051a2e] p-6">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-[#e8862e]">房车内部</h2>
+          <h2 className="text-lg font-bold text-[#4cc9ff]">房车内部</h2>
           <button
             onClick={onClose}
-            className="rounded border border-[#4a3f35] px-3 py-1 text-xs text-[#8a7d6d] hover:border-[#e8862e] hover:text-[#e8862e]"
+            className="rounded border border-[#38bdf8/40] px-3 py-1 text-xs text-[#7dd3fc/70] hover:border-[#4cc9ff] hover:text-[#4cc9ff]"
           >
             关闭
           </button>
@@ -42,7 +42,7 @@ export function RVPanel({ onClose }: { onClose: () => void }) {
 
         {/* 车厢网格（背景：房车内部实景） */}
         <div
-          className="relative overflow-hidden rounded border-2 border-[#4a3f35]"
+          className="relative overflow-hidden rounded border-2 border-[#38bdf8/40]"
           style={{ width: cfg.gridWidth * CELL, height: cfg.gridHeight * CELL }}
         >
           <img
@@ -66,7 +66,7 @@ export function RVPanel({ onClose }: { onClose: () => void }) {
                 <img
                   src={m.avatar}
                   alt={m.name}
-                  className="h-20 w-14 rounded-md border border-[#e8862e]/50 object-cover object-top shadow-[0_2px_8px_rgba(0,0,0,0.6)]"
+                  className="h-20 w-14 rounded-md border border-[#4cc9ff]/50 object-cover object-top shadow-[0_2px_8px_rgba(0,0,0,0.6)]"
                 />
                 <span className="mt-0.5 whitespace-nowrap rounded bg-[#161210]/85 px-1.5 py-px text-[10px] text-[#e8ded2]">
                   {m.name} · {spot.task}
@@ -82,7 +82,7 @@ export function RVPanel({ onClose }: { onClose: () => void }) {
               <div
                 key={i}
                 onClick={() => selected && Game.placeFacility(selected, x, y)}
-                className={`absolute border border-[#2a2320] ${selected ? 'cursor-pointer hover:bg-[#e8862e]/10' : ''}`}
+                className={`absolute border border-[#051a2e] ${selected ? 'cursor-pointer hover:bg-[#4cc9ff]/10' : ''}`}
                 style={{ left: x * CELL, top: y * CELL, width: CELL, height: CELL }}
               />
             );
@@ -96,7 +96,7 @@ export function RVPanel({ onClose }: { onClose: () => void }) {
                 key={i}
                 onClick={() => Game.removeFacilityAt(p.x, p.y)}
                 title={`${f.name}（点击拆除）`}
-                className="absolute z-20 flex cursor-pointer items-center justify-center rounded border border-[#e8862e]/50 bg-[#e8862e]/15 text-xs text-[#e8862e] hover:bg-red-900/30 hover:text-red-300"
+                className="absolute z-20 flex cursor-pointer items-center justify-center rounded border border-[#4cc9ff]/50 bg-[#4cc9ff]/15 text-xs text-[#4cc9ff] hover:bg-red-900/30 hover:text-red-300"
                 style={{ left: p.x * CELL, top: p.y * CELL, width: f.w * CELL, height: f.h * CELL }}
               >
                 {f.name}
@@ -105,7 +105,7 @@ export function RVPanel({ onClose }: { onClose: () => void }) {
           })}
         </div>
 
-        <p className="mt-2 text-xs text-[#8a7d6d]">
+        <p className="mt-2 text-xs text-[#7dd3fc/70]">
           {selected ? '点击空格放置 · 点击已放置设施拆除' : '先在下方选择要放置的设施'}
         </p>
 
@@ -117,16 +117,16 @@ export function RVPanel({ onClose }: { onClose: () => void }) {
               onClick={() => setSelected(selected === f.id ? null : f.id)}
               className={`rounded border p-3 text-left ${
                 selected === f.id
-                  ? 'border-[#e8862e] bg-[#e8862e]/10'
-                  : 'border-[#4a3f35] hover:border-[#e8862e]/60'
+                  ? 'border-[#4cc9ff] bg-[#4cc9ff]/10'
+                  : 'border-[#38bdf8/40] hover:border-[#4cc9ff]/60'
               }`}
             >
               <div className="text-sm font-bold text-[#e8ded2]">
-                {f.name} <span className="text-xs font-normal text-[#8a7d6d]">{f.w}×{f.h}</span>
+                {f.name} <span className="text-xs font-normal text-[#7dd3fc/70]">{f.w}×{f.h}</span>
               </div>
-              <p className="mt-1 text-xs text-[#8a7d6d]">{f.desc}</p>
+              <p className="mt-1 text-xs text-[#7dd3fc/70]">{f.desc}</p>
               {effectText(f) && (
-                <p className="mt-1 text-xs text-[#e8862e]">{effectText(f)}</p>
+                <p className="mt-1 text-xs text-[#4cc9ff]">{effectText(f)}</p>
               )}
             </button>
           ))}

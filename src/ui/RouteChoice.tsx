@@ -19,10 +19,10 @@ export function RouteChoice() {
             <button
               key={r.to}
               onClick={() => Game.chooseRoute(r.to)}
-              className="rounded-lg border border-[#4a3f35] bg-[#2a2320]/95 px-8 py-4 text-left shadow-xl transition hover:border-[#e8862e]"
+              className="rounded-lg border border-[#38bdf8/40] bg-[#051a2e]/95 px-8 py-4 text-left shadow-xl transition hover:border-[#4cc9ff]"
             >
               <div className="text-lg font-bold text-[#e8ded2]">→ {node?.name}</div>
-              <div className="mt-1 text-xs text-[#8a7d6d]">{r.km} 公里</div>
+              <div className="mt-1 text-xs text-[#7dd3fc/70]">{r.km} 公里</div>
             </button>
           );
         })}
