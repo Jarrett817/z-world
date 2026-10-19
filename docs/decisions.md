@@ -1,5 +1,16 @@
 # 决策记录
 
+## 2026-10-19 · 人物立绘升级：AI 精致二次元替代 3D 基础模型
+
+**背景**：3D 预渲染的人物立绘（Anime Nurse / Stylized anime character）效果太素，不符合「二次元手游级精致」要求。
+
+**结论**：改用 GenerateImage AI 直接生成精致二次元立绘，支持表情差分（正常/微笑/严肃），存 public/assets/*.jpg。3D 预渲染管线保留给房车/场景，人物立绘走 AI 2D 生成。
+
+## 2026-10-19 · 丧尸攻击 + 天气系统落地
+
+- **丧尸**：DriveScene 右侧随机生成 zombie_walk.jpg sprite，车速越快生成越密；碰到房车触发 Game.zombieAttack()（随机扣体力/食物/士气）+ 房车震动 tween 反馈
+- **天气**：GameState 加 weather 字段（clear/rain/fog/snow），driveTick 每 0.5km 15% 概率随机切换；雨=斜线粒子，雪=飘落圆点，雾=半透明覆盖层；雨天刹车×0.7，雪天加速×0.6
+
 ## 2026-10-19 · 3D 预渲染管线落地：房车/人物/场景全面 3D 化
 
 **路线确定**：Sketchfab 免费 CC-BY 模型 → Blender 无头渲染（`blender -b --python`）→ PNG 序列帧/立绘 → Phaser 贴图。不走实时 3D。

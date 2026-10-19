@@ -1,5 +1,44 @@
 # 开发日志
 
+## 2026-10-19 · 立绘升级 + 丧尸攻击 + 天气系统
+
+### 本次完成
+
+- **人物立绘**：GenerateImage 生成精致二次元立绘——林晚（正常/微笑）、陈默（正常/严肃），替换 survivors.json avatar 路径；RVPanel/EventDialog/TeamPanel 自动生效
+- **丧尸攻击**：DriveScene 行驶时右侧随机生成丧尸（速度>5km/h 才刷，车速越快刷越密），丧尸向左移动，碰到房车触发 Game.zombieAttack() 随机扣资源 + 房车震动 tween 反馈
+- **天气系统**：GameState 加 weather 字段，driveTick 每 0.5km 15% 概率切换；雨=80 条斜线粒子/雪=60 个飘落圆点/雾=半透明灰覆盖；雨天刹车×0.7、雪天加速×0.6；右上角显示天气标签
+- 旧存档兼容：constructor 读取后补 weather 字段默认值
+
+### 素材清单
+
+| 文件 | 用途 | 来源 |
+|---|---|---|
+| public/assets/linwan_normal.jpg | 林晚·正常 | GenerateImage |
+| public/assets/linwan_smile.jpg | 林晚·微笑 | GenerateImage |
+| public/assets/chenmo_normal.jpg | 陈默·正常 | GenerateImage |
+| public/assets/chenmo_serious.jpg | 陈默·严肃 | GenerateImage |
+| public/assets/zombie_walk.jpg | 丧尸 sprite | GenerateImage |
+| public/assets/rv3d/rv_01-08.png | 房车 8 帧行驶动画 | Blender 预渲染 |
+| public/assets/rv_interior.jpg | 房车内部背景 | GenerateImage |
+| public/assets/parallax_*.jpg | 驾驶场景视差背景 | GenerateImage |
+| public/assets/*.jpg (start/gas/market/camp/bridge/ending/stall) | 事件场景图 | GenerateImage |
+
+### API Keys
+
+- Sketchfab: `261c712c3091437eb81e760c7ee93f71`（模型搜索/下载）
+- Poly Pizza: `06fc0b9edad94e3e9216a6ff11185da5`（低多边形模型）
+
+### 待办
+
+- 大地图自由探索（当前 6 节点线性章节，需重构为开放地图）
+- 房车内部 3D 视角（当前静态图+头像叠加）
+- 水陆两栖（需要新场景+物理+美术）
+- 更多幸存者/事件/章节内容
+- TapTap 预约素材（图标/宣传图/截图）
+- 软著申请
+
+---
+
 ## 2026-10-19 · 车内 NPC 忙碌场景 + 车轮 3D 化转向
 
 ### 本次完成
