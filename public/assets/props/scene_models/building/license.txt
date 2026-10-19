@@ -1,0 +1,11 @@
+Model Information:
+* title:	City Ruins Environment
+* source:	https://sketchfab.com/3d-models/city-ruins-environment-0d32be87779243749417ec783fb3ef60
+* author:	falk lochmann (https://sketchfab.com/falk)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "City Ruins Environment" (https://sketchfab.com/3d-models/city-ruins-environment-0d32be87779243749417ec783fb3ef60) by falk lochmann (https://sketchfab.com/falk) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

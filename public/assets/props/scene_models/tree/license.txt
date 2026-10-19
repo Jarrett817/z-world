@@ -1,0 +1,11 @@
+Model Information:
+* title:	PSX Dead Tree Pack
+* source:	https://sketchfab.com/3d-models/psx-dead-tree-pack-40510061c9814223b204f03941e4c589
+* author:	FlunkedPunk (https://sketchfab.com/FlunkedPunk)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "PSX Dead Tree Pack" (https://sketchfab.com/3d-models/psx-dead-tree-pack-40510061c9814223b204f03941e4c589) by FlunkedPunk (https://sketchfab.com/FlunkedPunk) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

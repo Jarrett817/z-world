@@ -252,13 +252,12 @@ export class Drive3D {
     });
   }
 
-  /** 加载下载的场景模型（废弃建筑/集装箱/枯树等）；文件未就绪时静默跳过，程序化元素兜底 */
+  /** 加载下载的场景模型（废弃建筑/枯树等）；文件未就绪时静默跳过，程序化元素兜底 */
   private async loadSceneModels(): Promise<void> {
     const loader = new GLTFLoader();
     const paths = [
-      '/assets/props/scene_building.glb',
-      '/assets/props/scene_container.glb',
-      '/assets/props/scene_tree.glb',
+      '/assets/props/scene_models/building/scene.gltf',
+      '/assets/props/scene_models/tree/scene.gltf',
     ];
     for (const p of paths) {
       try {
