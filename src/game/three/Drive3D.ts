@@ -26,6 +26,18 @@ interface SideObj {
   speed: number; // 仅丧尸使用（相对车的前进速度，m/s）
   kind: 'zombie' | 'prop';
   active: boolean;
+  mixer?: THREE.AnimationMixer; // 丧尸动画
+}
+
+interface BlockObj {
+  group: THREE.Object3D;
+  z: number;
+  x: number;
+  kind: 'soft' | 'hard';
+  active: boolean;
+  hit: boolean; // 已撞击过（防重复扣耐久）
+  flying: boolean; // 软路障被撞飞动画
+  flyT: number;
 }
 
 const WEATHER_LABEL: Record<Weather, string> = { clear: '晴', rain: '雨', fog: '雾', snow: '雪' };
@@ -55,11 +67,26 @@ export class Drive3D {
   private speed = 0;
   private gasHeld = false;
   private brakeHeld = false;
+  private steerLeft = false;
+  private steerRight = false;
+  private offsetX = 0; // 车辆横向偏移（躲避路障）
   private spawnTimer = 0;
+  private blockTimer = 0;
+
+  // 撞击反馈
+  private shakeTime = 0;
+  private shakeIntensity = 0;
 
   // 世界对象
   private props: SideObj[] = [];
+  private blocks: BlockObj[] = [];
   private dashes: THREE.Mesh[] = [];
+
+  // 模型源
+  private zombieSource: THREE.Group | null = null;
+  private zombieClips: THREE.AnimationClip[] = [];
+  private softSources: THREE.Object3D[] = [];
+  private hardSources: THREE.Object3D[] = [];
 
   // 天气
   private rain!: THREE.Points;
@@ -97,11 +124,11 @@ export class Drive3D {
     // HUD
     this.telemetryEl = document.createElement('div');
     this.telemetryEl.style.cssText =
-      'position:absolute;top:14px;right:20px;font:bold 26px/1.2 monospace;color:#e8ded2;text-align:right;text-shadow:0 2px 6px rgba(0,0,0,.8);pointer-events:none;z-index:5';
+      'position:absolute;bottom:52px;left:50%;transform:translateX(-50%);font:bold 24px/1.2 monospace;color:#e8ded2;text-align:center;text-shadow:0 2px 6px rgba(0,0,0,.8);pointer-events:none;z-index:5';
     container.appendChild(this.telemetryEl);
     this.hintEl = document.createElement('div');
     this.hintEl.style.cssText =
-      'position:absolute;top:14px;left:50%;transform:translateX(-50%);font:14px/1.4 monospace;color:#d4a05a;text-shadow:0 2px 6px rgba(0,0,0,.8);pointer-events:none;z-index:5';
+      'position:absolute;bottom:18px;left:50%;transform:translateX(-50%);font:13px/1.4 monospace;color:#d4a05a;text-shadow:0 2px 6px rgba(0,0,0,.8);pointer-events:none;z-index:5;white-space:nowrap';
     container.appendChild(this.hintEl);
 
     this.buildRoad();
@@ -111,7 +138,7 @@ export class Drive3D {
   }
 
   async start(): Promise<void> {
-    await this.loadRV();
+    await Promise.all([this.loadRV(), this.loadProps()]);
     if (this.disposed) return;
     this.loop();
   }
@@ -132,6 +159,55 @@ export class Drive3D {
     });
     this.scene.add(rv);
     this.rv = rv;
+  }
+
+  // ---- 道具/丧尸模型加载 ----
+  private async loadProps(): Promise<void> {
+    const loader = new GLTFLoader();
+    // 丧尸动画包
+    const z = await loader.loadAsync('/assets/props/zmb.glb');
+    const zscene = z.scene;
+    zscene.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) {
+        o.castShadow = false;
+        o.receiveShadow = false;
+      }
+    });
+    this.zombieSource = zscene;
+    this.zombieClips = z.animations;
+    // 丧尸材质微绿自发光：暗夜中更显眼、更有丧尸感
+    zscene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) {
+        const mat = m as THREE.MeshStandardMaterial;
+        if (mat && 'emissive' in mat) {
+          mat.emissive = new THREE.Color(0x1f4a2a);
+          mat.emissiveIntensity = 0.35;
+        }
+      }
+    });
+
+    // 软路障（可撞飞）：路障/锥桶包
+    const b = await loader.loadAsync('/assets/props/barriers.glb');
+    b.scene.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh && o.visible) this.softSources.push(o);
+    });
+
+    // 硬路障：军用路障 + 废弃卡车 + 废弃轿车
+    const bg = await loader.loadAsync('/assets/props/barricade.glb');
+    bg.scene.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh && o.visible) this.hardSources.push(o);
+    });
+    const t = await loader.loadAsync('/assets/props/wtruck.glb');
+    t.scene.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh && o.visible) this.hardSources.push(o);
+    });
+    const c = await loader.loadAsync('/assets/props/wcar.glb');
+    c.scene.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh && o.visible) this.hardSources.push(o);
+    });
   }
 
   // ---- 公路骨架（静态） ----
@@ -242,32 +318,48 @@ export class Drive3D {
     return g;
   }
 
-  private makeZombie(): THREE.Group {
-    const g = new THREE.Group();
-    const skin = new THREE.MeshStandardMaterial({ color: 0x5a5f52, roughness: 1 });
-    // 躯干 + 头 + 手臂
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.5, 4, 8), skin);
-    body.position.y = 1.0;
-    g.add(body);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 8), skin);
-    head.position.y = 1.85;
-    g.add(head);
-    for (const sx of [-1, 1]) {
-      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.55, 4, 6), skin);
-      arm.position.set(sx * 0.38, 1.35, 0);
-      arm.rotation.z = sx * 0.7;
-      g.add(arm);
-    }
-    return g;
-  }
-
   private spawnZombie(): void {
+    if (!this.zombieSource) return;
     const side = Math.random() > 0.5 ? 1 : -1;
     const x = side * (Math.random() * 3 + 2);
-    const g = this.makeZombie();
+    const g = this.zombieSource.clone(true);
     g.position.set(x, GROUND_Y, Z_SPAWN);
+    const roll = Math.random();
+    g.rotation.y = roll > 0.5 ? Math.PI : 0; // 面朝车
+    g.scale.setScalar(1.05 + Math.random() * 0.3);
+    // 随机挑一个走/跑动画
+    const mixer = new THREE.AnimationMixer(g);
+    const clip =
+      this.zombieClips.find((c) => /walk|run/i.test(c.name)) ?? this.zombieClips[0];
+    if (clip) mixer.clipAction(clip).play();
     this.scene.add(g);
-    this.props.push({ group: g, z: Z_SPAWN, speed: 1.4 + Math.random() * 1.2, kind: 'zombie', active: true });
+    this.props.push({ group: g, z: Z_SPAWN, speed: 1.4 + Math.random() * 1.2, kind: 'zombie', active: true, mixer });
+  }
+
+  // ---- 路障生成 ----
+  private spawnBlock(): void {
+    if (this.hardSources.length === 0 && this.softSources.length === 0) return;
+    const roll = Math.random();
+    const x = rng(-4, 4);
+    if (roll < 0.5 && this.softSources.length > 0) {
+      // 软路障：锥桶/矮栏（可撞飞）
+      const src = this.softSources[Math.floor(Math.random() * this.softSources.length)];
+      const m = src.clone();
+      m.rotation.y = Math.random() * Math.PI * 2;
+      m.scale.setScalar(0.8 + Math.random() * 0.4);
+      m.position.set(x, GROUND_Y, Z_SPAWN);
+      this.scene.add(m);
+      this.blocks.push({ group: m, z: Z_SPAWN, x, kind: 'soft', active: true, hit: false, flying: false, flyT: 0 });
+    } else if (this.hardSources.length > 0) {
+      // 硬路障：军用路障/废弃车（横在路中，必须绕或硬撞）
+      const src = this.hardSources[Math.floor(Math.random() * this.hardSources.length)];
+      const m = src.clone();
+      const isVehicle = /Object/.test(src.name);
+      m.rotation.y = isVehicle ? Math.PI / 2 + rng(-0.3, 0.3) : rng(-0.2, 0.2);
+      m.position.set(x, GROUND_Y, Z_SPAWN);
+      this.scene.add(m);
+      this.blocks.push({ group: m, z: Z_SPAWN, x, kind: 'hard', active: true, hit: false, flying: false, flyT: 0 });
+    }
   }
 
   // ---- 天气粒子 ----
@@ -316,6 +408,8 @@ export class Drive3D {
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') this.gasHeld = true;
     if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') this.brakeHeld = true;
+    if (e.key === 'q' || e.key === 'Q') this.steerLeft = true;
+    if (e.key === 'e' || e.key === 'E') this.steerRight = true;
     if (e.key === '1') this.setCam('chase');
     if (e.key === '2') this.setCam('cockpit');
     if (e.key === '3') this.setCam('rooftop');
@@ -324,6 +418,8 @@ export class Drive3D {
   private onKeyUp = (e: KeyboardEvent): void => {
     if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') this.gasHeld = false;
     if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') this.brakeHeld = false;
+    if (e.key === 'q' || e.key === 'Q') this.steerLeft = false;
+    if (e.key === 'e' || e.key === 'E') this.steerRight = false;
   };
 
   private setCam(mode: CamMode): void {
@@ -349,6 +445,16 @@ export class Drive3D {
     const state = Game.getState();
     const driving = state.phase === 'driving';
 
+    // 耐久影响极速：耐久越低车越肉
+    const maxSpeed = MAX_SPEED * (0.5 + 0.5 * (state.durability / 100));
+
+    // 横向移动（躲避路障）
+    const steerSpeed = 7;
+    if (this.steerLeft) this.offsetX -= steerSpeed * dt;
+    if (this.steerRight) this.offsetX += steerSpeed * dt;
+    this.offsetX = Math.max(-4.5, Math.min(4.5, this.offsetX));
+    if (this.rv) this.rv.position.x = this.offsetX;
+
     // 速度物理（天气影响同 2D 版）
     const weather = state.weather;
     let accel = ACCEL;
@@ -359,7 +465,7 @@ export class Drive3D {
     if (driving && this.gasHeld && state.fuel > 0) this.speed += accel * dt;
     else if (this.brakeHeld) this.speed -= brake * dt;
     else this.speed -= DRAG * dt;
-    this.speed = Math.max(0, Math.min(MAX_SPEED, this.speed));
+    this.speed = Math.max(0, Math.min(maxSpeed, this.speed));
 
     const worldSpeed = this.speed * KMH_TO_UNITS;
 
@@ -371,6 +477,10 @@ export class Drive3D {
     for (const p of this.props) {
       if (p.kind === 'zombie') {
         p.z += (worldSpeed - p.speed) * dt; // 丧尸朝车走来
+        // 朝车的横向位置靠近
+        const dx = this.offsetX - p.group.position.x;
+        p.group.position.x += Math.sign(dx) * Math.min(Math.abs(dx), worldSpeed * 0.3 * dt);
+        if (p.mixer) p.mixer.update(dt);
       } else {
         p.z += worldSpeed * dt;
       }
@@ -379,24 +489,59 @@ export class Drive3D {
       if (p.z > Z_LOOP) {
         if (p.kind === 'zombie') {
           this.scene.remove(p.group);
-          p.group.traverse((o) => {
-            const m = o as THREE.Mesh;
-            if (m.isMesh) m.geometry.dispose();
-          });
           p.active = false;
           continue;
         }
         p.z = Z_SPAWN + Math.random() * 60;
         p.group.position.z = p.z;
       }
-      // 丧尸撞车
-      if (p.kind === 'zombie' && p.z > -3.2) {
+      // 丧尸撞车（横向接近才算）
+      if (p.kind === 'zombie' && p.z > -3.2 && Math.abs(p.group.position.x - this.offsetX) < 1.1) {
         this.scene.remove(p.group);
         p.active = false;
-        Game.zombieAttack();
+        this.bump(0.45);
+        Game.zombieHit();
       }
     }
     this.props = this.props.filter((p) => p.active);
+
+    // 路障滚动 + 碰撞
+    for (const b of this.blocks) {
+      b.z += worldSpeed * dt;
+      b.group.position.z = b.z;
+      if (b.flying) {
+        // 软路障被撞飞：上抛 + 翻滚
+        b.flyT += dt;
+        b.group.position.y = GROUND_Y + b.flyT * 3.5;
+        b.group.rotation.x += dt * 4;
+        b.group.rotation.z += dt * 5;
+        if (b.flyT > 0.8) {
+          this.scene.remove(b.group);
+          b.active = false;
+          continue;
+        }
+      }
+      if (!b.hit && b.z > -6.5 && Math.abs(b.group.position.x - this.offsetX) < 2.0) {
+        b.hit = true;
+        if (b.kind === 'soft') {
+          // 软路障：撞飞，轻扣耐久
+          Game.damageVehicle(2);
+          this.bump(0.35);
+          b.flying = true;
+          b.flyT = 0;
+        } else {
+          // 硬路障：重扣耐久 + 强制减速
+          Game.damageVehicle(12);
+          this.bump(0.85);
+          this.speed = Math.max(this.speed * 0.2, 8);
+        }
+      }
+      if (b.z > Z_LOOP && !b.flying) {
+        this.scene.remove(b.group);
+        b.active = false;
+      }
+    }
+    this.blocks = this.blocks.filter((b) => b.active);
 
     // 丧尸生成（仅行驶时）
     if (driving && this.speed > 5) {
@@ -405,6 +550,15 @@ export class Drive3D {
         const rate = 1.5 - (this.speed / MAX_SPEED) * 1.0;
         this.spawnTimer = Math.max(0.4, rate);
         this.spawnZombie();
+      }
+    }
+
+    // 路障生成（行驶时，约每 3.5-6s 一个）
+    if (driving && this.speed > 5) {
+      this.blockTimer -= dt;
+      if (this.blockTimer <= 0) {
+        this.blockTimer = rng(3.5, 6);
+        this.spawnBlock();
       }
     }
 
@@ -423,18 +577,31 @@ export class Drive3D {
     this.updateHud(state.phase === 'driving', state.weather);
   }
 
+  private bump(intensity: number): void {
+    this.shakeTime = 0.35;
+    this.shakeIntensity = intensity;
+  }
+
   private updateCameras(dt: number): void {
-    void dt;
     const cam = this.activeCam();
+    const sx = this.offsetX * 0.85;
     // 追尾：车后上方，看向车头前方
-    this.camChase.position.set(0, 5.2, 13.5);
-    this.camChase.lookAt(0, 2.2, -30);
+    this.camChase.position.set(sx, 5.2, 13.5);
+    this.camChase.lookAt(sx * 0.8, 2.2, -30);
     // 舱内：驾驶舱内（车头 -Z 端、挡风玻璃后）
-    this.camCockpit.position.set(0.5, 2.3, -3.6);
-    this.camCockpit.lookAt(0, 1.6, -50);
+    this.camCockpit.position.set(sx * 0.9 + 0.5, 2.3, -3.6);
+    this.camCockpit.lookAt(sx * 0.7, 1.6, -50);
     // 车顶：车顶上方稍偏后，俯看前方（车顶战斗位）
-    this.camRooftop.position.set(0, 6.4, -0.8);
-    this.camRooftop.lookAt(0, 4.0, -50);
+    this.camRooftop.position.set(sx * 0.9, 6.4, -0.8);
+    this.camRooftop.lookAt(sx * 0.7, 4.0, -50);
+
+    // 撞击震屏
+    if (this.shakeTime > 0) {
+      this.shakeTime -= dt;
+      const s = this.shakeIntensity * Math.max(0, this.shakeTime);
+      cam.position.x += rng(-s, s) * 0.25;
+      cam.position.y += rng(-s, s) * 0.18;
+    }
 
     const w = this.container.clientWidth || 1280;
     const h = this.container.clientHeight || 720;
@@ -482,10 +649,11 @@ export class Drive3D {
   }
 
   private updateHud(driving: boolean, weather: Weather): void {
+    const durability = Game.getState().durability;
     this.telemetryEl.textContent = driving
-      ? `${Math.round(this.speed)} km/h`
-      : '驻车';
-    this.hintEl.textContent = `${CAM_HINT[this.camMode]} · ${WEATHER_LABEL[weather]} · 1/2/3 切换视角，D 油门 A 刹车`;
+      ? `${Math.round(this.speed)} km/h · 车况${Math.round(durability)}%`
+      : `车况${Math.round(durability)}%`;
+    this.hintEl.textContent = `${CAM_HINT[this.camMode]} · ${WEATHER_LABEL[weather]} · 1/2/3 视角，D 油门 A 刹车 Q/E 左右躲避`;
   }
 
   dispose(): void {

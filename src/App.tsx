@@ -6,6 +6,7 @@ import { TeamPanel } from './ui/TeamPanel';
 import { ProfessionSelect } from './ui/ProfessionSelect';
 import { RVPanel } from './ui/RVPanel';
 import { RouteChoice } from './ui/RouteChoice';
+import { DeathScreen } from './ui/DeathScreen';
 
 export function App() {
   const [showRV, setShowRV] = useState(false);
@@ -21,6 +22,7 @@ export function App() {
       <RouteChoice />
       {showRV && <RVPanel onClose={() => setShowRV(false)} />}
       <ProfessionSelect />
+      <DeathScreen />
     </div>
   );
 }

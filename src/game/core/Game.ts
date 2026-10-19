@@ -7,7 +7,7 @@ export interface PlacedFacility {
   y: number;
 }
 
-export type Phase = 'profession' | 'event' | 'route' | 'driving' | 'finished';
+export type Phase = 'profession' | 'event' | 'route' | 'driving' | 'dead' | 'finished';
 export type Weather = 'clear' | 'rain' | 'fog' | 'snow';
 
 export interface Travel {
@@ -32,6 +32,8 @@ export interface GameState {
   travel: Travel | null;
   rvLayout: PlacedFacility[];
   weather: Weather;
+  /** 车辆耐久 0-100，撞丧尸/路障扣减，降到 0 车毁人亡重开 */
+  durability: number;
 }
 
 type Listener = () => void;
@@ -53,6 +55,7 @@ const INITIAL: GameState = {
   travel: null,
   rvLayout: [...DataLoader.getRvConfig().initialLayout],
   weather: 'clear',
+  durability: 100,
 };
 
 class GameClass {
@@ -63,7 +66,12 @@ class GameClass {
     const saved = SaveManager.load<GameState>();
     if (saved) {
       // 旧存档兼容：补充缺失字段
-      this.state = { ...INITIAL, ...saved, weather: saved.weather ?? 'clear' };
+      this.state = {
+        ...INITIAL,
+        ...saved,
+        weather: saved.weather ?? 'clear',
+        durability: saved.durability ?? 100,
+      };
     } else {
       this.state = { ...INITIAL };
     }
@@ -256,20 +264,37 @@ class GameClass {
     this.set(patch);
   }
 
-  // ---- 丧尸袭击 ----
-  zombieAttack(): void {
+  // ---- 车辆耐久 ----
+  /** 撞丧尸/路障扣耐久；耐久归零车毁人亡（重开） */
+  damageVehicle(amount: number): void {
     const s = this.state;
     if (s.phase !== 'driving') return;
-    // 丧尸拍打车门：随机损失一项资源
-    const roll = Math.random();
-    let food = s.food;
-    let stamina = s.stamina;
-    let morale = s.morale;
-    if (roll < 0.4) stamina -= 2;
-    else if (roll < 0.7) food -= 1;
-    else morale -= 1;
-    const r = this.clamp(food, stamina, morale, s.fuel);
-    this.set({ ...r });
+    const durability = Math.max(0, s.durability - amount);
+    if (durability <= 0) {
+      this.set({ durability: 0, phase: 'dead' });
+      return;
+    }
+    this.set({ durability });
+  }
+
+  /** 维修恢复耐久（车内经营/营地/事件调用） */
+  repairVehicle(amount: number): void {
+    const s = this.state;
+    if (s.phase !== 'driving' && s.phase !== 'event' && s.phase !== 'route') return;
+    const durability = Math.min(100, s.durability + amount);
+    this.set({ durability });
+  }
+
+  // ---- 丧尸撞击 ----
+  /** 撞上丧尸：主扣车辆耐久 + 小概率拍窗损失体力 */
+  zombieHit(): void {
+    const s = this.state;
+    if (s.phase !== 'driving') return;
+    this.damageVehicle(3);
+    if (Math.random() < 0.2) {
+      const stamina = Math.max(0, s.stamina - 1);
+      this.set({ stamina });
+    }
   }
 
   // ---- 房车布局 ----
