@@ -107,8 +107,12 @@ export class Drive3D {
   private zombieClips: THREE.AnimationClip[] = [];
   private softSources: THREE.Object3D[] = [];
   private hardSources: THREE.Object3D[] = [];
-  /** 下载的场景模型源（废弃建筑/集装箱/枯树等） */
+  /** 下载的场景模型源（枯树等） */
   private sceneSources: THREE.Object3D[] = [];
+  /** 城市废墟环境（体积大，只作远景天际线） */
+  private skylineSource: THREE.Group | null = null;
+  /** container 包中的油桶/木箱（路边补给点造型） */
+  private supplySources: THREE.Object3D[] = [];
 
   // 光照（昼夜）
   private sun!: THREE.DirectionalLight;
@@ -252,16 +256,18 @@ export class Drive3D {
     });
   }
 
-  /** 加载下载的场景模型（废弃建筑/枯树等）；文件未就绪时静默跳过，程序化元素兜底 */
+  /** 加载下载的场景模型（城市废墟作远景/工业杂物作补给点/枯树作路边）；文件未就绪时静默跳过，程序化元素兜底 */
   private async loadSceneModels(): Promise<void> {
     const loader = new GLTFLoader();
     const paths = [
       '/assets/props/scene_models/building/scene.gltf',
+      '/assets/props/scene_models/container/scene.gltf',
       '/assets/props/scene_models/tree/scene.gltf',
     ];
     for (const p of paths) {
       try {
         const gltf = await loader.loadAsync(p);
+        const isBuilding = p.includes('/building/');
         gltf.scene.traverse((o) => {
           if ((o as THREE.Mesh).isMesh) {
             o.castShadow = false;
@@ -272,10 +278,18 @@ export class Drive3D {
               const mm = mat as THREE.MeshStandardMaterial;
               if (mm && 'roughness' in mm) mm.roughness = Math.max(mm.roughness, 0.7);
             }
+            // container 包：油桶/木箱/金属箱/麻袋 → 补给点造型源
+            const name = (o.name ?? '').toLowerCase();
+            if (!isBuilding && /barrel|crate|sack/.test(name) && o.visible) {
+              this.supplySources.push(o);
+            }
           }
         });
-        this.sceneSources.push(gltf.scene);
-      } catch {
+        if (isBuilding) {
+          this.skylineSource = gltf.scene;
+        } else {
+          this.sceneSources.push(gltf.scene);
+        }      } catch {
         // 模型尚未就绪：跳过
       }
     }
@@ -319,6 +333,24 @@ export class Drive3D {
       dash.position.set(0, GROUND_Y + 0.03, z);
       this.scene.add(dash);
       this.dashes.push(dash);
+    }
+
+    this.buildSkyline();
+  }
+
+  /** 远景天际线：城市废墟剪影挂在路两侧远处，随循环滚动 */
+  private buildSkyline(): void {
+    if (!this.skylineSource) return;
+    for (let i = 0; i < 4; i++) {
+      const side = i % 2 === 0 ? 1 : -1;
+      const x = side * rng(48, 70);
+      const z = -260 + i * 92;
+      const m = this.skylineSource.clone();
+      m.scale.setScalar(rng(0.35, 0.55));
+      m.rotation.y = rng(0, Math.PI * 2);
+      m.position.set(x, GROUND_Y + 9, z);
+      this.scene.add(m);
+      this.props.push({ group: m, z, speed: 0, kind: 'prop', active: true });
     }
   }
 
@@ -481,18 +513,31 @@ export class Drive3D {
   private buildRoadEventVisual(kind: RoadKind): THREE.Group {
     const g = new THREE.Group();
     if (kind === 'supply') {
-      const box = new THREE.Mesh(
-        new THREE.BoxGeometry(1.6, 1.1, 1.6),
-        new THREE.MeshStandardMaterial({ color: 0x8a5a2a, roughness: 0.9 }),
-      );
-      box.position.y = 0.55;
-      g.add(box);
-      const lid = new THREE.Mesh(
-        new THREE.BoxGeometry(1.7, 0.12, 1.7),
-        new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.9 }),
-      );
-      lid.position.y = 1.15;
-      g.add(lid);
+      if (this.supplySources.length > 0) {
+        // 用 container 包里的油桶/木箱堆做真实补给点
+        const n = 2 + Math.floor(Math.random() * Math.min(3, this.supplySources.length));
+        for (let i = 0; i < n; i++) {
+          const src = this.supplySources[Math.floor(Math.random() * this.supplySources.length)];
+          const m = src.clone();
+          m.scale.setScalar(rng(0.9, 1.3));
+          m.rotation.y = rng(0, Math.PI * 2);
+          m.position.set(rng(-0.9, 0.9), 0, rng(-0.9, 0.9));
+          g.add(m);
+        }
+      } else {
+        const box = new THREE.Mesh(
+          new THREE.BoxGeometry(1.6, 1.1, 1.6),
+          new THREE.MeshStandardMaterial({ color: 0x8a5a2a, roughness: 0.9 }),
+        );
+        box.position.y = 0.55;
+        g.add(box);
+        const lid = new THREE.Mesh(
+          new THREE.BoxGeometry(1.7, 0.12, 1.7),
+          new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.9 }),
+        );
+        lid.position.y = 1.15;
+        g.add(lid);
+      }
     } else if (kind === 'wreck' || kind === 'block') {
       const body = new THREE.Mesh(
         new THREE.BoxGeometry(kind === 'block' ? 4.4 : 2.2, 0.85, kind === 'block' ? 2.0 : 4.2),

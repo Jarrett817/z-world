@@ -1,0 +1,11 @@
+Model Information:
+* title:	Cargo Asset Set
+* source:	https://sketchfab.com/3d-models/cargo-asset-set-a55f3c989d644dfa8ed8113882bb8f47
+* author:	feivelyn (https://sketchfab.com/feivelyn)
+
+Model License:
+* license type:	CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)
+* requirements:	Author must be credited. No commercial use.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Cargo Asset Set" (https://sketchfab.com/3d-models/cargo-asset-set-a55f3c989d644dfa8ed8113882bb8f47) by feivelyn (https://sketchfab.com/feivelyn) licensed under CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)
