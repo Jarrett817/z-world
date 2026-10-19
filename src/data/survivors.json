@@ -21,6 +21,28 @@
     "driver": true,
     "avatar": "/assets/chenmo_normal.jpg"
   },
+  "ye_lan": {
+    "id": "ye_lan",
+    "name": "叶澜",
+    "title": "战地记者",
+    "desc": "镜头对准过人间最惨烈的瞬间，她学会了在所有枪口下保持优雅。",
+    "skill": "情报",
+    "atk": 2,
+    "med": 3,
+    "driver": false,
+    "avatar": "/assets/avatars/d_ye_lan.jpg"
+  },
+  "tang_tang": {
+    "id": "tang_tang",
+    "name": "唐棠",
+    "title": "拳馆教练",
+    "desc": "带出过几千个学员，现在只教一件事：活下去。",
+    "skill": "格斗",
+    "atk": 5,
+    "med": 1,
+    "driver": false,
+    "avatar": "/assets/avatars/c_black.jpg"
+  },
   "ivory": {
     "id": "ivory",
     "name": "苏薇",
