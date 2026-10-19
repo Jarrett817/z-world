@@ -8,6 +8,7 @@ export interface PlacedFacility {
 }
 
 export type Phase = 'profession' | 'event' | 'route' | 'driving' | 'finished';
+export type Weather = 'clear' | 'rain' | 'fog' | 'snow';
 
 export interface Travel {
   from: string;
@@ -30,6 +31,7 @@ export interface GameState {
   finished: boolean;
   travel: Travel | null;
   rvLayout: PlacedFacility[];
+  weather: Weather;
 }
 
 type Listener = () => void;
@@ -50,6 +52,7 @@ const INITIAL: GameState = {
   finished: false,
   travel: null,
   rvLayout: [...DataLoader.getRvConfig().initialLayout],
+  weather: 'clear',
 };
 
 class GameClass {
@@ -58,7 +61,12 @@ class GameClass {
 
   constructor() {
     const saved = SaveManager.load<GameState>();
-    this.state = saved ?? { ...INITIAL };
+    if (saved) {
+      // 旧存档兼容：补充缺失字段
+      this.state = { ...INITIAL, ...saved, weather: saved.weather ?? 'clear' };
+    } else {
+      this.state = { ...INITIAL };
+    }
   }
 
   subscribe = (fn: Listener): (() => void) => {
@@ -147,6 +155,13 @@ class GameClass {
     const done = Math.min(t.km, t.done + deltaKm);
     const fuel = Math.max(0, this.state.fuel - deltaKm * DataLoader.getFuelPerKm());
 
+    // 天气随机切换：每 0.5km 有 15% 概率变天
+    let weather = this.state.weather;
+    if (done - this.lastEmittedDone >= 0.5 && Math.random() < 0.15) {
+      const pool: Weather[] = ['clear', 'rain', 'fog', 'snow'];
+      weather = pool[Math.floor(Math.random() * pool.length)];
+    }
+
     if (fuel <= 0) {
       this.lastEmittedDone = done;
       this.set({
@@ -154,6 +169,7 @@ class GameClass {
         travel: { ...t, done },
         currentEvent: DataLoader.getEvent('ev_stall'),
         phase: 'event',
+        weather,
       });
       return;
     }
@@ -165,9 +181,9 @@ class GameClass {
 
     if (done - this.lastEmittedDone >= 0.1) {
       this.lastEmittedDone = done;
-      this.set({ fuel, travel: { ...t, done } });
+      this.set({ fuel, travel: { ...t, done }, weather });
     } else {
-      this.state = { ...this.state, fuel, travel: { ...t, done } };
+      this.state = { ...this.state, fuel, travel: { ...t, done }, weather };
     }
   }
 
@@ -238,6 +254,22 @@ class GameClass {
     }
 
     this.set(patch);
+  }
+
+  // ---- 丧尸袭击 ----
+  zombieAttack(): void {
+    const s = this.state;
+    if (s.phase !== 'driving') return;
+    // 丧尸拍打车门：随机损失一项资源
+    const roll = Math.random();
+    let food = s.food;
+    let stamina = s.stamina;
+    let morale = s.morale;
+    if (roll < 0.4) stamina -= 2;
+    else if (roll < 0.7) food -= 1;
+    else morale -= 1;
+    const r = this.clamp(food, stamina, morale, s.fuel);
+    this.set({ ...r });
   }
 
   // ---- 房车布局 ----

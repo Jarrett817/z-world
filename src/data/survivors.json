@@ -7,7 +7,7 @@
     "skill": "急救",
     "atk": 2,
     "med": 5,
-    "avatar": "/assets/lin_wan.png"
+    "avatar": "/assets/linwan_normal.jpg"
   },
   "chen_mo": {
     "id": "chen_mo",
@@ -17,6 +17,6 @@
     "skill": "驾驶",
     "atk": 4,
     "med": 0,
-    "avatar": "/assets/chen_mo.png"
+    "avatar": "/assets/chenmo_normal.jpg"
   }
 }
