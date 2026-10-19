@@ -17,9 +17,9 @@ const Z_SPAWN = -260; // 世界对象生成/循环重置深度
 const Z_LOOP = 40; // 对象越过此 Z 后循环回前方
 const ROAD_HALF = 6.5; // 路面半宽
 
-/** 地形起伏：沿 Z 的平缓海拔（米）——末世荒原有明显高低差 */
+/** 地形起伏：沿 Z 的平缓海拔（米）——低幅缓坡，路障/丧尸在路面上稳定不"跳" */
 const groundY = (z: number): number =>
-  GROUND_Y + Math.sin(z * 0.06) * 1.0 + Math.sin(z * 0.13 + 2.1) * 0.7 + Math.sin(z * 0.031 + 5) * 0.7;
+  GROUND_Y + Math.sin(z * 0.06) * 0.15 + Math.sin(z * 0.13 + 2.1) * 0.1 + Math.sin(z * 0.031 + 5) * 0.08;
 /** 道路横向弯曲：沿 Z 的路径偏移（米）——山路/废墟弯路 */
 const roadX = (z: number): number =>
   Math.sin(z * 0.035) * 4.5 + Math.sin(z * 0.1 + 1.5) * 2.2;
@@ -906,7 +906,8 @@ export class Drive3D {
     const side = Math.random() > 0.5 ? 1 : -1;
     const lane = side * (Math.random() * 3 + 2);
     const g = this.zombieSource.clone(true);
-    const z = rng(Z_SPAWN, Z_SPAWN + 140); // 生成深度随机，路上错落分布
+    // 生成在车前方可见范围：丧尸自己走/跑向车（不走 -260 深处排队）
+    const z = rng(-95, -35);
     g.position.set(roadX(z) + lane, groundY(z), z);
     const roll = Math.random();
     g.rotation.y = roll > 0.5 ? Math.PI : 0; // 面朝车
@@ -928,7 +929,7 @@ export class Drive3D {
     this.props.push({
       group: g,
       z,
-      speed: (2.2 + Math.random() * 1.6) * (1 + level * 0.15), // 主动走向车（更快、更凶）
+      speed: (4 + Math.random() * 2.6) * (1 + level * 0.12), // 自己走/跑向车（明显可见）
       kind: 'zombie',
       active: true,
       mixer,
@@ -1412,12 +1413,13 @@ export class Drive3D {
       }
     }
 
-    // 丧尸生成（仅行驶时）
-    if (driving && !parked && this.speed > 5) {
+    // 丧尸生成（驾驶中持续：车停时丧尸也会自己走来）
+    if (driving && !parked) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
-        const rate = 1.5 - (this.speed / MAX_SPEED) * 1.0;
-        this.spawnTimer = Math.max(0.4, rate);
+        // 速度越高刷得越密；停车时约 5s 一个，维持路上有丧尸走近
+        const rate = Math.max(0.8, 4.5 - (this.speed / MAX_SPEED) * 3.2);
+        this.spawnTimer = rate;
         this.spawnZombie();
       }
     }
