@@ -8,6 +8,8 @@ import { RVPanel } from './ui/RVPanel';
 import { RouteChoice } from './ui/RouteChoice';
 import { DeathScreen } from './ui/DeathScreen';
 import { DrivePanel } from './ui/DrivePanel';
+import { TouchControls } from './ui/TouchControls';
+import { OrientationHint } from './ui/OrientationHint';
 
 export function App() {
   const [showRV, setShowRV] = useState(false);
@@ -22,6 +24,8 @@ export function App() {
       <TeamPanel />
       <RouteChoice />
       <DrivePanel />
+      <TouchControls />
+      <OrientationHint />
       {showRV && <RVPanel onClose={() => setShowRV(false)} />}
       <ProfessionSelect />
       <DeathScreen />

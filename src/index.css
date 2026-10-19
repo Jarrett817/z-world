@@ -2,6 +2,7 @@
 
 html, body, #root {
   height: 100%;
+  height: 100dvh; /* 移动端跟随地址栏收展的动态视口 */
   margin: 0;
   background: #161210;
   color: #e8ded2;

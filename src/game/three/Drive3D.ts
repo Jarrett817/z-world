@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -53,6 +54,10 @@ interface SideObj {
   flying?: boolean; // 丧尸被撞飞
   flyT?: number;
   yOff?: number; // 相对地形的固定高度偏移（山/草簇等）
+  atkT?: number; // 啃咬攻击计时
+  attackClip?: THREE.AnimationAction; // 攻击动画（切换用）
+  walkAction?: THREE.AnimationAction; // 走路动画（攻击后恢复）
+  attacking?: boolean; // 正在啃咬车（挂在车边）
 }
 
 interface BlockObj {
@@ -188,6 +193,7 @@ export class Drive3D {
   // 遭遇/生成节奏
   private roadTimer = 0;
   private nightLamps: THREE.Mesh[] = []; // 路灯灯头（夜晚增强）
+  private companionModels: THREE.Group[] = []; // 队友模型（路边求助者）
 
   // 天气
   private rain!: THREE.Points;
@@ -302,14 +308,20 @@ export class Drive3D {
   }
 
   async start(): Promise<void> {
-    await Promise.all([this.loadRV(), this.loadProps(), this.loadSceneModels()]);
+    await Promise.all([this.loadRV(), this.loadProps(), this.loadSceneModels(), this.loadCompanions()]);
     if (this.disposed) return;
     this.loop();
   }
 
   // ---- 模型加载 ----
+  private createLoader(): GLTFLoader {
+    const l = new GLTFLoader();
+    l.setMeshoptDecoder(MeshoptDecoder); // 支持 gltf-transform meshopt 压缩（队友/场景模型）
+    return l;
+  }
+
   private async loadRV(): Promise<void> {
-    const loader = new GLTFLoader();
+    const loader = this.createLoader();
     const gltf = await loader.loadAsync('/assets/rv/gs_001.glb');
     const rv = gltf.scene;
     // glTF Y-up：车长轴在 Y、车顶在 +Y。绕 X -90° 使车头朝 -Z 前进、车顶仍朝上
@@ -325,12 +337,45 @@ export class Drive3D {
     this.rv = rv;
   }
 
+  // ---- 队友模型预加载（路边求助者 3D 展示） ----
+  private async loadCompanions(): Promise<void> {
+    const loader = this.createLoader();
+    const paths = [
+      '/assets/companions/just_a_girl.glb',
+      '/assets/companions/stylized_women.glb',
+      '/assets/companions/blonde_bikini.glb',
+    ];
+    for (const p of paths) {
+      try {
+        const gltf = await loader.loadAsync(p);
+        const m = gltf.scene;
+        // 统一缩放到 1.7m 身高（Sketchfab 常以 cm 建模）
+        const box = new THREE.Box3().setFromObject(m);
+        const h = box.max.y - box.min.y;
+        if (h > 0.01) m.scale.setScalar(1.7 / h);
+        m.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh) {
+            o.castShadow = false;
+            o.receiveShadow = false;
+          }
+        });
+        this.companionModels.push(m);
+      } catch {
+        // 单个模型缺失不影响游戏
+      }
+    }
+  }
+
   // ---- 道具/丧尸模型加载 ----
   private async loadProps(): Promise<void> {
-    const loader = new GLTFLoader();
-    // 丧尸动画包
-    const z = await loader.loadAsync('/assets/props/zmb.glb');
+    const loader = this.createLoader();
+    // 丧尸动画包（站立低模：Idle/Walk/Attack/Death）
+    const z = await loader.loadAsync('/assets/props/zmb_stand.glb');
     const zscene = z.scene;
+    // 统一缩放到 1.7m 身高（Sketchfab 常以 cm 建模）
+    const zBox = new THREE.Box3().setFromObject(zscene);
+    const zH = zBox.max.y - zBox.min.y;
+    if (zH > 0.01) zscene.scale.setScalar(1.7 / zH);
     zscene.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {
         o.castShadow = false;
@@ -390,7 +435,7 @@ export class Drive3D {
 
   /** 加载下载的场景模型（城市废墟作远景/工业杂物作补给点/枯树作路边）；文件未就绪时静默跳过，程序化元素兜底 */
   private async loadSceneModels(): Promise<void> {
-    const loader = new GLTFLoader();
+    const loader = this.createLoader();
     const paths = [
       '/assets/props/scene_models/building/scene.gltf',
       '/assets/props/scene_models/container/scene.gltf',
@@ -860,7 +905,8 @@ export class Drive3D {
     const side = Math.random() > 0.5 ? 1 : -1;
     const lane = side * (Math.random() * 3 + 2);
     const g = this.zombieSource.clone(true);
-    g.position.set(roadX(Z_SPAWN) + lane, groundY(Z_SPAWN), Z_SPAWN);
+    const z = rng(Z_SPAWN, Z_SPAWN + 140); // 生成深度随机，路上错落分布
+    g.position.set(roadX(z) + lane, groundY(z), z);
     const roll = Math.random();
     g.rotation.y = roll > 0.5 ? Math.PI : 0; // 面朝车
     g.scale.setScalar((1.05 + Math.random() * 0.3) * (1 + level * 0.04));
@@ -868,28 +914,40 @@ export class Drive3D {
     const mixer = new THREE.AnimationMixer(g);
     const clip =
       this.zombieClips.find((c) => /walk|run/i.test(c.name)) ?? this.zombieClips[0];
-    if (clip) mixer.clipAction(clip).play();
+    const walkAction = clip ? mixer.clipAction(clip) : undefined;
+    if (walkAction) walkAction.play();
+    // 攻击动画（新站立模型带 attack/bite；爬行旧包没有则跳过）
+    const atkClip = this.zombieClips.find((c) => /attack|hit|bite|swing|slash/i.test(c.name));
+    const atkAction = atkClip ? mixer.clipAction(atkClip) : undefined;
+    if (atkAction) {
+      atkAction.setLoop(THREE.LoopOnce, 1);
+      atkAction.clampWhenFinished = true;
+    }
     this.scene.add(g);
     this.props.push({
       group: g,
-      z: Z_SPAWN,
-      speed: (1.4 + Math.random() * 1.2) * (1 + level * 0.12),
+      z,
+      speed: (2.2 + Math.random() * 1.6) * (1 + level * 0.15), // 主动走向车（更快、更凶）
       kind: 'zombie',
       active: true,
       mixer,
       hitDmg: 3 + level * 2,
+      attackClip: atkAction,
+      walkAction,
     });
   }
 
   // ---- 路边遭遇 ----
   private spawnRoadEvent(): void {
-    const kinds: RoadKind[] = ['supply', 'wreck', 'survivor', 'block'];
-    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    // 权重：求助者 40%（队友是核心玩法）、补给/废弃车/路障各 20%
+    const roll = Math.random();
+    const kind: RoadKind = roll < 0.4 ? 'survivor' : roll < 0.6 ? 'supply' : roll < 0.8 ? 'wreck' : 'block';
     const lane = rng(-4.2, 4.2);
+    const z = rng(Z_SPAWN, Z_SPAWN + 140); // 生成深度随机，路边遭遇错落分布
     const g = this.buildRoadEventVisual(kind);
-    g.position.set(roadX(Z_SPAWN) + lane, groundY(Z_SPAWN), Z_SPAWN);
+    g.position.set(roadX(z) + lane, groundY(z), z);
     this.scene.add(g);
-    this.roadEvents.push({ group: g, z: Z_SPAWN, x: lane, kind, active: true, done: false, pulse: Math.random() * 10 });
+    this.roadEvents.push({ group: g, z, x: lane, kind, active: true, done: false, pulse: Math.random() * 10 });
   }
 
   private buildRoadEventVisual(kind: RoadKind): THREE.Group {
@@ -938,19 +996,27 @@ export class Drive3D {
         g.add(w);
       }
     } else {
-      // 求助者：人形剪影占位（后续接入人物 3D 模型替换）
-      const body = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.26, 0.7, 4, 8),
-        new THREE.MeshStandardMaterial({ color: 0x4a3f35, roughness: 1 }),
-      );
-      body.position.y = 0.85;
-      g.add(body);
-      const head = new THREE.Mesh(
-        new THREE.SphereGeometry(0.2, 10, 8),
-        new THREE.MeshStandardMaterial({ color: 0x6b5848, roughness: 1 }),
-      );
-      head.position.y = 1.62;
-      g.add(head);
+      // 求助者：优先用真实队友模型，缺失时人形剪影占位
+      const cm = this.companionModels.length > 0 ? this.companionModels[Math.floor(Math.random() * this.companionModels.length)] : null;
+      if (cm) {
+        const p = cm.clone(true);
+        p.position.y = 0;
+        p.rotation.y = rng(0, Math.PI * 2);
+        g.add(p);
+      } else {
+        const body = new THREE.Mesh(
+          new THREE.CapsuleGeometry(0.26, 0.7, 4, 8),
+          new THREE.MeshStandardMaterial({ color: 0x4a3f35, roughness: 1 }),
+        );
+        body.position.y = 0.85;
+        g.add(body);
+        const head = new THREE.Mesh(
+          new THREE.SphereGeometry(0.2, 10, 8),
+          new THREE.MeshStandardMaterial({ color: 0x6b5848, roughness: 1 }),
+        );
+        head.position.y = 1.62;
+        g.add(head);
+      }
     }
     // 底部光环 + 竖直光柱（脉冲指示）
     const glowMat = new THREE.MeshStandardMaterial({
@@ -994,24 +1060,25 @@ export class Drive3D {
     if (this.hardSources.length === 0 && this.softSources.length === 0) return;
     const roll = Math.random();
     const lane = rng(-4, 4);
+    const z = rng(Z_SPAWN, Z_SPAWN + 140); // 生成深度随机，路障错落分布
     if (roll < 0.5 && this.softSources.length > 0) {
       // 软路障：锥桶/矮栏（可撞飞）
       const src = this.softSources[Math.floor(Math.random() * this.softSources.length)];
       const m = src.clone();
       m.rotation.y = Math.random() * Math.PI * 2;
       m.scale.setScalar(0.8 + Math.random() * 0.4);
-      m.position.set(roadX(Z_SPAWN) + lane, groundY(Z_SPAWN), Z_SPAWN);
+      m.position.set(roadX(z) + lane, groundY(z), z);
       this.scene.add(m);
-      this.blocks.push({ group: m, z: Z_SPAWN, x: lane, kind: 'soft', active: true, hit: false, flying: false, flyT: 0 });
+      this.blocks.push({ group: m, z, x: lane, kind: 'soft', active: true, hit: false, flying: false, flyT: 0 });
     } else if (this.hardSources.length > 0) {
       // 硬路障：军用路障/废弃车（横在路中，必须绕或硬撞）
       const src = this.hardSources[Math.floor(Math.random() * this.hardSources.length)];
       const m = src.clone();
       const isVehicle = /Object/.test(src.name);
       m.rotation.y = isVehicle ? Math.PI / 2 + rng(-0.3, 0.3) : rng(-0.2, 0.2);
-      m.position.set(roadX(Z_SPAWN) + lane, groundY(Z_SPAWN), Z_SPAWN);
+      m.position.set(roadX(z) + lane, groundY(z), z);
       this.scene.add(m);
-      this.blocks.push({ group: m, z: Z_SPAWN, x: lane, kind: 'hard', active: true, hit: false, flying: false, flyT: 0 });
+      this.blocks.push({ group: m, z, x: lane, kind: 'hard', active: true, hit: false, flying: false, flyT: 0 });
     }
   }
 
@@ -1196,12 +1263,36 @@ export class Drive3D {
     }
     for (const p of this.props) {
       if (p.kind === 'zombie') {
-        p.z += (worldSpeed - p.speed) * dt; // 丧尸朝车走来
-        // 朝车（弯道基线+躲避偏移）横向靠近
         const targetX = this.offsetX + roadX(0);
         const dx = targetX - p.group.position.x;
-        p.group.position.x += Math.sign(dx) * Math.min(Math.abs(dx), worldSpeed * 0.3 * dt);
-        if (p.mixer) p.mixer.update(dt);
+        // 贴近车头：挂在车边啃咬（持续扣耐久；不主动撞飞，直到被玩家碾压）
+        const close = !p.flying && p.z > -10.5 && Math.abs(p.group.position.x - targetX) < 1.4;
+        if (close) {
+          p.attacking = true;
+          p.z = -9; // 挂车边不随世界滚动
+          p.group.position.x = targetX + (p.group.position.x > targetX ? 1.0 : -1.0);
+          p.atkT = (p.atkT ?? 0) + dt;
+          if (p.atkT > 0.8) {
+            p.atkT = 0;
+            Game.damageVehicle(1);
+            this.bump(0.18);
+            if (p.attackClip) {
+              p.walkAction?.stop();
+              p.attackClip.reset().play(); // 播一次攻击
+            }
+          }
+        } else {
+          p.attacking = false;
+          p.z += (worldSpeed - p.speed) * dt; // 世界滚动 + 丧尸主动走向车
+          p.group.position.x += Math.sign(dx) * Math.min(Math.abs(dx), worldSpeed * 0.35 * dt);
+        }
+        if (p.mixer) {
+          // 攻击播完自动恢复走路
+          if (p.attackClip && !p.attackClip.isRunning() && p.walkAction && !p.walkAction.isRunning()) {
+            p.walkAction.play();
+          }
+          p.mixer.update(dt);
+        }
       } else {
         p.z += worldSpeed * dt;
       }
@@ -1227,11 +1318,11 @@ export class Drive3D {
       if (
         p.kind === 'zombie' &&
         !p.flying &&
-        p.z > -3.2 &&
+        p.z > -9.8 &&
         Math.abs(p.group.position.x - (this.offsetX + roadX(0))) < 1.1
       ) {
         this.bump(0.45);
-        Game.zombieHit(Math.round((p.hitDmg ?? 3) * this.speedFactor()));
+        Game.zombieHit(Math.round((p.hitDmg ?? 3) * this.speedFactor() * 0.5));
         p.flying = true;
         this.launch(p.group, 'zombie');
         p.active = false;
@@ -1254,14 +1345,14 @@ export class Drive3D {
         const sf = this.speedFactor();
         if (b.kind === 'soft') {
           // 软路障：撞飞，轻扣耐久（随车速）
-          Game.damageVehicle(Math.round(2 * sf));
+          Game.damageVehicle(Math.round(1.5 * sf));
           this.bump(0.35);
           b.flying = true;
           this.launch(b.group, 'soft');
           b.active = false;
         } else {
           // 硬路障：重扣耐久（随车速）+ 强制减速 + 物理弹开
-          Game.damageVehicle(Math.round(12 * sf));
+          Game.damageVehicle(Math.round(7 * sf));
           this.bump(0.85);
           this.speed = Math.max(this.speed * 0.25, 8);
           b.flying = true;
