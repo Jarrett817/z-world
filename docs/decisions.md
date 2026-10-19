@@ -146,3 +146,11 @@
 3. 章节制发布——一章一国，一章一个版本
 4. UI 即游戏——70% 时间在界面交互，UI 手感决定留存
 5. 纯单机不联网，规避合规成本
+
+### 2026-10-20 手机实测修复（z-world 3D 驾驶版）
+- 丧尸躺着根因：zmb.glb 是爬行丧尸（bbox 高 0.5）+ 单动画 Take 001。替换为 Low Poly Zombie（Idle/Walk/Attack/Death 四动画，Sketchfab free-st 可商用），gltf-transform 压缩 737KB。
+- 丧尸行为：主动走向车 + 贴近后"挂车边啃咬"（z=-9 固定、每 0.8s 扣 1 耐久、攻击动画 LoopOnce），被玩家碾压撞飞（cannon 物理保留）。
+- 生成深度随机化（-260~-120）：丧尸/路障/路边遭遇错落分布，消除"所有东西跟着车"的排队感。
+- 移动端：竖屏 OrientationHint（md 以下显示）；HudBar 窄屏压缩（label 隐藏/间距收紧）；html/body/#root 100dvh 跟随地址栏收展。
+- 引擎选型结论：维持 Three.js 原生 + cannon-es。Babylon.js 换库=Drive3D 全套重写收益≈0；PixiJS 是 2D 渲染不解决 3D；不引入 Unity WebGL（非 JS 工作流）。
+- GitHub CLI 已装（用户目录，PATH 已加），auth 待用户 gh auth login（需 GitHub 授权）；push 已恢复直连成功。
