@@ -58,6 +58,7 @@ export class Drive3D {
   private camChase = new THREE.PerspectiveCamera(55, 1, 0.1, 600);
   private camCockpit = new THREE.PerspectiveCamera(72, 1, 0.1, 600);
   private camRooftop = new THREE.PerspectiveCamera(65, 1, 0.1, 600);
+  private camInterior = new THREE.PerspectiveCamera(60, 1, 0.1, 100); // 车内画中画
   private camMode: CamMode = 'chase';
 
   // 房车
@@ -65,6 +66,8 @@ export class Drive3D {
 
   // 驾驶状态
   private speed = 0;
+  private prevSpeed = 0;
+  private boost = 0; // 推背感：+加速前倾 / -刹车前顶，快起慢落
   private gasHeld = false;
   private brakeHeld = false;
   private steerLeft = false;
@@ -96,6 +99,7 @@ export class Drive3D {
   // HUD（Three 组件内部 DOM，React 只管顶层 UI）
   private telemetryEl: HTMLDivElement;
   private hintEl: HTMLDivElement;
+  private pipEl: HTMLDivElement; // 车内画中画边框
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -130,6 +134,10 @@ export class Drive3D {
     this.hintEl.style.cssText =
       'position:absolute;bottom:18px;left:50%;transform:translateX(-50%);font:13px/1.4 monospace;color:#d4a05a;text-shadow:0 2px 6px rgba(0,0,0,.8);pointer-events:none;z-index:5;white-space:nowrap';
     container.appendChild(this.hintEl);
+    this.pipEl = document.createElement('div');
+    this.pipEl.style.cssText =
+      'position:absolute;top:78px;left:14px;width:230px;height:161px;border:2px solid rgba(232,134,46,.6);border-radius:8px;pointer-events:none;z-index:4;display:none;box-shadow:0 0 12px rgba(0,0,0,.5)';
+    container.appendChild(this.pipEl);
 
     this.buildRoad();
     this.buildSideProps();
@@ -432,8 +440,36 @@ export class Drive3D {
     this.raf = requestAnimationFrame(this.loop);
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.update(dt);
-    this.renderer.render(this.scene, this.activeCam());
+    this.renderScene(dt);
   };
+
+  private renderScene(dt: number): void {
+    const w = this.container.clientWidth || 1280;
+    const h = this.container.clientHeight || 720;
+    const cam = this.activeCam();
+
+    // 主渲染
+    this.renderer.setViewport(0, 0, w, h);
+    this.renderer.setScissorTest(false);
+    this.renderer.render(this.scene, cam);
+
+    // 车内画中画：仅舱内视角时显示（画面顶部左上）
+    if (this.camMode === 'cockpit') {
+      const pw = Math.round(Math.min(230, w * 0.3));
+      const ph = Math.round(pw * 0.7);
+      const px = 14;
+      const py = h - 78 - ph; // 顶部 HudBar 之下
+      this.camInterior.aspect = pw / ph;
+      this.camInterior.updateProjectionMatrix();
+      this.renderer.setViewport(px, py, pw, ph);
+      this.renderer.setScissor(px, py, pw, ph);
+      this.renderer.setScissorTest(true);
+      this.renderer.render(this.scene, this.camInterior);
+      this.renderer.setScissorTest(false);
+      this.renderer.setViewport(0, 0, w, h);
+    }
+    void dt;
+  }
 
   private activeCam(): THREE.PerspectiveCamera {
     if (this.camMode === 'cockpit') return this.camCockpit;
@@ -466,6 +502,14 @@ export class Drive3D {
     else if (this.brakeHeld) this.speed -= brake * dt;
     else this.speed -= DRAG * dt;
     this.speed = Math.max(0, Math.min(maxSpeed, this.speed));
+
+    // 推背感：猛加速→相机后仰下沉+车身前倾（快起慢落）；急刹→反向前顶
+    const accelNow = (this.speed - this.prevSpeed) / Math.max(dt, 0.001); // km/h/s
+    this.prevSpeed = this.speed;
+    if (accelNow > 12) this.boost = Math.min(1, this.boost + dt * 4.5);
+    else if (accelNow < -30) this.boost = Math.max(-0.9, this.boost - dt * 4.5);
+    else this.boost += (0 - this.boost) * (1 - Math.exp(-dt * 1.1));
+    if (this.rv) this.rv.rotation.x = -Math.PI / 2 - this.boost * 0.05;
 
     const worldSpeed = this.speed * KMH_TO_UNITS;
 
@@ -585,15 +629,21 @@ export class Drive3D {
   private updateCameras(dt: number): void {
     const cam = this.activeCam();
     const sx = this.offsetX * 0.85;
+    // 推背滞后：向后下方压（z 增大、y 降低、看向更近地面），模拟坐车被带一下
+    const lz = this.boost * 2.2;
+    const ly = -this.boost * 0.55;
     // 追尾：车后上方，看向车头前方
-    this.camChase.position.set(sx, 5.2, 13.5);
-    this.camChase.lookAt(sx * 0.8, 2.2, -30);
+    this.camChase.position.set(sx, 5.2 + ly, 13.5 + lz);
+    this.camChase.lookAt(sx * 0.8, 2.2 - this.boost * 1.0, -30 - this.boost * 12);
     // 舱内：驾驶舱内（车头 -Z 端、挡风玻璃后）
-    this.camCockpit.position.set(sx * 0.9 + 0.5, 2.3, -3.6);
-    this.camCockpit.lookAt(sx * 0.7, 1.6, -50);
+    this.camCockpit.position.set(sx * 0.9 + 0.5, 2.3 + ly * 0.4, -3.6 + lz * 0.5);
+    this.camCockpit.lookAt(sx * 0.7, 1.6 - this.boost * 0.5, -50 - this.boost * 6);
     // 车顶：车顶上方稍偏后，俯看前方（车顶战斗位）
-    this.camRooftop.position.set(sx * 0.9, 6.4, -0.8);
-    this.camRooftop.lookAt(sx * 0.7, 4.0, -50);
+    this.camRooftop.position.set(sx * 0.9, 6.4 + ly * 0.3, -0.8 + lz * 0.5);
+    this.camRooftop.lookAt(sx * 0.7, 4.0 - this.boost * 0.5, -50 - this.boost * 6);
+    // 车内画中画机位：驾驶舱中部看向车厢后部
+    this.camInterior.position.set(0, 2.4, -2.0);
+    this.camInterior.lookAt(0, 2.3, 6);
 
     // 撞击震屏
     if (this.shakeTime > 0) {
@@ -654,6 +704,7 @@ export class Drive3D {
       ? `${Math.round(this.speed)} km/h · 车况${Math.round(durability)}%`
       : `车况${Math.round(durability)}%`;
     this.hintEl.textContent = `${CAM_HINT[this.camMode]} · ${WEATHER_LABEL[weather]} · 1/2/3 视角，D 油门 A 刹车 Q/E 左右躲避`;
+    this.pipEl.style.display = this.camMode === 'cockpit' ? 'block' : 'none';
   }
 
   dispose(): void {
@@ -663,6 +714,7 @@ export class Drive3D {
     window.removeEventListener('keyup', this.onKeyUp);
     this.telemetryEl.remove();
     this.hintEl.remove();
+    this.pipEl.remove();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement === this.container) {
       this.container.removeChild(this.renderer.domElement);
