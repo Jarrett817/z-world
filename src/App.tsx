@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { createGame } from './game/PhaserGame';
+import { useEffect, useState } from 'react';
+import { Drive3DView } from './game/three/Drive3DView';
 import { HudBar } from './ui/HudBar';
 import { EventDialog } from './ui/EventDialog';
 import { TeamPanel } from './ui/TeamPanel';
@@ -8,19 +8,12 @@ import { RVPanel } from './ui/RVPanel';
 import { RouteChoice } from './ui/RouteChoice';
 
 export function App() {
-  const containerRef = useRef<HTMLDivElement>(null);
   const [showRV, setShowRV] = useState(false);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const game = createGame(containerRef.current);
-    return () => game.destroy(true);
-  }, []);
 
   return (
     <div className="relative h-full w-full">
-      {/* Phaser 画布层 */}
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* Three.js 3D 驾驶画布层 */}
+      <Drive3DView />
       {/* React UI 覆盖层 */}
       <HudBar onOpenRV={() => setShowRV(true)} />
       <EventDialog />
