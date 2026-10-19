@@ -118,6 +118,8 @@ export class Drive3D {
   private sun!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   private headlight!: THREE.SpotLight;
+  private headlightL!: THREE.SpotLight;
+  private carGlow!: THREE.PointLight;
 
   // 遭遇/生成节奏
   private roadTimer = 0;
@@ -156,12 +158,21 @@ export class Drive3D {
     this.scene.add(this.sun);
     this.hemi = new THREE.HemisphereLight(0x8a9aa8, 0x2a2320, 0.55);
     this.scene.add(this.hemi);
-    // 车头灯（夜晚开启）：跟随车头朝前方照射
-    this.headlight = new THREE.SpotLight(0xffe6b8, 0, 120, Math.PI / 5, 0.45, 0.9);
-    this.headlight.position.set(0, 2.4, -6);
-    this.headlight.target.position.set(0, 1.5, -30);
+    // 车头灯（夜晚开启）：双灯更宽更亮，跟随车头朝前方照射
+    this.headlight = new THREE.SpotLight(0xffe6b8, 0, 140, Math.PI / 4.5, 0.55, 0.9);
+    this.headlight.position.set(-1.0, 2.4, -6);
+    this.headlight.target.position.set(-1.0, 1.5, -32);
     this.scene.add(this.headlight);
     this.scene.add(this.headlight.target);
+    this.headlightL = new THREE.SpotLight(0xffe6b8, 0, 140, Math.PI / 4.5, 0.55, 0.9);
+    this.headlightL.position.set(1.1, 2.4, -6);
+    this.headlightL.target.position.set(1.1, 1.5, -32);
+    this.scene.add(this.headlightL);
+    this.scene.add(this.headlightL.target);
+    // 车周补光：夜晚照亮车身周围地面，避免全黑
+    this.carGlow = new THREE.PointLight(0xffd9a0, 0, 32, 1.6);
+    this.carGlow.position.set(0, 2.6, 0);
+    this.scene.add(this.carGlow);
 
     // HUD
     this.telemetryEl = document.createElement('div');
@@ -1007,7 +1018,7 @@ export class Drive3D {
       base = new THREE.Color(0x2a2724);
     }
     const nightMix = Math.max(0, 1 - dayFactor);
-    const tint = base.clone().lerp(new THREE.Color(0x0c0f14), nightMix * 0.75);
+    const tint = base.clone().lerp(new THREE.Color(0x171b22), nightMix * 0.55);
     this.scene.background = tint;
     this.scene.fog = new THREE.Fog(tint, fogNear, fogFar);
 
@@ -1036,20 +1047,28 @@ export class Drive3D {
     this.sun.intensity = dayFactor * 2.2 * dim;
     this.sun.position.set(-20, 40, -30);
 
-    // 环境光：夜晚更冷更暗
-    this.hemi.intensity = 0.15 + dayFactor * 0.4;
-    this.hemi.color.setHSL(0.58, 0.2, 0.42 + dayFactor * 0.18);
-
-    // 车头灯：夜晚开启，跟随车身横向偏移
+    // 环境光：夜晚抬升最低亮度，避免全黑；白天随日升
     const nightOn = hour < 5 || hour >= 20 || dayFactor < 0.35;
-    this.headlight.intensity = nightOn ? 26 : 0;
-    this.headlight.position.x = this.offsetX * 0.9;
-    this.headlight.target.position.x = this.offsetX * 0.9;
+    this.hemi.intensity = nightOn ? 0.3 : 0.15 + dayFactor * 0.4;
+    this.hemi.color.setHSL(0.58, 0.2, nightOn ? 0.5 : 0.42 + dayFactor * 0.18);
+
+    // 车头灯双灯：夜晚开启，跟随车身横向偏移
+    const hx = this.offsetX * 0.9;
+    this.headlight.intensity = nightOn ? 34 : 0;
+    this.headlight.position.x = hx - 1.0;
+    this.headlight.target.position.x = hx - 1.0;
+    this.headlightL.intensity = nightOn ? 34 : 0;
+    this.headlightL.position.x = hx + 1.1;
+    this.headlightL.target.position.x = hx + 1.1;
+
+    // 车周补光：夜晚点亮车身周围
+    this.carGlow.intensity = nightOn ? 7 : 0;
+    this.carGlow.position.x = hx;
 
     // 路灯灯头：夜晚增强
     for (const lamp of this.nightLamps) {
       const m = lamp.material as THREE.MeshStandardMaterial;
-      if (m) m.emissiveIntensity = nightOn ? 3.2 : 0.35;
+      if (m) m.emissiveIntensity = nightOn ? 4 : 0.35;
     }
   }
 
