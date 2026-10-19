@@ -15,7 +15,7 @@ export function DrivePanel() {
   const canRepair = state.repairKit >= 1 && state.durability < 100;
 
   return (
-    <div className="absolute bottom-36 left-1/2 z-20 w-[440px] -translate-x-1/2 rounded-lg border border-[#38bdf8]/35 bg-[#051a2e]/70 p-5 shadow-[0_0_40px_rgba(56,189,248,0.18),0_0_24px_rgba(56,189,248,0.12)_inset] backdrop-blur-xl">
+    <div className="absolute bottom-36 left-1/2 z-20 w-[440px] -translate-x-1/2 rounded-lg border border-[#38bdf8]/35 bg-[#051a2e]/40 p-5 shadow-[0_0_40px_rgba(56,189,248,0.18),0_0_24px_rgba(56,189,248,0.12)_inset] backdrop-blur-xl">
       <div className="mb-3 flex items-center justify-between border-b border-[#38bdf8]/20 pb-2">
         <h3 className="text-lg font-bold text-[#4cc9ff] drop-shadow-[0_0_6px_rgba(76,201,255,0.6)]">房车经营 · 停车中</h3>
         <span className="text-sm text-[#7dd3fc]/80">

@@ -21,7 +21,7 @@ const CAM_HINT: Record<CamMode, string> = {
 };
 
 interface SideObj {
-  group: THREE.Group;
+  group: THREE.Object3D;
   z: number;
   speed: number; // 仅丧尸使用（相对车的前进速度，m/s）
   kind: 'zombie' | 'prop';
@@ -125,6 +125,11 @@ export class Drive3D {
   private moon!: THREE.Mesh;
   private moonLight!: THREE.DirectionalLight;
 
+  // 天空（太阳/云）
+  private sunDisc!: THREE.Mesh;
+  private sunGlow!: THREE.Sprite;
+  private clouds: THREE.Group[] = [];
+
   /** 将对象底部对齐到 y=0（解决 GLB 原点不在底导致的浮空/陷地） */
   private groundToZero(obj: THREE.Object3D): void {
     const box = new THREE.Box3().setFromObject(obj);
@@ -215,6 +220,9 @@ export class Drive3D {
     container.appendChild(this.pipEl);
 
     this.buildRoad();
+    this.buildSky();
+    this.buildMountains();
+    this.buildGrass();
     this.buildSideProps();
     this.buildWeather();
     this.bindInput();
@@ -351,10 +359,10 @@ export class Drive3D {
 
   // ---- 公路骨架（静态） ----
   private buildRoad(): void {
-    // 大地
+    // 大地（末世枯草）
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(400, 900),
-      new THREE.MeshStandardMaterial({ color: 0x191410, roughness: 1 }),
+      new THREE.MeshStandardMaterial({ color: 0x55683e, roughness: 1 }),
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(0, GROUND_Y - 0.02, -200);
@@ -403,6 +411,111 @@ export class Drive3D {
       m.scale.setScalar(rng(0.35, 0.55));
       m.rotation.y = rng(0, Math.PI * 2);
       m.position.set(x, GROUND_Y, z);
+      this.scene.add(m);
+      this.props.push({ group: m, z, speed: 0, kind: 'prop', active: true });
+    }
+  }
+
+  /** 天空：太阳圆盘 + 光晕 + 缓慢漂移的云 */
+  private buildSky(): void {
+    // 太阳
+    this.sunDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(7, 32),
+      new THREE.MeshBasicMaterial({ color: 0xfff3c2, fog: false }),
+    );
+    this.sunDisc.position.set(-58, 68, -210);
+    this.scene.add(this.sunDisc);
+    const glowTex = this.makeGlowTexture();
+    this.sunGlow = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: glowTex,
+        color: 0xffedb0,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+        fog: false,
+      }),
+    );
+    this.sunGlow.scale.set(70, 70, 1);
+    this.sunGlow.position.copy(this.sunDisc.position);
+    this.scene.add(this.sunGlow);
+    // 云（低多边形，缓慢漂移）
+    const cloudMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.85,
+      roughness: 1,
+    });
+    for (let i = 0; i < 3; i++) {
+      const c = new THREE.Group();
+      const n = 3 + Math.floor(Math.random() * 3);
+      for (let j = 0; j < n; j++) {
+        const puff = new THREE.Mesh(new THREE.SphereGeometry(rng(3, 5.5), 8, 6), cloudMat);
+        puff.position.set((j - n / 2) * rng(3.5, 5), rng(-0.5, 0.5), rng(-1.5, 1.5));
+        puff.scale.y = 0.55;
+        c.add(puff);
+      }
+      c.position.set(rng(-80, 80), rng(46, 66), rng(-140, -70));
+      this.scene.add(c);
+      this.clouds.push(c);
+    }
+  }
+
+  /** 径向渐变光晕贴图 */
+  private makeGlowTexture(): THREE.Texture {
+    const size = 128;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = size;
+    const ctx = cv.getContext('2d')!;
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, 'rgba(255,244,200,0.95)');
+    g.addColorStop(0.3, 'rgba(255,240,190,0.5)');
+    g.addColorStop(1, 'rgba(255,235,180,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    return new THREE.CanvasTexture(cv);
+  }
+
+  /** 远景山脉带：两侧灰蓝低多边形山，随世界滚动循环 */
+  private buildMountains(): void {
+    const mats = [
+      new THREE.MeshStandardMaterial({ color: 0x6a6e7a, roughness: 1, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0x545968, roughness: 1, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0x7a7d86, roughness: 1, flatShading: true }),
+    ];
+    for (let i = 0; i < 9; i++) {
+      const side = i % 2 === 0 ? 1 : -1;
+      const x = side * rng(58, 112);
+      const z = Z_SPAWN + i * 52;
+      const h = rng(16, 34);
+      const m = new THREE.Mesh(
+        new THREE.ConeGeometry(rng(10, 20), h, 6),
+        mats[i % mats.length],
+      );
+      m.position.set(x, GROUND_Y + h / 2 - 0.8, z);
+      m.rotation.y = rng(0, Math.PI * 2);
+      this.scene.add(m);
+      this.props.push({ group: m, z, speed: 0, kind: 'prop', active: true });
+    }
+  }
+
+  /** 两侧枯草簇（末世草地质感） */
+  private buildGrass(): void {
+    const mats = [
+      new THREE.MeshStandardMaterial({ color: 0x5c6b46, roughness: 1, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0x4a5538, roughness: 1, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0x6b7a52, roughness: 1, flatShading: true }),
+    ];
+    for (let i = 0; i < 46; i++) {
+      const side = Math.random() > 0.5 ? 1 : -1;
+      const x = side * rng(ROAD_HALF + 0.9, ROAD_HALF + 30);
+      const z = rng(Z_SPAWN, Z_LOOP - 10);
+      const h = rng(0.25, 0.7);
+      const m = new THREE.Mesh(
+        new THREE.ConeGeometry(rng(0.16, 0.34), h, 5),
+        mats[i % mats.length],
+      );
+      m.position.set(x, GROUND_Y + h / 2, z);
       this.scene.add(m);
       this.props.push({ group: m, z, speed: 0, kind: 'prop', active: true });
     }
@@ -853,6 +966,11 @@ export class Drive3D {
     const worldSpeed = this.speed * KMH_TO_UNITS;
 
     // 世界滚动：虚线 + 路边元素
+    // 云缓慢漂移
+    for (const c of this.clouds) {
+      c.position.x += dt * 0.8;
+      if (c.position.x > 120) c.position.x = -120;
+    }
     for (const d of this.dashes) {
       d.position.z += worldSpeed * dt;
       if (d.position.z > Z_LOOP) d.position.z -= 300;
@@ -1060,22 +1178,22 @@ export class Drive3D {
   private renderWeather(weather: Weather, dt: number, dayFactor: number): void {
     // 天气基调 + 昼夜调制背景与雾（白天基调够亮，夜晚经 lerp 变暗）
     let base: THREE.Color;
-    let fogNear = 40;
-    let fogFar = 260;
+    let fogNear = 70;
+    let fogFar = 420;
     if (weather === 'fog') {
-      base = new THREE.Color(0x6b5f52);
-      fogNear = 18;
-      fogFar = 120;
+      base = new THREE.Color(0x7a828c);
+      fogNear = 24;
+      fogFar = 150;
     } else if (weather === 'rain') {
-      base = new THREE.Color(0x44525a);
-      fogNear = 30;
-      fogFar = 200;
+      base = new THREE.Color(0x56606a);
+      fogNear = 40;
+      fogFar = 220;
     } else if (weather === 'snow') {
-      base = new THREE.Color(0x505a66);
-      fogNear = 30;
-      fogFar = 190;
+      base = new THREE.Color(0x5e6a78);
+      fogNear = 40;
+      fogFar = 210;
     } else {
-      base = new THREE.Color(0x6b5f52);
+      base = new THREE.Color(0x80868f);
     }
     const nightMix = Math.max(0, 1 - dayFactor);
     const tint = base.clone().lerp(new THREE.Color(0x171b22), nightMix * 0.6);
@@ -1128,6 +1246,18 @@ export class Drive3D {
     // 月亮与月光：夜晚可见，冷白月光补足夜色
     this.moon.visible = nightOn;
     this.moonLight.intensity = nightOn ? 0.4 : 0;
+
+    // 太阳/云：白天可见，黄昏渐隐
+    const sunVis = Math.max(0, dayFactor - 0.06);
+    this.sunDisc.visible = sunVis > 0;
+    this.sunGlow.visible = sunVis > 0;
+    this.sunGlow.material.opacity = 0.95 * sunVis;
+    for (const c of this.clouds) {
+      const first = c.children[0] as THREE.Mesh;
+      if (first && (first.material as THREE.MeshStandardMaterial)) {
+        (first.material as THREE.MeshStandardMaterial).opacity = 0.18 + 0.68 * dayFactor;
+      }
+    }
 
     // 路灯灯头：夜晚增强
     for (const lamp of this.nightLamps) {
