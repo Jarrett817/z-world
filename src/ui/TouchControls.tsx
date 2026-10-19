@@ -71,7 +71,7 @@ export function TouchControls() {
   if (state.phase !== 'driving') return null;
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 md:hidden">
+    <div className="pointer-events-none absolute inset-0 z-20 hidden pointer-coarse:block">
       {/* 左下：油门 / 刹车 */}
       <div className="absolute bottom-6 left-4 flex gap-3">
         <HoldBtn label="油门" k="d" />

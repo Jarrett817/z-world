@@ -101,6 +101,7 @@ export class Drive3D {
   private camCockpit = new THREE.PerspectiveCamera(72, 1, 0.1, 600);
   private camRooftop = new THREE.PerspectiveCamera(65, 1, 0.1, 600);
   private camInterior = new THREE.PerspectiveCamera(60, 1, 0.1, 100); // 车内画中画
+  private baseFov = 55; // 当前视角基准 FOV（竖屏加宽后恢复用）
   private camMode: CamMode = 'chase';
 
   // 主循环/光照
@@ -1153,6 +1154,8 @@ export class Drive3D {
 
   private setCam(mode: CamMode): void {
     this.camMode = mode;
+    // 记录该视角的基准 FOV（竖屏加宽后恢复用）
+    this.baseFov = mode === 'cockpit' ? 72 : mode === 'rooftop' ? 65 : 55;
   }
 
   // ---- 主循环 ----
@@ -1516,8 +1519,12 @@ export class Drive3D {
 
     const w = this.container.clientWidth || 1280;
     const h = this.container.clientHeight || 720;
-    if (cam.aspect !== w / h) {
-      cam.aspect = w / h;
+    const aspect = w / h;
+    if (cam.aspect !== aspect) {
+      // 竖屏（窄视口）自动加宽垂直 FOV，保证整车完整可见，不会"竖起来"占满画面
+      if (aspect < 0.85) cam.fov = 55 + (0.85 - aspect) * 65;
+      else if (cam.fov !== this.baseFov) cam.fov = this.baseFov;
+      cam.aspect = aspect;
       cam.updateProjectionMatrix();
     }
     if (this.renderer.domElement.width !== w) {
