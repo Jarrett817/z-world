@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "cannon-es": "^0.20.0",
     "lucide-react": "^1.59.0",
     "motion": "^14.3.0",
     "react": "^19.3.1",
