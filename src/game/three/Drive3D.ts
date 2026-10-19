@@ -304,6 +304,7 @@ export class Drive3D {
     this.buildMountains();
     this.buildGrass();
     this.buildSideProps();
+    this.buildGroundDetail();
     this.buildWeather();
     this.bindInput();
   }
@@ -738,25 +739,70 @@ export class Drive3D {
   }
 
   /** 远景山脉带：两侧灰蓝低多边形山，随世界滚动循环 */
+  /** 山体：远层山脊（蓝灰）+ 近层山体（土黄/灰），多段起伏、高低错落，不再是单排金字塔 */
   private buildMountains(): void {
-    const mats = [
-      new THREE.MeshStandardMaterial({ color: 0x6a6e7a, roughness: 1, flatShading: true }),
-      new THREE.MeshStandardMaterial({ color: 0x545968, roughness: 1, flatShading: true }),
-      new THREE.MeshStandardMaterial({ color: 0x7a7d86, roughness: 1, flatShading: true }),
-    ];
-    for (let i = 0; i < 9; i++) {
+    const mkRange = (base: number) => {
+      const m = new THREE.MeshStandardMaterial({ color: base, roughness: 1, flatShading: true });
+      return m;
+    };
+    const farMats = [mkRange(0x5a6072), mkRange(0x4a5060), mkRange(0x666c7d)];
+    const nearMats = [mkRange(0x6f5b42), mkRange(0x58503c), mkRange(0x4f4435), mkRange(0x7a6a52)];
+    // 远层：低而长的山脊（大锥压扁横放 + 峰）
+    for (let i = 0; i < 14; i++) {
       const side = i % 2 === 0 ? 1 : -1;
-      const x = side * rng(58, 112);
-      const z = Z_SPAWN + i * 52;
-      const h = rng(16, 34);
-      const m = new THREE.Mesh(
-        new THREE.ConeGeometry(rng(10, 20), h, 6),
-        mats[i % mats.length],
+      const z = Z_SPAWN + 40 + i * 38 + rng(-8, 8);
+      const x = side * rng(95, 170);
+      const h = rng(9, 18);
+      const ridge = new THREE.Mesh(
+        new THREE.ConeGeometry(rng(26, 46), h, 7),
+        farMats[i % farMats.length],
       );
-      m.position.set(x, groundY(z) + h / 2 - 0.8, z);
-      m.rotation.y = rng(0, Math.PI * 2);
-      this.scene.add(m);
-      this.props.push({ group: m, z, speed: 0, kind: 'prop', active: true, yOff: h / 2 - 0.8 });
+      ridge.scale.z = rng(1.4, 2.4);
+      ridge.position.set(x, groundY(z) + h / 2 - 1.6, z);
+      ridge.rotation.y = rng(-0.5, 0.5);
+      this.scene.add(ridge);
+      this.props.push({ group: ridge, z, speed: 0, kind: 'prop', active: true, yOff: h / 2 - 1.6 });
+      // 山脊上的峰
+      const peakH = h * rng(0.5, 0.8);
+      const peak = new THREE.Mesh(
+        new THREE.ConeGeometry(rng(8, 14), peakH, 6),
+        farMats[(i + 1) % farMats.length],
+      );
+      peak.position.set(x + rng(-8, 8), groundY(z) + peakH / 2 - 0.8, z + rng(-10, 10));
+      this.scene.add(peak);
+      this.props.push({ group: peak, z, speed: 0, kind: 'prop', active: true, yOff: peakH / 2 - 0.8 });
+    }
+    // 近层：高而陡的山体，颜色偏土黄（更靠路、更有压迫感）
+    for (let i = 0; i < 10; i++) {
+      const side = i % 2 === 0 ? 1 : -1;
+      const z = Z_SPAWN + 60 + i * 46 + rng(-6, 6);
+      const x = side * rng(62, 105);
+      const h = rng(22, 40);
+      const body = new THREE.Mesh(
+        new THREE.ConeGeometry(rng(18, 30), h, 7),
+        nearMats[i % nearMats.length],
+      );
+      body.scale.z = rng(1.1, 1.8);
+      body.position.set(x, groundY(z) + h / 2 - 0.6, z);
+      body.rotation.y = rng(-0.6, 0.6);
+      this.scene.add(body);
+      this.props.push({ group: body, z, speed: 0, kind: 'prop', active: true, yOff: h / 2 - 0.6 });
+      // 山脚散落巨岩（衔接地面，消除"浮锥"感）
+      for (let r = 0; r < 3; r++) {
+        const rock = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(rng(1.5, 3.6), 1),
+          nearMats[(i + 1) % nearMats.length],
+        );
+        const rz = z + rng(-14, 6);
+        rock.position.set(
+          Math.sign(x) * rng(48, 70),
+          groundY(rz) + rng(0.6, 1.6),
+          rz,
+        );
+        rock.scale.y = 0.6;
+        this.scene.add(rock);
+        this.props.push({ group: rock, z: rz, speed: 0, kind: 'prop', active: true, yOff: rng(0.6, 1.6) });
+      }
     }
   }
 
@@ -784,7 +830,7 @@ export class Drive3D {
 
   // ---- 路边元素 + 丧尸池 ----
   private buildSideProps(): void {
-    for (let i = 0; i < 26; i++) {
+    for (let i = 0; i < 70; i++) {
       const side = Math.random() > 0.5 ? 1 : -1;
       const x = side * rng(ROAD_HALF + 2, ROAD_HALF + 34);
       const z = rng(Z_SPAWN, Z_LOOP - 10);
@@ -792,6 +838,19 @@ export class Drive3D {
       g.position.set(x, groundY(z), z);
       this.scene.add(g);
       this.props.push({ group: g, z, speed: 0, kind: 'prop', active: true, yOff: 0 });
+      // 约 1/4 成组：旁边再散落 2-3 个小件（油桶/碎块），像被遗弃的杂物堆
+      if (Math.random() < 0.25) {
+        const n = 2 + Math.floor(Math.random() * 2);
+        for (let j = 0; j < n; j++) {
+          const small = this.makeProp(x);
+          const oz = z + rng(-4, 4);
+          small.position.set(x + rng(-6, 6), groundY(oz), oz);
+          small.scale.setScalar(rng(0.4, 0.8));
+          small.rotation.y = rng(0, Math.PI);
+          this.scene.add(small);
+          this.props.push({ group: small, z: oz, speed: 0, kind: 'prop', active: true, yOff: 0 });
+        }
+      }
     }
   }
 
@@ -855,7 +914,7 @@ export class Drive3D {
       lamp.position.set(Math.sign(x) * -1.5, 4.2, 0);
       g.add(lamp);
       this.nightLamps.push(lamp);
-    } else if (roll < 0.9) {
+    } else if (roll < 0.72) {
       // 广告牌：立柱 + 残旧灯箱面板
       const pole = new THREE.Mesh(
         new THREE.CylinderGeometry(0.09, 0.12, 3.2, 6),
@@ -881,22 +940,170 @@ export class Drive3D {
       glow.position.set(0, 3.1, Math.sign(x) * 0.08);
       glow.rotation.y = 0;
       g.add(glow);
-    } else {
-      // 集装箱：锈蚀箱体 + 顶部细节
-      const box = new THREE.Mesh(
-        new THREE.BoxGeometry(rng(3.5, 4.5), 2.2, 2),
-        new THREE.MeshStandardMaterial({ color: Math.random() > 0.5 ? 0x5a4a2e : 0x4a5a6b, roughness: 1 }),
+    } else if (roll < 0.82) {
+      // 油桶堆：锈蚀铁桶 2-3 个 + 细管
+      const n = 2 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < n; i++) {
+        const barrel = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.45, 0.45, 1.1, 10),
+          new THREE.MeshStandardMaterial({
+            color: Math.random() > 0.5 ? 0x6b4a2c : 0x5a6a3a,
+            roughness: 0.9,
+            metalness: 0.25,
+          }),
+        );
+        barrel.position.set(rng(-0.8, 0.8), i === 0 ? 0.55 : 1.35, rng(-0.6, 0.6));
+        barrel.rotation.y = rng(0, Math.PI);
+        barrel.rotation.z = i === 1 ? rng(-0.25, 0.25) : 0;
+        g.add(barrel);
+      }
+      const leak = new THREE.Mesh(
+        new THREE.BoxGeometry(0.06, 0.06, 1.2),
+        new THREE.MeshStandardMaterial({ color: 0x3a3526, roughness: 1 }),
       );
-      box.position.y = 1.1;
-      g.add(box);
-      const rib = new THREE.Mesh(
-        new THREE.BoxGeometry(3.5, 0.12, 0.14),
+      leak.position.set(rng(-0.5, 0.5), 0.1, 0);
+      leak.rotation.z = rng(-0.4, 0.4);
+      g.add(leak);
+    } else if (roll < 0.91) {
+      // 废弃车辆残骸：压扁车壳 + 轮子，末世车祸现场
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(rng(3, 4.2), 1.0, rng(1.6, 2)),
+        new THREE.MeshStandardMaterial({ color: Math.random() > 0.5 ? 0x5a4632 : 0x463a30, roughness: 1, metalness: 0.15 }),
+      );
+      body.position.y = 0.85;
+      body.rotation.y = rng(0, Math.PI);
+      body.rotation.z = rng(-0.18, 0.18);
+      body.scale.y = 0.55; // 压扁
+      g.add(body);
+      const cabin = new THREE.Mesh(
+        new THREE.BoxGeometry(rng(1.6, 2.2), 0.7, 1.3),
+        new THREE.MeshStandardMaterial({ color: 0x4a5a66, roughness: 1 }),
+      );
+      cabin.position.set(rng(-0.4, 0.4), 1.35, 0);
+      cabin.rotation.y = rng(-0.3, 0.3);
+      g.add(cabin);
+      for (let w = 0; w < 4; w++) {
+        const tire = new THREE.Mesh(
+          new THREE.TorusGeometry(0.42, 0.16, 6, 10),
+          new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 1 }),
+        );
+        tire.position.set(rng(-1.6, 1.6), 0.42, w % 2 === 0 ? -0.85 : 0.85);
+        tire.rotation.x = Math.PI / 2;
+        g.add(tire);
+      }
+    } else {
+      // 轮胎堆：3-4 个轮胎叠放 + 散落碎块
+      const n = 3 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < n; i++) {
+        const tire = new THREE.Mesh(
+          new THREE.TorusGeometry(0.5, 0.18, 6, 10),
+          new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 1 }),
+        );
+        tire.position.set(rng(-0.7, 0.7), 0.32 + i * 0.34, rng(-0.5, 0.5));
+        tire.rotation.set(rng(-0.3, 0.3), rng(0, Math.PI), Math.PI / 2);
+        g.add(tire);
+      }
+      const debris = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(0.22, 0),
         new THREE.MeshStandardMaterial({ color: 0x3a3026, roughness: 1 }),
       );
-      rib.position.y = 0.35;
-      g.add(rib);
+      debris.position.set(rng(-1.2, 1.2), 0.15, rng(-1.2, 1.2));
+      g.add(debris);
     }
     return g;
+  }
+
+  /** 路面与路肩细节：裂缝、血迹、散落碎物——地面不再干净得不像末世 */
+  private buildGroundDetail(): void {
+    // 裂缝：深色细长条，贴路面边缘
+    for (let i = 0; i < 28; i++) {
+      const side = Math.random() > 0.5 ? 1 : -1;
+      const x = side * rng(ROAD_HALF - 1.5, ROAD_HALF + 3.5);
+      const z = rng(Z_SPAWN, Z_LOOP - 10);
+      const len = rng(1.2, 3.4);
+      const crack = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.12, len),
+        new THREE.MeshStandardMaterial({
+          color: 0x151210,
+          roughness: 1,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+        }),
+      );
+      crack.position.set(x, groundY(z) + 0.03, z);
+      crack.rotation.set(-Math.PI / 2, 0, rng(0, Math.PI));
+      crack.scale.x = rng(0.6, 1.6);
+      this.scene.add(crack);
+      this.props.push({ group: crack, z, speed: 0, kind: 'prop', active: true, yOff: 0.03 });
+    }
+    // 血迹：暗红干涸污渍（不规则圆片），路面/路肩
+    for (let i = 0; i < 16; i++) {
+      const side = Math.random() > 0.5 ? 1 : -1;
+      const x = side * rng(1.5, ROAD_HALF + 4);
+      const z = rng(Z_SPAWN, Z_LOOP - 10);
+      const s = rng(0.5, 1.6);
+      const stain = new THREE.Mesh(
+        new THREE.CircleGeometry(1, 8),
+        new THREE.MeshStandardMaterial({
+          color: 0x3a1515,
+          roughness: 0.95,
+          transparent: true,
+          opacity: 0.85,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+        }),
+      );
+      stain.position.set(x, groundY(z) + 0.02, z);
+      stain.rotation.set(-Math.PI / 2, 0, rng(0, Math.PI));
+      stain.scale.set(s * rng(1, 1.8), s * rng(0.6, 1.2), 1);
+      this.scene.add(stain);
+      this.props.push({ group: stain, z, speed: 0, kind: 'prop', active: true, yOff: 0.02 });
+    }
+    // 散落碎物：破纸箱/玻璃渣/铁片（小盒+片）
+    for (let i = 0; i < 22; i++) {
+      const side = Math.random() > 0.5 ? 1 : -1;
+      const x = side * rng(ROAD_HALF + 0.8, ROAD_HALF + 12);
+      const z = rng(Z_SPAWN, Z_LOOP - 10);
+      const g = new THREE.Group();
+      const n = 1 + Math.floor(Math.random() * 3);
+      for (let j = 0; j < n; j++) {
+        const kind = Math.random();
+        if (kind < 0.4) {
+          const box = new THREE.Mesh(
+            new THREE.BoxGeometry(rng(0.2, 0.5), rng(0.1, 0.3), rng(0.2, 0.5)),
+            new THREE.MeshStandardMaterial({ color: Math.random() > 0.5 ? 0x4a3a28 : 0x6a5a3a, roughness: 1 }),
+          );
+          box.position.set(rng(-0.6, 0.6), rng(0.06, 0.16), rng(-0.6, 0.6));
+          box.rotation.y = rng(0, Math.PI);
+          g.add(box);
+        } else if (kind < 0.7) {
+          const shard = new THREE.Mesh(
+            new THREE.CircleGeometry(rng(0.15, 0.4), 5),
+            new THREE.MeshStandardMaterial({
+              color: 0x9aa4ad,
+              roughness: 0.2,
+              metalness: 0.4,
+              transparent: true,
+              opacity: 0.75,
+            }),
+          );
+          shard.position.set(rng(-0.6, 0.6), 0.04, rng(-0.6, 0.6));
+          shard.rotation.set(Math.PI / 2, 0, rng(0, Math.PI));
+          g.add(shard);
+        } else {
+          const strip = new THREE.Mesh(
+            new THREE.BoxGeometry(rng(0.06, 0.16), 0.03, rng(0.4, 0.9)),
+            new THREE.MeshStandardMaterial({ color: 0x6b4a2c, roughness: 0.7, metalness: 0.5 }),
+          );
+          strip.position.set(rng(-0.6, 0.6), 0.04, rng(-0.6, 0.6));
+          strip.rotation.y = rng(0, Math.PI);
+          g.add(strip);
+        }
+      }
+      g.position.set(x, groundY(z), z);
+      this.scene.add(g);
+      this.props.push({ group: g, z, speed: 0, kind: 'prop', active: true, yOff: 0 });
+    }
   }
 
   private spawnZombie(): void {
@@ -906,8 +1113,8 @@ export class Drive3D {
     const side = Math.random() > 0.5 ? 1 : -1;
     const lane = side * (Math.random() * 3 + 2);
     const g = this.zombieSource.clone(true);
-    // 生成在车前方可见范围：丧尸自己走/跑向车（不走 -260 深处排队）
-    const z = rng(-95, -35);
+    // 生成在车前方视野内：丧尸自己走/跑向车，停车时也能明显看到它们逼近
+    const z = rng(-60, -22);
     g.position.set(roadX(z) + lane, groundY(z), z);
     const roll = Math.random();
     g.rotation.y = roll > 0.5 ? Math.PI : 0; // 面朝车
@@ -929,7 +1136,7 @@ export class Drive3D {
     this.props.push({
       group: g,
       z,
-      speed: (4 + Math.random() * 2.6) * (1 + level * 0.12), // 自己走/跑向车（明显可见）
+      speed: (5 + Math.random() * 3) * (1 + level * 0.12), // 小跑逼近，停车时肉眼可见
       kind: 'zombie',
       active: true,
       mixer,
@@ -1155,6 +1362,9 @@ export class Drive3D {
 
   private setCam(mode: CamMode): void {
     this.camMode = mode;
+    // 舱内视角：实心车壳会挡住视线，隐藏车体（挡风玻璃/仪表盘由 React 层 CockpitOverlay 叠加）
+    if (this.rv) this.rv.visible = mode !== 'cockpit';
+    window.dispatchEvent(new CustomEvent('zcam', { detail: mode }));
     // 记录该视角的基准 FOV（竖屏加宽后恢复用）
     this.baseFov = mode === 'cockpit' ? 72 : mode === 'rooftop' ? 65 : 55;
   }
@@ -1498,18 +1708,18 @@ export class Drive3D {
     // 推背滞后：向后下方压（z 增大、y 降低、看向更近地面），模拟坐车被带一下
     const lz = this.boost * 2.2;
     const ly = -this.boost * 0.55;
-    // 追尾：车后上方，看向车头前方
-    this.camChase.position.set(sx, 5.2 + ly, 13.5 + lz);
-    this.camChase.lookAt(sx * 0.8, 2.2 - this.boost * 1.0, -30 - this.boost * 12);
-    // 舱内：驾驶舱内（车头 -Z 端、挡风玻璃后）
-    this.camCockpit.position.set(sx * 0.9 + 0.5, 2.3 + ly * 0.4, -3.6 + lz * 0.5);
-    this.camCockpit.lookAt(sx * 0.7, 1.6 - this.boost * 0.5, -50 - this.boost * 6);
+    // 追尾：车后稍上方平视（不再高高俯瞰），看向车头前方路面
+    this.camChase.position.set(sx, 3.4 + ly, 13.5 + lz);
+    this.camChase.lookAt(sx * 0.8, 1.1 - this.boost * 1.0, -30 - this.boost * 12);
+    // 舱内：驾驶舱内坐姿（车体隐藏，由 UI 挡风框补视觉），平视前方路面
+    this.camCockpit.position.set(sx * 0.6, GROUND_Y + 0.55 + ly * 0.4, -3.0 + lz * 0.5);
+    this.camCockpit.lookAt(sx * 0.5, GROUND_Y + 1.1 - this.boost * 0.5, -60 - this.boost * 6);
     // 车顶：车顶上方稍偏后，俯看前方（车顶战斗位）
-    this.camRooftop.position.set(sx * 0.9, 6.4 + ly * 0.3, -0.8 + lz * 0.5);
-    this.camRooftop.lookAt(sx * 0.7, 4.0 - this.boost * 0.5, -50 - this.boost * 6);
-    // 车内画中画机位：驾驶舱中部看向车厢后部
-    this.camInterior.position.set(0, 2.4, -2.0);
-    this.camInterior.lookAt(0, 2.3, 6);
+    this.camRooftop.position.set(sx * 0.9, 6.6 + ly * 0.3, -0.8 + lz * 0.5);
+    this.camRooftop.lookAt(sx * 0.7, 2.6 - this.boost * 0.5, -50 - this.boost * 6);
+    // 车内画中画机位：车右后方（模拟车内屏幕的后视画面，不依赖内饰模型）
+    this.camInterior.position.set(sx, 2.0, 9);
+    this.camInterior.lookAt(sx * 0.8, 1.0, -12);
 
     // 撞击震屏
     if (this.shakeTime > 0) {

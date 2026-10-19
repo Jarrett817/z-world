@@ -10,6 +10,7 @@ import { DeathScreen } from './ui/DeathScreen';
 import { DrivePanel } from './ui/DrivePanel';
 import { TouchControls } from './ui/TouchControls';
 import { OrientationHint } from './ui/OrientationHint';
+import { CockpitOverlay } from './ui/CockpitOverlay';
 
 export function App() {
   const [showRV, setShowRV] = useState(false);
@@ -25,6 +26,7 @@ export function App() {
       <RouteChoice />
       <DrivePanel />
       <TouchControls />
+      <CockpitOverlay />
       <OrientationHint />
       {showRV && <RVPanel onClose={() => setShowRV(false)} />}
       <ProfessionSelect />
