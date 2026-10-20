@@ -60,6 +60,9 @@ var weather := "clear"
 var weather_timer := 45.0
 var view_mode := 0   # 0 追尾 / 1 驾驶舱 / 2 车内
 var _c_down := false
+var parked := false
+var _f_down := false
+var _starving := false
 var survivors_data := {}
 var crew_members: Array = []
 var crew_figures: Array = []
@@ -107,6 +110,11 @@ func _process(delta: float) -> void:
 	if pressed and not _c_down:
 		view_mode = (view_mode + 1) % 3
 	_c_down = pressed
+	# 驻车休整（F 开关）
+	var f := Input.is_physical_key_pressed(KEY_F)
+	if f and not _f_down and not game_over:
+		_toggle_park()
+	_f_down = f
 	# 车内视角隐藏整车外壳，避免 GLB 车体从内部遮挡视野
 	rv_model.visible = view_mode == 0
 	if view_mode == 1:
@@ -114,8 +122,8 @@ func _process(delta: float) -> void:
 		cam.look_at(rv.to_global(Vector3(-0.55, 0.9, -30.0)))
 		cam.fov = 72.0
 	elif view_mode == 2:
-		cam.global_position = rv.to_global(Vector3(-0.55, 1.5, -2.6))
-		cam.look_at(rv.to_global(Vector3(0.35, 0.85, 2.6)))
+		cam.global_position = rv.to_global(Vector3(-0.55, 1.72, -2.4))
+		cam.look_at(rv.to_global(Vector3(0.25, 0.9, 2.6)))
 		cam.fov = 78.0
 		_animate_crew(delta)
 	else:
@@ -134,24 +142,56 @@ func _process(delta: float) -> void:
 func add_trauma(amount: float) -> void:
 	trauma = minf(1.0, trauma + amount)
 
+## 驻车休整：全员检修，消耗食物，时间快进；再按 F 出发
+func _toggle_park() -> void:
+	if not parked:
+		if rv.speed_kmh > 6.0:
+			hud.toast("车速降到 6 km/h 以下才能驻车")
+			return
+		parked = true
+		rv.parked = true
+		rv.speed_kmh = 0.0
+		view_mode = 2
+		_starving = false
+		hud.toast("驻车休整 · 队友开始检修（F 出发）")
+	else:
+		parked = false
+		rv.parked = false
+		view_mode = 0
+		hud.toast("出发")
+
 # ---------- 数值 ----------
 func _update_resources(delta: float) -> void:
 	var z := rv.global_position.z
 	dist_km += (last_z - z) / 1440.0
 	last_z = z
-	# 燃料（陈默·驾驶：油耗 -25%）
-	if rv.speed_kmh > 1.0:
-		var burn: float = rv.speed_kmh * delta * 0.0022
-		if _has_passive("chen_mo"):
-			burn *= 0.75
-		fuel = maxf(0.0, fuel - burn)
-	rv.engine_dead = fuel <= 0.0
-	# 队友修车（林晚·急救：额外 +0.35/s）
-	if rv.speed_kmh > 5.0 and durability < 100.0:
-		var repair := crew * 0.12
-		if _has_passive("lin_wan"):
-			repair += 0.35
-		durability = minf(100.0, durability + repair * delta)
+	if parked:
+		# 驻车休整：全员检修（2.5 倍速度），持续消耗食物
+		if food > 0.0:
+			food = maxf(0.0, food - delta * 0.1)
+			_starving = false
+			if durability < 100.0:
+				var rate := crew * 0.12
+				if _has_passive("lin_wan"):
+					rate += 0.35
+				durability = minf(100.0, durability + rate * 2.5 * delta)
+		elif not _starving:
+			_starving = true
+			hud.toast("食物耗尽，检修停摆")
+	else:
+		# 燃料（陈默·驾驶：油耗 -25%）
+		if rv.speed_kmh > 1.0:
+			var burn: float = rv.speed_kmh * delta * 0.0022
+			if _has_passive("chen_mo"):
+				burn *= 0.75
+			fuel = maxf(0.0, fuel - burn)
+		rv.engine_dead = fuel <= 0.0
+		# 队友修车（林晚·急救：额外 +0.35/s）
+		if rv.speed_kmh > 5.0 and durability < 100.0:
+			var repair := crew * 0.12
+			if _has_passive("lin_wan"):
+				repair += 0.35
+			durability = minf(100.0, durability + repair * delta)
 	hud.update_stats(self)
 	if durability <= 0.0:
 		_do_game_over()
@@ -195,7 +235,7 @@ func _build_sky() -> void:
 	add_child(sun)
 
 func _update_time(delta: float) -> void:
-	hour += delta * 0.05
+	hour += delta * (0.4 if parked else 0.05)
 	if hour >= 24.0:
 		hour -= 24.0
 		day += 1
@@ -318,6 +358,25 @@ func _build_interior() -> void:
 	for sx in [-1.3, 1.3]:
 		_interior_box(Vector3(0.08, 1.1, 7.3), Vector3(sx, 0.3, -0.75), shell)
 		_interior_box(Vector3(0.12, 2.6, 0.14), Vector3(sx, 1.0, -4.15), shell)
+		# 温室上沿压条 + 纵向窗框，把开放式侧壁读作一排车窗
+		_interior_box(Vector3(0.09, 0.16, 7.3), Vector3(sx, 2.02, -0.75), shell)
+		for wz in [-3.3, -1.9, -0.5, 0.9, 2.3]:
+			_interior_box(Vector3(0.09, 1.17, 0.09), Vector3(sx, 1.44, wz), shell)
+	# 侧窗玻璃：低饱和灰蓝薄雾，让车厢有封闭感
+	var glass := StandardMaterial3D.new()
+	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass.albedo_color = Color(0.45, 0.55, 0.62, 0.16)
+	glass.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	glass.cull_mode = BaseMaterial3D.CULL_DISABLED
+	for sx in [-1.3, 1.3]:
+		var g := MeshInstance3D.new()
+		var q := QuadMesh.new()
+		q.size = Vector2(7.0, 1.06)
+		g.mesh = q
+		g.material_override = glass
+		g.position = Vector3(sx, 1.4, -0.75)
+		g.rotation.y = PI * 0.5
+		rv.add_child(g)
 	# 驾驶舱：仪表台 / 台面 / 挡风上沿 / 后视镜
 	_interior_box(Vector3(2.6, 0.55, 0.7), Vector3(0, 0.28, -3.72), shell)
 	_interior_box(Vector3(2.55, 0.06, 0.75), Vector3(0, 0.575, -3.7), pad)
@@ -418,22 +477,23 @@ func _make_crew_figure(idx: int) -> Node3D:
 	body.add_child(head)
 	var cap := MeshInstance3D.new()
 	var cap_mesh := SphereMesh.new()
-	cap_mesh.radius = 0.165
-	cap_mesh.height = 0.3
+	cap_mesh.radius = 0.162
+	cap_mesh.height = 0.22
 	cap_mesh.is_hemisphere = true
 	cap.mesh = cap_mesh
 	cap.material_override = hair
-	cap.position = Vector3(0, 1.72, 0.01)
+	cap.position = Vector3(0, 1.75, 0.01)
 	body.add_child(cap)
 	# 头顶名牌：名字 · 专长
 	var lb := Label3D.new()
 	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	lb.font = crew_font
-	lb.font_size = 30
-	lb.pixel_size = 0.0025
-	lb.outline_size = 8
-	lb.modulate = Color(1.0, 0.86, 0.66)
-	lb.position = Vector3(0, 2.2, 0)
+	lb.font_size = 26
+	lb.pixel_size = 0.0022
+	lb.outline_size = 10
+	lb.no_depth_test = true
+	lb.modulate = Color(1.0, 0.93, 0.84)
+	lb.position = Vector3(0, 2.06, 0)
 	root.add_child(lb)
 	root.set_meta("body", body)
 	root.set_meta("arms", arms)

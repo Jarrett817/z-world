@@ -50,7 +50,7 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 切换视角 · Tab 队伍 · 光柱 = 幸存者", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 切换视角 · F 驻车休整 · Tab 队伍 · 光柱 = 幸存者", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	hint.offset_left = -560
 	hint.offset_right = -14
@@ -185,7 +185,7 @@ func update_stats(main: Node3D) -> void:
 	res_label.text = "食物 %d · 队伍 %d 人" % [int(main.food), main.crew]
 	var h := int(main.hour)
 	var m := int((main.hour - h) * 60.0)
-	info_label.text = "里程 %.1f km · 第 %d 天 %02d:%02d" % [main.dist_km, main.day, h, m]
+	info_label.text = "里程 %.1f km · 第 %d 天 %02d:%02d%s" % [main.dist_km, main.day, h, m, " · 驻车中" if main.parked else ""]
 
 func set_weather(w: String) -> void:
 	weather_label.text = "天气 " + {"clear": "晴", "rain": "雨", "fog": "雾"}.get(w, "晴")

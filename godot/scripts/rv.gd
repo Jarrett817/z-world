@@ -9,6 +9,7 @@ const KMH_TO_UNITS := 0.4
 
 var speed_kmh := 0.0
 var engine_dead := false
+var parked := false
 var touch_gas := false
 var touch_brake := false
 var touch_steer := 0.0   # -1 右 / +1 左
@@ -18,6 +19,14 @@ func _ready() -> void:
 	main_node = get_parent()
 
 func _physics_process(delta: float) -> void:
+	if parked:
+		speed_kmh = 0.0
+		velocity = Vector3.ZERO
+		move_and_slide()
+		position.y = main_node.ground_y(position.z) + main_node.RV_MODEL_FOOT
+		rotation.x = lerpf(rotation.x, 0.0, delta * 3.0)
+		rotation.z = lerpf(rotation.z, 0.0, delta * 4.0)
+		return
 	var gas := touch_gas or Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP)
 	var brake := touch_brake or Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN)
 	var steer_in := clampf(touch_steer + _key_steer(), -1.0, 1.0)
