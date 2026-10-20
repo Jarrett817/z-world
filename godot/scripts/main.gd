@@ -74,6 +74,7 @@ var parked := false
 var _f_down := false
 var _starving := false
 var _low_morale_warned := false
+var ark_spawned := false
 var survivors_data := {}
 var crew_members: Array = []
 var crew_figures: Array = []
@@ -114,6 +115,10 @@ func _physics_process(delta: float) -> void:
 	_update_zombies(delta)
 	_update_frontier()
 	_recycle_world()
+	# 终点前 8km 方舟营地进入视野
+	if not ark_spawned and dist_km >= GOAL_KM - 8.0:
+		ark_spawned = true
+		_spawn_ark_camp()
 	hit_cd = maxf(0.0, hit_cd - delta)
 	bite_cd = maxf(0.0, bite_cd - delta)
 
@@ -764,6 +769,10 @@ func _build_hud() -> void:
 # ---------- 丧尸 ----------
 func _update_zombies(delta: float) -> void:
 	zombie_timer -= delta
+	# 最后 1.5km 进入方舟防区，不再刷怪
+	if dist_km >= GOAL_KM - 1.5:
+		zombie_timer = 2.0
+		return
 	if zombie_timer <= 0.0 and zombies.size() < 22:
 		var difficulty: float = clampf(dist_km * 0.8 + (rv.speed_kmh / MAX_KMH) * 1.5, 0.0, 2.8)
 		zombie_timer = clampf(2.6 - difficulty * 0.8, 0.8, 2.6)
@@ -819,16 +828,30 @@ func zombie_bite() -> void:
 # ---------- 前方内容生成 ----------
 func _update_frontier() -> void:
 	var rvz := rv.global_position.z
+	# 方舟防区（最后约 1km）保持道路通畅，不刷障碍/物资/幸存者
+	var safe_z := rvz - (GOAL_KM - dist_km) * KMH_FACTOR + 250.0
 	while obs_z > rvz - VIEW_AHEAD:
+		if obs_z < safe_z:
+			obs_z = safe_z - 1.0
+			break
 		_spawn_obstacle(obs_z)
 		obs_z -= randf_range(32.0, 68.0)
 	while pick_z > rvz - VIEW_AHEAD:
+		if pick_z < safe_z:
+			pick_z = safe_z - 1.0
+			break
 		_spawn_pickup(pick_z)
 		pick_z -= randf_range(30.0, 70.0)
 	while surv_z > rvz - VIEW_AHEAD:
+		if surv_z < safe_z:
+			surv_z = safe_z - 1.0
+			break
 		_spawn_survivor(surv_z)
 		surv_z -= randf_range(250.0, 450.0)
 	while lamp_z > rvz - VIEW_AHEAD:
+		if lamp_z < safe_z:
+			lamp_z = safe_z - 1.0
+			break
 		_spawn_lamp(lamp_z)
 		lamp_z -= 55.0
 	# 清理身后
@@ -1100,6 +1123,248 @@ func _spawn_initial_scenery() -> void:
 		add_child(blades)
 		props.append(blades)
 
+# ---------- 方舟集结点（终点营地） ----------
+## 车接近 680km 终点时一次性生成：钢制大门、哨塔、围墙、帐篷、灯海、人群
+## 大门锚定 680km 对应世界坐标：营地在 672km 时生成（灯海先进入视野），680km 时大门恰在车前 40m
+func _spawn_ark_camp() -> void:
+	var remain_world := (GOAL_KM - dist_km) * KMH_FACTOR
+	var gate_z := rv.global_position.z - remain_world + 40.0
+	var gy := ground_y(gate_z)
+	var camp := Node3D.new()
+	camp.name = "ArkCamp"
+	camp.position = Vector3(0.0, 0.0, gate_z)
+	add_child(camp)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 680
+
+	var steel := _mat(Color(0.32, 0.33, 0.34))
+	steel.metallic = 0.6
+	steel.roughness = 0.45
+	var dark_steel := _mat(Color(0.2, 0.2, 0.21))
+	dark_steel.metallic = 0.5
+	var concrete := _mat(Color(0.42, 0.4, 0.36))
+	var canvas_olive := _mat(Color(0.27, 0.3, 0.22))
+	var canvas_sand := _mat(Color(0.36, 0.32, 0.24))
+
+	# 硬化空地（大门内侧）
+	var pad_mi := MeshInstance3D.new()
+	var padm := PlaneMesh.new()
+	padm.size = Vector2(90.0, 120.0)
+	pad_mi.mesh = padm
+	pad_mi.rotation.x = -PI * 0.5
+	pad_mi.position = Vector3(0.0, ground_y(gate_z - 60.0) + 0.02, -60.0)
+	pad_mi.material_override = _mat(Color(0.22, 0.21, 0.19))
+	camp.add_child(pad_mi)
+
+	# 发光材质（灯光）
+	var warm_glow := _emis_mat(Color(1.0, 0.78, 0.42), 2.2)
+
+	# 门柱（2）
+	for sx in [-6.0, 6.0]:
+		var post := MeshInstance3D.new()
+		var pm2 := BoxMesh.new()
+		pm2.size = Vector3(1.6, 8.0, 1.6)
+		post.mesh = pm2
+		post.position = Vector3(sx, gy + 4.0, 0.0)
+		post.material_override = concrete
+		camp.add_child(post)
+		var cap := MeshInstance3D.new()
+		var capm := BoxMesh.new()
+		capm.size = Vector3(2.2, 0.6, 2.2)
+		cap.mesh = capm
+		cap.position = Vector3(sx, gy + 8.3, 0.0)
+		cap.material_override = dark_steel
+		camp.add_child(cap)
+		# 柱顶灯
+		var lamp := MeshInstance3D.new()
+		lamp.mesh = SphereMesh.new()
+		lamp.mesh.radius = 0.35
+		lamp.mesh.height = 0.7
+		lamp.position = Vector3(sx, gy + 8.7, 0.0)
+		lamp.material_override = warm_glow
+		camp.add_child(lamp)
+		var pl := OmniLight3D.new()
+		pl.light_color = Color(1.0, 0.8, 0.5)
+		pl.light_energy = 3.0
+		pl.omni_range = 22.0
+		pl.position = lamp.position
+		camp.add_child(pl)
+
+	# 钢制大门两扇（向外侧敞开）
+	for sx in [-1.0, 1.0]:
+		var pivot := Node3D.new()
+		pivot.position = Vector3(sx * 5.2, gy, 0.0)
+		pivot.rotation.y = sx * 1.15
+		camp.add_child(pivot)
+		var leaf := MeshInstance3D.new()
+		var lm := BoxMesh.new()
+		lm.size = Vector3(4.4, 5.6, 0.28)
+		leaf.mesh = lm
+		leaf.position.x = sx * 2.2
+		leaf.position.y = 2.8
+		leaf.material_override = steel
+		pivot.add_child(leaf)
+		for by in [-1.6, 0.0, 1.6]:
+			var bar := MeshInstance3D.new()
+			var bm2 := BoxMesh.new()
+			bm2.size = Vector3(4.2, 0.18, 0.4)
+			bar.mesh = bm2
+			bar.position = Vector3(sx * 2.2, 2.8 + by, 0.05)
+			bar.material_override = dark_steel
+			pivot.add_child(bar)
+
+	# 横梁 + 方舟标识牌
+	var beam := MeshInstance3D.new()
+	var beamm := BoxMesh.new()
+	beamm.size = Vector3(15.0, 1.4, 1.0)
+	beam.mesh = beamm
+	beam.position = Vector3(0.0, gy + 8.6, 0.0)
+	beam.material_override = steel
+	camp.add_child(beam)
+	var sign := Label3D.new()
+	sign.text = "方舟集结点"
+	sign.font_size = 96
+	sign.pixel_size = 0.009
+	sign.outline_size = 12
+	sign.outline_modulate = Color(0.1, 0.06, 0.02)
+	sign.modulate = Color(1.0, 0.82, 0.45)
+	sign.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	sign.position = Vector3(0.0, gy + 8.6, 0.55)
+	camp.add_child(sign)
+
+	# 围墙：集装箱墙向两侧延伸
+	for k in range(7):
+		var ox := 11.0 + k * 7.2
+		for sx in [-1.0, 1.0]:
+			var box := MeshInstance3D.new()
+			var bxm := BoxMesh.new()
+			bxm.size = Vector3(7.0, 3.0, 2.8)
+			box.mesh = bxm
+			var ccol := Color(0.28, 0.3, 0.26) if k % 2 == 0 else Color(0.24, 0.26, 0.28)
+			box.material_override = _mat(ccol)
+			box.position = Vector3(sx * ox, gy + 1.5, (2.0 if k % 2 == 0 else -2.0))
+			camp.add_child(box)
+
+	# 哨塔（2 座）
+	for sx in [-14.0, 14.0]:
+		var tg := Node3D.new()
+		tg.position = Vector3(sx, gy, -4.0)
+		camp.add_child(tg)
+		for lx in [-1.0, 1.0]:
+			for lz in [-1.0, 1.0]:
+				var leg := MeshInstance3D.new()
+				var legm := BoxMesh.new()
+				legm.size = Vector3(0.22, 7.0, 0.22)
+				leg.mesh = legm
+				leg.position = Vector3(lx, 3.5, lz)
+				leg.material_override = dark_steel
+				tg.add_child(leg)
+		var deck := MeshInstance3D.new()
+		var dm := BoxMesh.new()
+		dm.size = Vector3(3.0, 0.3, 3.0)
+		deck.mesh = dm
+		deck.position.y = 7.1
+		deck.material_override = steel
+		tg.add_child(deck)
+		var hut := MeshInstance3D.new()
+		var htm := BoxMesh.new()
+		htm.size = Vector3(2.6, 1.8, 2.6)
+		hut.mesh = htm
+		hut.position.y = 8.15
+		hut.material_override = canvas_olive
+		tg.add_child(hut)
+		var tlamp := MeshInstance3D.new()
+		tlamp.mesh = SphereMesh.new()
+		tlamp.mesh.radius = 0.3
+		tlamp.mesh.height = 0.6
+		tlamp.position = Vector3(0.0, 9.3, 0.0)
+		tlamp.material_override = warm_glow
+		tg.add_child(tlamp)
+		var tl := SpotLight3D.new()
+		tl.light_color = Color(1.0, 0.82, 0.55)
+		tl.light_energy = 4.0
+		tl.spot_range = 40.0
+		tl.spot_angle = 40.0
+		tl.position = Vector3(0.0, 9.0, 0.0)
+		tl.rotation_degrees = Vector3(-25, -sx * 1.5, 0)
+		tg.add_child(tl)
+
+	# 帐篷群（两列排布）：底箱 + 双人字斜面顶
+	for i in range(12):
+		var col_i := i % 2
+		var row_i := i / 2
+		var tz := -24.0 - row_i * 9.0
+		var t := Node3D.new()
+		t.position = Vector3(-9.0 + col_i * 18.0, ground_y(gate_z + tz), tz)
+		camp.add_child(t)
+		var tmat: StandardMaterial3D = canvas_olive if i % 2 == 0 else canvas_sand
+		var body := MeshInstance3D.new()
+		var bodym := BoxMesh.new()
+		bodym.size = Vector3(3.6, 1.5, 4.4)
+		body.mesh = bodym
+		body.position.y = 0.75
+		body.material_override = tmat
+		t.add_child(body)
+		for rs in [-1.0, 1.0]:
+			var roof := MeshInstance3D.new()
+			var rm := BoxMesh.new()
+			rm.size = Vector3(2.25, 0.12, 4.7)
+			roof.mesh = rm
+			roof.position = Vector3(rs * 0.95, 1.95, 0.0)
+			roof.rotation.z = rs * -0.62
+			roof.material_override = tmat
+			t.add_child(roof)
+		# 帐篷前暖光
+		var tl2 := OmniLight3D.new()
+		tl2.light_color = Color(1.0, 0.72, 0.4)
+		tl2.light_energy = 1.1
+		tl2.omni_range = 7.0
+		tl2.position = Vector3(0.0, 1.4, 2.8)
+		t.add_child(tl2)
+
+	# 灯海：大门两侧纵深散布的暖光点
+	for i in range(46):
+		var side: float = -1.0 if i % 2 == 0 else 1.0
+		var lx := side * rng.randf_range(10.0, 46.0)
+		var lz := -rng.randf_range(6.0, 115.0)
+		var bulb := MeshInstance3D.new()
+		bulb.mesh = SphereMesh.new()
+		bulb.mesh.radius = 0.22
+		bulb.mesh.height = 0.44
+		bulb.position = Vector3(lx, ground_y(gate_z + lz) + rng.randf_range(1.6, 3.2), lz)
+		bulb.material_override = warm_glow
+		camp.add_child(bulb)
+
+	# 人群：大门两侧聚集的人影（剪影胶囊）
+	var person_col := Color(0.12, 0.11, 0.1)
+	for i in range(22):
+		var p := MeshInstance3D.new()
+		var pm3 := CapsuleMesh.new()
+		pm3.radius = 0.28
+		pm3.height = 1.7
+		p.mesh = pm3
+		p.material_override = _mat(person_col)
+		var side: float = -1.0 if i % 2 == 0 else 1.0
+		p.position = Vector3(side * rng.randf_range(7.5, 13.0), gy + 0.85, rng.randf_range(-6.0, 10.0))
+		p.rotation.y = rng.randf_range(0.0, TAU)
+		camp.add_child(p)
+
+	# 篝火（大门内侧正中）
+	var fire := MeshInstance3D.new()
+	fire.mesh = CylinderMesh.new()
+	fire.mesh.top_radius = 0.5
+	fire.mesh.bottom_radius = 0.6
+	fire.mesh.height = 0.5
+	fire.position = Vector3(0.0, ground_y(gate_z - 14.0) + 0.25, -14.0)
+	fire.material_override = _emis_mat(Color(1.0, 0.5, 0.15), 3.0)
+	camp.add_child(fire)
+	var fl := OmniLight3D.new()
+	fl.light_color = Color(1.0, 0.55, 0.2)
+	fl.light_energy = 2.4
+	fl.omni_range = 14.0
+	fl.position = fire.position + Vector3(0.0, 1.2, 0.0)
+	camp.add_child(fl)
+
 func _make_scenery(z: float) -> Node3D:
 	var root := Node3D.new()
 	var side := 1.0 if randf() > 0.5 else -1.0
@@ -1209,6 +1474,16 @@ func _mat(col: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = col
 	m.roughness = 1.0
+	return m
+
+## 自发光材质（营灯/篝火）
+func _emis_mat(col: Color, energy: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	m.emission_enabled = true
+	m.emission = col
+	m.emission_energy_multiplier = energy
+	m.roughness = 0.6
 	return m
 
 # ---------- 地形函数（全场景共享） ----------
