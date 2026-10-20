@@ -46,7 +46,7 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 或按钮驾驶 · 光柱 = 幸存者 · 补给箱自动拾取", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 切换视角 · 光柱 = 幸存者 · 补给箱自动拾取", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	hint.offset_left = -560
 	hint.offset_right = -14

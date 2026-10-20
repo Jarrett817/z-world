@@ -23,6 +23,7 @@ const VIEW_BEHIND := 40.0
 const RV_MODEL_FOOT := 1.557   # GLB 轮底到模型原点的距离
 
 var rv: CharacterBody3D
+var rv_model: Node3D
 var cam: Camera3D
 var sun: DirectionalLight3D
 var sky_mat: ProceduralSkyMaterial
@@ -56,6 +57,8 @@ var last_z := 0.0
 var cam_pos: Vector3
 var weather := "clear"
 var weather_timer := 45.0
+var cockpit_mode := false
+var _c_down := false
 
 func _ready() -> void:
 	_build_sky()
@@ -84,9 +87,21 @@ func _physics_process(delta: float) -> void:
 	hit_cd = maxf(0.0, hit_cd - delta)
 	bite_cd = maxf(0.0, bite_cd - delta)
 
-# ---------- 相机（追尾 + 震屏） ----------
+# ---------- 相机（追尾 + 震屏 / 舱内） ----------
 func _process(delta: float) -> void:
 	if rv == null:
+		return
+	var pressed := Input.is_physical_key_pressed(KEY_C)
+	if pressed and not _c_down:
+		cockpit_mode = not cockpit_mode
+	_c_down = pressed
+	# 舱内视角隐藏整车外壳，避免 GLB 车体从内部遮挡视野
+	rv_model.visible = not cockpit_mode
+	if cockpit_mode:
+		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -1.9))
+		cam.look_at(rv.to_global(Vector3(-0.55, 0.9, -30.0)))
+		cam.fov = 72.0
+		trauma = maxf(0.0, trauma - delta * 1.4)
 		return
 	var target := rv.global_position + Vector3(0, 3.5, 11.0)
 	cam_pos = cam_pos.lerp(target, 1.0 - exp(-5.0 * delta))
@@ -249,9 +264,9 @@ func _build_rv() -> void:
 	col.shape = box
 	col.position = Vector3(0, 0.4, 0)
 	rv.add_child(col)
-	var model := RV_SCENE.instantiate()
-	model.rotation.y = PI   # GLB 车头朝 +Z，翻转对齐行进方向 -Z
-	rv.add_child(model)
+	rv_model = RV_SCENE.instantiate()
+	rv_model.rotation.y = PI   # GLB 车头朝 +Z，翻转对齐行进方向 -Z
+	rv.add_child(rv_model)
 	rv.position = Vector3(0, GROUND_Y + RV_MODEL_FOOT, 0)
 	headlight = SpotLight3D.new()
 	headlight.light_color = Color(1.0, 0.93, 0.78)
@@ -262,7 +277,66 @@ func _build_rv() -> void:
 	headlight.position = Vector3(0, 2.1, -4.4)
 	headlight.rotation_degrees = Vector3(-11, 0, 0)
 	rv.add_child(headlight)
+	_build_interior()
 	add_child(rv)
+
+## 舱内视角用的简易内饰（仪表台/方向盘/座椅/A 柱/侧窗台/顶棚）
+func _build_interior() -> void:
+	var shell := _mat(Color(0.18, 0.17, 0.15))
+	var pad := _mat(Color(0.26, 0.22, 0.19))
+	var seat := _mat(Color(0.32, 0.25, 0.2))
+	_interior_box(Vector3(2.7, 0.1, 7.5), Vector3(0, -0.45, -0.9), shell)       # 地板
+	_interior_box(Vector3(2.6, 0.55, 0.7), Vector3(0, 0.28, -3.72), shell)       # 仪表台
+	_interior_box(Vector3(2.55, 0.06, 0.75), Vector3(0, 0.575, -3.7), pad)       # 台面
+	for sx in [-1.3, 1.3]:
+		_interior_box(Vector3(0.08, 1.1, 2.4), Vector3(sx, 0.3, -2.9), shell)    # 侧窗台（保留侧窗视野）
+		_interior_box(Vector3(0.12, 2.6, 0.14), Vector3(sx, 1.0, -4.15), shell)   # A 柱
+	_interior_box(Vector3(2.7, 0.1, 2.6), Vector3(0, 2.2, -2.95), shell)        # 顶棚
+	_interior_box(Vector3(2.6, 0.14, 0.16), Vector3(0, 2.03, -4.2), shell)       # 挡风上沿
+	_interior_box(Vector3(0.34, 0.08, 0.09), Vector3(0, 1.94, -4.02), pad)       # 后视镜
+	for sx in [-0.55, 0.55]:
+		_interior_box(Vector3(0.52, 0.14, 0.55), Vector3(sx, 0.05, -1.5), seat)
+		_interior_box(Vector3(0.52, 0.66, 0.14), Vector3(sx, 0.38, -1.16), seat)
+	# 方向盘：竖直面朝驾驶者，略向后倾
+	var wheel := MeshInstance3D.new()
+	var tor := TorusMesh.new()
+	tor.inner_radius = 0.18
+	tor.outer_radius = 0.245
+	wheel.mesh = tor
+	wheel.material_override = pad
+	wheel.position = Vector3(-0.55, 0.78, -3.2)
+	wheel.rotation.x = -PI * 0.5 + 0.28
+	rv.add_child(wheel)
+	# 仪表遮光罩 + 暖色仪表光条
+	_interior_box(Vector3(0.62, 0.16, 0.12), Vector3(-0.55, 0.7, -3.5), shell)
+	var gauge := MeshInstance3D.new()
+	var gm := BoxMesh.new()
+	gm.size = Vector3(0.34, 0.03, 0.02)
+	gauge.mesh = gm
+	var gmat := StandardMaterial3D.new()
+	gmat.albedo_color = Color(0.9, 0.55, 0.2)
+	gmat.emission_enabled = true
+	gmat.emission = Color(1.0, 0.55, 0.18)
+	gmat.emission_energy_multiplier = 1.0
+	gauge.material_override = gmat
+	gauge.position = Vector3(-0.55, 0.72, -3.43)
+	rv.add_child(gauge)
+	# 舱内暖色小灯：夜间/雾天也能看清仪表台
+	var cab_light := OmniLight3D.new()
+	cab_light.light_color = Color(1.0, 0.82, 0.6)
+	cab_light.light_energy = 2.2
+	cab_light.omni_range = 5.0
+	cab_light.position = Vector3(0, 1.45, -1.4)
+	rv.add_child(cab_light)
+
+func _interior_box(size: Vector3, pos: Vector3, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.position = pos
+	mi.material_override = mat
+	rv.add_child(mi)
 
 func _build_camera() -> void:
 	cam = Camera3D.new()
