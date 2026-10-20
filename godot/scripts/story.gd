@@ -109,6 +109,9 @@ func choose(idx: int) -> void:
 	active = false
 	main.story_active = false
 	main.hud.update_stats(main)
+	# 终章选项：驶入方舟
+	if opt.get("win", false):
+		main._do_win()
 
 func _apply(fx: Dictionary) -> void:
 	if fx.has("dur"):

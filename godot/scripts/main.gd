@@ -17,6 +17,8 @@ const SURVIVOR_SCRIPT := preload("res://scripts/survivor.gd")
 const STORY_SCRIPT := preload("res://scripts/story.gd")
 
 const GROUND_Y := -1.56
+const KMH_FACTOR := 250.0   # 世界米 → 里程公里（1440 旧值，调快后一局实际驾驶 ~15 分钟走完序章的 680km 目标）
+const GOAL_KM := 680.0      # 方舟集结点里程，抵达触发终章
 const ROAD_HALF := 7.0
 const MAX_KMH := 140.0
 const VIEW_AHEAD := 260.0
@@ -47,6 +49,7 @@ var dist_km := 0.0
 var day := 1
 var hour := 9.0
 var game_over := false
+var won := false
 
 var zombies: Array = []
 var props: Array = []
@@ -70,6 +73,7 @@ var _c_down := false
 var parked := false
 var _f_down := false
 var _starving := false
+var _low_morale_warned := false
 var survivors_data := {}
 var crew_members: Array = []
 var crew_figures: Array = []
@@ -181,37 +185,54 @@ func _toggle_park() -> void:
 		hud.toast("出发")
 
 # ---------- 数值 ----------
+## 士气系数：50 为中轴，高士气增益、低士气惩罚（0.8 ~ 1.2）
+func morale_factor() -> float:
+	return clampf(1.0 + (morale - 50.0) / 250.0, 0.8, 1.2)
+
 func _update_resources(delta: float) -> void:
 	var z := rv.global_position.z
-	dist_km += (last_z - z) / 1440.0
+	dist_km += (last_z - z) / KMH_FACTOR
 	last_z = z
 	if parked:
-		# 驻车休整：全员检修（2.5 倍速度），持续消耗食物
+		# 驻车休整：全员检修（2.5 倍速度），持续消耗食物；吃饱时士气回升
 		if food > 0.0:
 			food = maxf(0.0, food - delta * 0.1)
 			_starving = false
+			morale = minf(100.0, morale + delta * 0.6)
 			if durability < 100.0:
 				var rate := crew * 0.12
 				if _has_passive("lin_wan"):
 					rate += 0.35
-				durability = minf(100.0, durability + rate * 2.5 * delta)
-		elif not _starving:
-			_starving = true
-			hud.toast("食物耗尽，检修停摆")
+				durability = minf(100.0, durability + rate * 2.5 * morale_factor() * delta)
+		else:
+			morale = maxf(0.0, morale - delta * 0.8)
+			if not _starving:
+				_starving = true
+				hud.toast("食物耗尽，检修停摆")
 	else:
-		# 燃料（陈默·驾驶：油耗 -25%）
+		# 行驶中的精神消耗：缓慢但持续，事件与驻车是主要士气来源
+		if rv.speed_kmh > 1.0:
+			morale = maxf(0.0, morale - delta * 0.05)
+		# 燃料（陈默·驾驶：油耗 -25%；高士气开车更稳更省）
 		if rv.speed_kmh > 1.0:
 			var burn: float = rv.speed_kmh * delta * 0.0022
 			if _has_passive("chen_mo"):
 				burn *= 0.75
+			burn *= 2.0 - morale_factor()
 			fuel = maxf(0.0, fuel - burn)
 		rv.engine_dead = fuel <= 0.0
-		# 队友修车（林晚·急救：额外 +0.35/s）
+		# 队友修车（林晚·急救：额外 +0.35/s；士气影响干劲）
 		if rv.speed_kmh > 5.0 and durability < 100.0:
 			var repair := crew * 0.12
 			if _has_passive("lin_wan"):
 				repair += 0.35
-			durability = minf(100.0, durability + repair * delta)
+			durability = minf(100.0, durability + repair * morale_factor() * delta)
+	# 低士气一次性警告（士气回升到 40 以上后可再次触发）
+	if morale < 25.0 and not _low_morale_warned:
+		_low_morale_warned = true
+		hud.toast("士气低落：队伍沉默寡言，操作开始走形")
+	elif morale >= 40.0:
+		_low_morale_warned = false
 	hud.update_stats(self)
 	if durability <= 0.0:
 		_do_game_over()
@@ -221,6 +242,13 @@ func _do_game_over() -> void:
 	rv.engine_dead = true
 	trauma = 1.0
 	hud.show_game_over(self)
+
+## 抵达 680km 方舟集结点：通关
+func _do_win() -> void:
+	game_over = true
+	won = true
+	rv.engine_dead = true
+	hud.show_victory(self)
 
 # ---------- 昼夜 ----------
 func _build_sky() -> void:
@@ -782,6 +810,8 @@ func zombie_bite() -> void:
 	var bite := 1.0 + minf(dist_km / 2.0, 3.0)
 	if _has_passive("tang_tang"):
 		bite *= 0.6
+	# 低士气时反应迟钝，咬伤更重；高士气时配合更默契
+	bite *= 2.0 - morale_factor()
 	durability = maxf(0.0, durability - bite)
 	add_trauma(0.12)
 	hud.update_stats(self)

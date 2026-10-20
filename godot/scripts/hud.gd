@@ -17,6 +17,8 @@ var fuel_fill: ColorRect
 var toast_label: Label
 var over_root: ColorRect
 var over_stats: Label
+var victory_root: ColorRect
+var victory_stats: Label
 var crew_panel: Panel
 var crew_rows: VBoxContainer
 var crew_visible := false
@@ -157,6 +159,34 @@ func build(rv_node: Node) -> void:
 	retry.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(retry)
 	root.add_child(over_root)
+
+	# 通关遮罩（隐藏）：暖金色调
+	victory_root = ColorRect.new()
+	victory_root.color = Color(0.08, 0.05, 0.01, 0.88)
+	victory_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	victory_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	victory_root.visible = false
+	var vcc := CenterContainer.new()
+	vcc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vcc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	victory_root.add_child(vcc)
+	var vvb := VBoxContainer.new()
+	vvb.alignment = BoxContainer.ALIGNMENT_CENTER
+	vvb.add_theme_constant_override("separation", 14)
+	vcc.add_child(vvb)
+	var vtitle := _label("抵达方舟", 46, Color("f0c060"))
+	vtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vvb.add_child(vtitle)
+	var vsub := _label("钢制大门在身后合拢，680 公里的狂奔终于结束", 20, TEXT_DIM)
+	vsub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vvb.add_child(vsub)
+	victory_stats = _label("", 22, TEXT_MAIN)
+	victory_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vvb.add_child(victory_stats)
+	var vretry := _label("按 R 重新出发", 24, TEXT_MAIN)
+	vretry.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vvb.add_child(vretry)
+	root.add_child(victory_root)
 
 	_build_story(root)
 
@@ -365,6 +395,10 @@ func toast(msg: String) -> void:
 func show_game_over(main: Node3D) -> void:
 	over_stats.text = "存活 %d 天 · 里程 %.1f km · 队伍 %d 人" % [main.day, main.dist_km, main.crew]
 	over_root.visible = true
+
+func show_victory(main: Node3D) -> void:
+	victory_stats.text = "用时 %d 天 · 里程 %.1f km · 队伍 %d 人 · 最终士气 %.0f" % [main.day, main.dist_km, main.crew, main.morale]
+	victory_root.visible = true
 
 # ---------- 控件工厂 ----------
 func _panel(pos: Vector2, size: Vector2) -> Panel:
