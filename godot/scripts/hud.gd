@@ -93,6 +93,8 @@ func build(rv_node: Node) -> void:
 	_touch_button(root, "刹车", Control.PRESET_BOTTOM_RIGHT, Rect2(-352, -118, 156, 98), "brake")
 	_touch_button(root, "左", Control.PRESET_BOTTOM_LEFT, Rect2(20, -118, 130, 98), "left")
 	_touch_button(root, "右", Control.PRESET_BOTTOM_LEFT, Rect2(170, -118, 130, 98), "right")
+	_touch_button(root, "视角", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -222, 78, 56), "view")
+	_touch_button(root, "驻车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -222, 78, 56), "park")
 
 	# 队伍面板（Tab 开关）
 	crew_panel = _panel(Vector2.ZERO, Vector2.ZERO)
@@ -280,6 +282,12 @@ func _on_btn_down(action: String) -> void:
 		"brake": rv.touch_brake = true
 		"left": rv.touch_steer = 1.0
 		"right": rv.touch_steer = -1.0
+		"view":
+			if rv.main_node != null:
+				rv.main_node.view_mode = (rv.main_node.view_mode + 1) % 3
+		"park":
+			if rv.main_node != null:
+				rv.main_node._toggle_park()
 
 func _on_btn_up(action: String) -> void:
 	match action:

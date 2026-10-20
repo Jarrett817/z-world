@@ -58,6 +58,9 @@ var last_z := 0.0
 var cam_pos: Vector3
 var weather := "clear"
 var weather_timer := 45.0
+var lamp_mat: StandardMaterial3D
+var lamp_z := -30.0
+var lamp_side := 1.0
 var view_mode := 0   # 0 追尾 / 1 驾驶舱 / 2 车内
 var _c_down := false
 var parked := false
@@ -213,19 +216,19 @@ func _build_sky() -> void:
 	sky_mat.sun_curve = 0.12
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 1.0
-	env.fog_enabled = true
-	env.fog_light_color = Color(0.52, 0.55, 0.58)
-	env.fog_density = 0.0036
-	env.fog_sky_affect = 0.35
-	env.glow_enabled = true
-	env.glow_intensity = 0.4
-	self.env = env
-	get_viewport().world_3d.environment = env
+	var environment := Environment.new()
+	environment.background_mode = Environment.BG_SKY
+	environment.sky = sky
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	environment.ambient_light_energy = 1.0
+	environment.fog_enabled = true
+	environment.fog_light_color = Color(0.52, 0.55, 0.58)
+	environment.fog_density = 0.0036
+	environment.fog_sky_affect = 0.35
+	environment.glow_enabled = true
+	environment.glow_intensity = 0.4
+	self.env = environment
+	get_viewport().world_3d.environment = environment
 	sun = DirectionalLight3D.new()
 	sun.light_color = Color(1.0, 0.95, 0.88)
 	sun.light_energy = 1.35
@@ -233,6 +236,12 @@ func _build_sky() -> void:
 	sun.directional_shadow_max_distance = 140.0
 	sun.rotation_degrees = Vector3(-42, 24, 0)
 	add_child(sun)
+	# 路灯灯头共享材质：夜间开自发光，靠 glow 发亮，不用真实光源
+	lamp_mat = StandardMaterial3D.new()
+	lamp_mat.albedo_color = Color(0.25, 0.22, 0.18)
+	lamp_mat.emission_enabled = true
+	lamp_mat.emission = Color(1.0, 0.72, 0.38)
+	lamp_mat.emission_energy_multiplier = 0.0
 
 func _update_time(delta: float) -> void:
 	hour += delta * (0.4 if parked else 0.05)
@@ -274,6 +283,7 @@ func _update_sun() -> void:
 	# 夜间/雾天自动开灯
 	var dark := deg > -15.0 or deg < -165.0
 	headlight.light_energy = 11.0 if dark or weather == "fog" else (2.6 if weather == "rain" else 0.0)
+	lamp_mat.emission_energy_multiplier = 3.2 if dark else (1.2 if weather != "clear" else 0.0)
 	if dark:
 		# 夜色：雾色压暗，改用月光色环境光保证剪影可辨
 		env.fog_light_color = Color(0.07, 0.09, 0.13)
@@ -435,30 +445,37 @@ func _build_crew() -> void:
 	crew_font = SystemFont.new()
 	crew_font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "sans-serif"])
 	var stations := [
-		[Vector3(-0.55, -0.4, -0.1), PI * 0.5],
-		[Vector3(0.55, -0.4, 0.4), -PI * 0.5],
-		[Vector3(0.15, -0.4, 2.05), 0.0],
-		[Vector3(-0.85, -0.4, 2.05), -PI * 0.5],
+		[Vector3(0.55, -0.28, -1.45), PI, true],   # 副驾（坐姿，首位队友）
+		[Vector3(-0.55, -0.4, -0.1), PI * 0.5, false],
+		[Vector3(0.55, -0.4, 0.4), -PI * 0.5, false],
+		[Vector3(0.15, -0.4, 2.05), 0.0, false],
+		[Vector3(-0.85, -0.4, 2.05), -PI * 0.5, false],
 	]
 	for i in stations.size():
-		var fig := _make_crew_figure(i)
+		var fig := _make_crew_figure(i, stations[i][2])
 		fig.position = stations[i][0]
 		fig.rotation.y = stations[i][1]
 		rv.add_child(fig)
 		crew_figures.append(fig)
 	_sync_crew()
 
-func _make_crew_figure(idx: int) -> Node3D:
+func _make_crew_figure(idx: int, seated := false) -> Node3D:
 	var root := Node3D.new()
 	var body := Node3D.new()
 	root.add_child(body)
 	var skin := _mat(Color(0.82, 0.68, 0.55))
 	var pants := _mat(Color(0.17, 0.18, 0.2))
 	var hair := _mat(Color(0.12, 0.1, 0.09))
-	var jackets := [Color(0.38, 0.3, 0.22), Color(0.28, 0.32, 0.34), Color(0.35, 0.24, 0.24), Color(0.25, 0.28, 0.22)]
+	var jackets := [Color(0.38, 0.3, 0.22), Color(0.28, 0.32, 0.34), Color(0.35, 0.24, 0.24), Color(0.25, 0.28, 0.22), Color(0.3, 0.26, 0.3)]
 	var jacket := _mat(jackets[idx % jackets.size()])
-	for sx in [-0.11, 0.11]:
-		_crew_box(body, Vector3(0.17, 0.86, 0.2), Vector3(sx, 0.43, 0), pants)
+	# 坐姿与站立同高（躯干以下由小腿差异表现坐姿，高座垫由站位 y 补偿）
+	if not seated:
+		for sx in [-0.11, 0.11]:
+			_crew_box(body, Vector3(0.17, 0.86, 0.2), Vector3(sx, 0.43, 0), pants)
+	else:
+		# 坐姿小腿（大腿藏进座垫）
+		for sx in [-0.11, 0.11]:
+			_crew_box(body, Vector3(0.15, 0.3, 0.16), Vector3(sx, 0.73, 0.12), pants)
 	_crew_box(body, Vector3(0.5, 0.62, 0.28), Vector3(0, 1.2, 0), jacket)
 	var arms := []
 	for sx in [-0.31, 0.31]:
@@ -615,10 +632,10 @@ func _update_zombies(delta: float) -> void:
 		return true)
 
 func _spawn_zombie() -> void:
-	# 成批生成在车前 50-160m，形成远处尸群的视觉压迫
+	# 成批生成在车前 30-100m，形成远处尸群的视觉压迫
 	var rvz := rv.global_position.z
 	var count := randi_range(1, 3)
-	var base_z := rvz - 50.0 - randf() * 110.0
+	var base_z := rvz - 30.0 - randf() * 70.0
 	for i in count:
 		var body := RigidBody3D.new()
 		body.set_script(ZOMBIE_SCRIPT)
@@ -664,6 +681,9 @@ func _update_frontier() -> void:
 	while surv_z > rvz - VIEW_AHEAD:
 		_spawn_survivor(surv_z)
 		surv_z -= randf_range(250.0, 450.0)
+	while lamp_z > rvz - VIEW_AHEAD:
+		_spawn_lamp(lamp_z)
+		lamp_z -= 55.0
 	# 清理身后
 	for s in get_children():
 		if s.is_in_group("consumable") and s.global_position.z > rvz + 40.0:
@@ -743,6 +763,38 @@ func _spawn_survivor(z: float) -> void:
 	var side := 1.0 if randf() > 0.5 else -1.0
 	s.position = Vector3(road_x(z) + side * randf_range(5.5, 8.0), ground_y(z), z)
 	add_child(s)
+
+## 路灯：杆 + 朝路面的悬臂 + 自发光灯头，每 55m 交替两侧
+func _spawn_lamp(z: float) -> void:
+	lamp_side = -lamp_side
+	var root := Node3D.new()
+	root.add_to_group("consumable")
+	root.position = Vector3(road_x(z) + lamp_side * (ROAD_HALF + 1.4), ground_y(z), z)
+	var dark := _mat(Color(0.16, 0.15, 0.14))
+	var pole := MeshInstance3D.new()
+	var pm := CylinderMesh.new()
+	pm.top_radius = 0.07
+	pm.bottom_radius = 0.11
+	pm.height = 5.2
+	pole.mesh = pm
+	pole.position.y = 2.6
+	pole.material_override = dark
+	root.add_child(pole)
+	var arm := MeshInstance3D.new()
+	var am := BoxMesh.new()
+	am.size = Vector3(1.7, 0.09, 0.09)
+	arm.mesh = am
+	arm.position = Vector3(-lamp_side * 0.85, 5.08, 0)
+	arm.material_override = dark
+	root.add_child(arm)
+	var head := MeshInstance3D.new()
+	var hm := BoxMesh.new()
+	hm.size = Vector3(0.52, 0.12, 0.24)
+	head.mesh = hm
+	head.position = Vector3(-lamp_side * 1.62, 5.02, 0)
+	head.material_override = lamp_mat
+	root.add_child(head)
+	add_child(root)
 
 # ---------- 撞击处理（rv.gd 回调） ----------
 func on_obstacle_hit(hard: bool, speed_kmh: float, obstacle: Node3D = null) -> void:
@@ -922,16 +974,39 @@ func _make_scenery(z: float) -> Node3D:
 		cross.material_override = _mat(Color(0.22, 0.21, 0.19))
 		root.add_child(cross)
 	elif roll < 0.72:
-		# 远处废墟楼剪影
+		# 废墟楼：近处矮楼 + 远处天际线高楼剪影
+		var far := randf() < 0.4
 		var b := MeshInstance3D.new()
 		var bm := BoxMesh.new()
-		bm.size = Vector3(randf_range(5.0, 10.0), randf_range(6.0, 14.0), randf_range(5.0, 10.0))
+		if far:
+			bm.size = Vector3(randf_range(7.0, 15.0), randf_range(10.0, 30.0), randf_range(7.0, 13.0))
+		else:
+			bm.size = Vector3(randf_range(5.0, 10.0), randf_range(6.0, 14.0), randf_range(5.0, 10.0))
 		b.mesh = bm
 		b.position.y = bm.size.y * 0.5
-		b.material_override = _mat(Color(0.19, 0.2, 0.22))
+		b.material_override = _mat(Color(0.13, 0.14, 0.17) if far else Color(0.19, 0.2, 0.22))
 		root.add_child(b)
-		root.position.x = road_x(z) + side * randf_range(45.0, 90.0)
-	elif roll < 0.9:
+		root.position.x = road_x(z) + side * (randf_range(95.0, 150.0) if far else randf_range(45.0, 90.0))
+	elif roll < 0.82:
+		# 路边广告牌：双腿 + 锈蚀面板
+		for px in [-1.1, 1.1]:
+			var leg := MeshInstance3D.new()
+			var lm := BoxMesh.new()
+			lm.size = Vector3(0.14, 3.2, 0.14)
+			leg.mesh = lm
+			leg.position = Vector3(px, 1.6, 0)
+			leg.material_override = _mat(Color(0.2, 0.19, 0.17))
+			root.add_child(leg)
+		var panel := MeshInstance3D.new()
+		var plm := BoxMesh.new()
+		plm.size = Vector3(3.4, 1.9, 0.12)
+		panel.mesh = plm
+		panel.position.y = 3.8
+		panel.rotation.y = randf_range(-0.15, 0.15)
+		panel.material_override = _mat(Color(0.36, 0.3, 0.24))
+		root.add_child(panel)
+		root.position.x = road_x(z) + side * randf_range(ROAD_HALF + 4.0, ROAD_HALF + 9.0)
+	elif roll < 0.92:
 		# 混凝土残块
 		var c := MeshInstance3D.new()
 		var cm2 := BoxMesh.new()

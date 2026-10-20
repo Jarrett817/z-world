@@ -20,7 +20,7 @@ var anim: AnimationPlayer
 func setup(main: Node3D) -> void:
 	main_node = main
 	rv = main.rv
-	speed = randf_range(1.8, 3.2)
+	speed = randf_range(4.2, 6.6) * (1.0 + clampf(main.dist_km * 0.05, 0.0, 0.5))
 	mass = 70.0
 	linear_damp = 1.2
 	anim = _find_anim_player(self)
@@ -72,9 +72,13 @@ func _ai(delta: float) -> void:
 		linear_velocity = Vector3(dir.x * speed, linear_velocity.y, dir.z * speed)
 		rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 6.0)
 		_play(WALK)
+		if anim != null:
+			anim.speed_scale = clampf(speed * 0.45, 1.3, 2.6)
 	else:
 		# 贴身啃咬
 		linear_velocity = Vector3(0, linear_velocity.y, 0)
+		if anim != null:
+			anim.speed_scale = 1.0
 		bite_t += delta
 		if bite_t >= BITE_INTERVAL:
 			bite_t = 0.0

@@ -49,7 +49,8 @@ func _physics_process(delta: float) -> void:
 			# 松手自动回正：对齐道路切线，轻微辅助不抢操控
 			var d: float = 0.6
 			var bx: float = main_node.road_x(position.z + d) - main_node.road_x(position.z - d)
-			var target := atan2(bx, -2.0 * d)
+			# 行进方向是 -Z：目标朝向 = atan2(bx, +2d)，否则会掉头往后开
+			var target := atan2(bx, 2.0 * d)
 			rotation.y = lerp_angle(rotation.y, target, delta * 1.2 * (1.0 - 0.5 * ratio))
 	move_and_slide()
 	_report_collisions()
