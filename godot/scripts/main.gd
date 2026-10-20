@@ -930,6 +930,10 @@ func _spawn_survivor(z: float) -> void:
 	s.set_script(SURVIVOR_SCRIPT)
 	s.add_to_group("consumable")
 	s.add_to_group("survivor")
+	# 路边人形按招募顺序对应下一名队友，外观与人设一致
+	var upcoming := _next_crew_member()
+	if not upcoming.is_empty():
+		s.setup(upcoming.get("id", ""))
 	var side := 1.0 if randf() > 0.5 else -1.0
 	s.position = Vector3(road_x(z) + side * randf_range(5.5, 8.0), ground_y(z), z)
 	add_child(s)
