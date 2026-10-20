@@ -14,6 +14,7 @@ const ZOMBIE_SCRIPT := preload("res://scripts/zombie.gd")
 const HUD_SCRIPT := preload("res://scripts/hud.gd")
 const PICKUP_SCRIPT := preload("res://scripts/pickup.gd")
 const SURVIVOR_SCRIPT := preload("res://scripts/survivor.gd")
+const STORY_SCRIPT := preload("res://scripts/story.gd")
 
 const GROUND_Y := -1.56
 const ROAD_HALF := 7.0
@@ -39,7 +40,9 @@ var headlight: SpotLight3D
 var durability := 100.0
 var fuel := 60.0
 var food := 10.0
+var morale := 70.0
 var crew := 0
+var story_active := false
 var dist_km := 0.0
 var day := 1
 var hour := 9.0
@@ -83,6 +86,12 @@ func _ready() -> void:
 	_build_hud()
 	_spawn_initial_scenery()
 	hud.set_weather(weather)
+	# 车载电台剧情管理器
+	var story := Node.new()
+	story.set_script(STORY_SCRIPT)
+	add_child(story)
+	story.setup(self)
+	hud.story_node = story
 	last_z = rv.global_position.z
 	terrain_front = rv.global_position.z + 100.0
 
@@ -92,6 +101,9 @@ func _physics_process(delta: float) -> void:
 	if game_over:
 		if Input.is_physical_key_pressed(KEY_R):
 			get_tree().reload_current_scene()
+		return
+	# 剧情对话框打开：冻结世界逻辑（时间/太阳继续走，车由 rv.gd 自动刹停）
+	if story_active:
 		return
 	_update_resources(delta)
 	_update_weather(delta)

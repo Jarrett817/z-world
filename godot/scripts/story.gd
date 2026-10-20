@@ -1,0 +1,135 @@
+extends Node
+## 剧情事件管理器：车载电台突发事件。
+## JSON 驱动（res://data/events.json）：里程里程碑（at）+ 加权随机（weight）+ 事件链（next/goto）。
+## 事件打开期间冻结主循环（main.story_active）。
+
+var main: Node
+var events: Dictionary = {}
+var fired: Array = []
+var active := false
+var rng := RandomNumberGenerator.new()
+var _random_in := 55.0
+var _intro_delay := 2.5
+
+func setup(node: Node) -> void:
+	main = node
+	rng.randomize()
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/events.json"))
+	if parsed is Dictionary:
+		events = parsed
+
+func _ready() -> void:
+	# 开局序章：给玩家两秒看清场景后电台亮起
+	get_tree().create_timer(_intro_delay).timeout.connect(func() -> void: _open("intro"))
+
+func _process(delta: float) -> void:
+	if active or events.is_empty() or main.game_over:
+		return
+	# 里程碑事件：到里程且角色门控满足（错过后招到人仍可补触发）
+	for id in events:
+		var ev: Dictionary = events[id]
+		if ev.has("at") and not fired.has(id) and main.dist_km >= float(ev["at"]):
+			if _req_ok(ev.get("requires", "")):
+				_open(id)
+				return
+	# 随机事件：行驶或驻车中，按冷却时间投骰
+	_random_in -= delta
+	if _random_in <= 0.0:
+		_random_in = rng.randf_range(70.0, 120.0)
+		var id := _weighted_random_id()
+		if id != "":
+			_open(id)
+
+## 加权抽取一个满足角色门控的随机事件
+func _weighted_random_id() -> String:
+	var pool: Array = []
+	var total := 0.0
+	for id in events:
+		var ev: Dictionary = events[id]
+		if ev.has("weight") and not fired.has(id) and _req_ok(ev.get("requires", "")):
+			var w: float = ev["weight"]
+			pool.append({"id": id, "w": w})
+			total += w
+	if pool.is_empty():
+		return ""
+	var roll := rng.randf() * total
+	for item in pool:
+		roll -= item.w
+		if roll <= 0.0:
+			return item.id
+	return pool[-1].id
+
+func _req_ok(req_id: String) -> bool:
+	return req_id == "" or main._has_passive(req_id)
+
+func _open(id: String) -> void:
+	if not events.has(id):
+		return
+	var ev: Dictionary = events[id]
+	active = true
+	main.story_active = true
+	# JSON 外层 key 才是事件 id，注入副本传给 HUD
+	var evv: Dictionary = ev.duplicate()
+	evv["id"] = id
+	main.hud.show_story(evv)
+
+## HUD 选项按钮回调
+func choose(idx: int) -> void:
+	if not active:
+		return
+	var ev: Dictionary = events[main.hud.story_event_id]
+	var opts: Array = ev.get("options", [])
+	if idx < 0 or idx >= opts.size():
+		return
+	var opt: Dictionary = opts[idx]
+	# 分支事件链：goto 优先（无即时结算）
+	if opt.has("goto"):
+		main.hud.hide_story()
+		_open(String(opt["goto"]))
+		return
+	# 概率型选项：60% 好结果
+	if opt.has("roll"):
+		var branch_key := "ok" if rng.randf() < 0.6 else "bad"
+		var branch: Dictionary = opt["roll"][branch_key]
+		_apply(branch.get("fx", {}))
+		if branch.has("toast"):
+			main.hud.toast(String(branch["toast"]))
+	else:
+		_apply(opt.get("fx", {}))
+		if opt.has("toast"):
+			main.hud.toast(String(opt["toast"]))
+	# 顺序下一节
+	if opt.has("next"):
+		main.hud.hide_story()
+		_open(String(opt["next"]))
+		return
+	# 事件结束
+	fired.append(main.hud.story_event_id)
+	main.hud.hide_story()
+	active = false
+	main.story_active = false
+	main.hud.update_stats(main)
+
+func _apply(fx: Dictionary) -> void:
+	if fx.has("dur"):
+		main.durability = clampf(main.durability + float(fx["dur"]), 0.0, 100.0)
+	if fx.has("fuel"):
+		main.fuel = clampf(main.fuel + float(fx["fuel"]), 0.0, 100.0)
+	if fx.has("food"):
+		main.food = maxf(0.0, main.food + float(fx["food"]))
+	if fx.has("morale"):
+		main.morale = clampf(main.morale + float(fx["morale"]), 0.0, 100.0)
+
+## 选项前置条件是否满足（医疗/战力不足时按钮置灰）
+func option_available(opt: Dictionary) -> bool:
+	if opt.has("requires_med") and _crew_stat("med") < int(opt["requires_med"]):
+		return false
+	if opt.has("requires_atk") and _crew_stat("atk") < int(opt["requires_atk"]):
+		return false
+	return true
+
+func _crew_stat(key: String) -> int:
+	var total := 0
+	for m in main.crew_members:
+		total += int(m.get(key, 0))
+	return total

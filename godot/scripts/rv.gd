@@ -19,6 +19,15 @@ func _ready() -> void:
 	main_node = get_parent()
 
 func _physics_process(delta: float) -> void:
+	# 剧情对话期间：世界冻结，强制刹停并贴地（忽略一切驾驶输入）
+	if main_node.story_active:
+		speed_kmh = maxf(speed_kmh - BRAKE * delta, 0.0)
+		velocity = -global_transform.basis.z * (speed_kmh * KMH_TO_UNITS)
+		move_and_slide()
+		position.y = main_node.ground_y(position.z) + main_node.RV_MODEL_FOOT
+		rotation.x = lerpf(rotation.x, 0.0, delta * 3.0)
+		rotation.z = lerpf(rotation.z, 0.0, delta * 4.0)
+		return
 	if parked:
 		speed_kmh = 0.0
 		velocity = Vector3.ZERO
