@@ -17,6 +17,10 @@ var fuel_fill: ColorRect
 var toast_label: Label
 var over_root: ColorRect
 var over_stats: Label
+var crew_panel: Panel
+var crew_rows: VBoxContainer
+var crew_visible := false
+var _tab_down := false
 var _toast_tween: Tween
 
 func build(rv_node: Node) -> void:
@@ -46,7 +50,7 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 切换视角 · 光柱 = 幸存者 · 补给箱自动拾取", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 切换视角 · Tab 队伍 · 光柱 = 幸存者", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	hint.offset_left = -560
 	hint.offset_right = -14
@@ -90,6 +94,24 @@ func build(rv_node: Node) -> void:
 	_touch_button(root, "左", Control.PRESET_BOTTOM_LEFT, Rect2(20, -118, 130, 98), "left")
 	_touch_button(root, "右", Control.PRESET_BOTTOM_LEFT, Rect2(170, -118, 130, 98), "right")
 
+	# 队伍面板（Tab 开关）
+	crew_panel = _panel(Vector2.ZERO, Vector2.ZERO)
+	crew_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	crew_panel.offset_left = -342
+	crew_panel.offset_top = 70
+	crew_panel.offset_right = -14
+	crew_panel.offset_bottom = 470
+	crew_panel.visible = false
+	root.add_child(crew_panel)
+	crew_rows = VBoxContainer.new()
+	crew_rows.set_anchors_preset(Control.PRESET_FULL_RECT)
+	crew_rows.offset_left = 12
+	crew_rows.offset_top = 12
+	crew_rows.offset_right = -12
+	crew_rows.offset_bottom = -12
+	crew_rows.add_theme_constant_override("separation", 10)
+	crew_panel.add_child(crew_rows)
+
 	# 结算遮罩（隐藏）
 	over_root = ColorRect.new()
 	over_root.color = Color(0.05, 0.03, 0.02, 0.85)
@@ -119,9 +141,41 @@ func build(rv_node: Node) -> void:
 	root.add_child(over_root)
 
 func _process(_delta: float) -> void:
+	var tab := Input.is_physical_key_pressed(KEY_TAB)
+	if tab and not _tab_down:
+		crew_visible = not crew_visible
+		crew_panel.visible = crew_visible
+	_tab_down = tab
 	if rv == null:
 		return
 	speed_label.text = "%d km/h" % int(rv.speed_kmh)
+
+func set_crew(members: Array) -> void:
+	for c in crew_rows.get_children():
+		c.queue_free()
+	if members.is_empty():
+		crew_rows.add_child(_label("车上还没有同伴", 15, TEXT_DIM))
+		return
+	crew_panel.offset_bottom = 70.0 + 24.0 + members.size() * 72.0
+	for m in members:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		var pic := TextureRect.new()
+		pic.custom_minimum_size = Vector2(64, 64)
+		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		pic.clip_contents = true
+		var path := "res://assets/portraits/" + String(m.get("avatar", "")).get_file()
+		if ResourceLoader.exists(path):
+			pic.texture = load(path)
+		row.add_child(pic)
+		var box := VBoxContainer.new()
+		box.alignment = BoxContainer.ALIGNMENT_CENTER
+		box.add_theme_constant_override("separation", 2)
+		box.add_child(_label(String(m.get("name", "")), 18, TEXT_MAIN))
+		box.add_child(_label("%s · 工作中" % String(m.get("skill", "")), 14, ACCENT))
+		row.add_child(box)
+		crew_rows.add_child(row)
 
 func update_stats(main: Node3D) -> void:
 	var ratio: float = main.durability / 100.0

@@ -21,6 +21,7 @@ const MAX_KMH := 140.0
 const VIEW_AHEAD := 260.0
 const VIEW_BEHIND := 40.0
 const RV_MODEL_FOOT := 1.557   # GLB 轮底到模型原点的距离
+const CREW_ORDER := ["lin_wan", "chen_mo", "ye_lan", "tang_tang", "ivory"]
 
 var rv: CharacterBody3D
 var rv_model: Node3D
@@ -57,10 +58,16 @@ var last_z := 0.0
 var cam_pos: Vector3
 var weather := "clear"
 var weather_timer := 45.0
-var cockpit_mode := false
+var view_mode := 0   # 0 追尾 / 1 驾驶舱 / 2 车内
 var _c_down := false
+var survivors_data := {}
+var crew_members: Array = []
+var crew_figures: Array = []
+var crew_font: SystemFont
+var _crew_t := 0.0
 
 func _ready() -> void:
+	_load_survivors()
 	_build_sky()
 	_build_terrain()
 	_build_rv()
@@ -87,32 +94,41 @@ func _physics_process(delta: float) -> void:
 	hit_cd = maxf(0.0, hit_cd - delta)
 	bite_cd = maxf(0.0, bite_cd - delta)
 
-# ---------- 相机（追尾 + 震屏 / 舱内） ----------
+func _load_survivors() -> void:
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/survivors.json"))
+	if parsed is Dictionary:
+		survivors_data = parsed
+
+# ---------- 相机（追尾 / 驾驶舱 / 车内） ----------
 func _process(delta: float) -> void:
 	if rv == null:
 		return
 	var pressed := Input.is_physical_key_pressed(KEY_C)
 	if pressed and not _c_down:
-		cockpit_mode = not cockpit_mode
+		view_mode = (view_mode + 1) % 3
 	_c_down = pressed
-	# 舱内视角隐藏整车外壳，避免 GLB 车体从内部遮挡视野
-	rv_model.visible = not cockpit_mode
-	if cockpit_mode:
+	# 车内视角隐藏整车外壳，避免 GLB 车体从内部遮挡视野
+	rv_model.visible = view_mode == 0
+	if view_mode == 1:
 		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -1.9))
 		cam.look_at(rv.to_global(Vector3(-0.55, 0.9, -30.0)))
 		cam.fov = 72.0
-		trauma = maxf(0.0, trauma - delta * 1.4)
-		return
-	var target := rv.global_position + Vector3(0, 3.5, 11.0)
-	cam_pos = cam_pos.lerp(target, 1.0 - exp(-5.0 * delta))
-	cam.global_position = cam_pos
-	var shake := trauma * trauma
-	cam.global_position += Vector3(
-		randf_range(-1, 1) * 0.5 * shake,
-		randf_range(-1, 1) * 0.4 * shake,
-		0)
-	cam.look_at(rv.global_position + Vector3(0, 1.3, -12.0))
-	cam.fov = 58.0 + (rv.speed_kmh / MAX_KMH) * 12.0
+	elif view_mode == 2:
+		cam.global_position = rv.to_global(Vector3(-0.55, 1.5, -2.6))
+		cam.look_at(rv.to_global(Vector3(0.35, 0.85, 2.6)))
+		cam.fov = 78.0
+		_animate_crew(delta)
+	else:
+		var target := rv.global_position + Vector3(0, 3.5, 11.0)
+		cam_pos = cam_pos.lerp(target, 1.0 - exp(-5.0 * delta))
+		cam.global_position = cam_pos
+		var shake := trauma * trauma
+		cam.global_position += Vector3(
+			randf_range(-1, 1) * 0.5 * shake,
+			randf_range(-1, 1) * 0.4 * shake,
+			0)
+		cam.look_at(rv.global_position + Vector3(0, 1.3, -12.0))
+		cam.fov = 58.0 + (rv.speed_kmh / MAX_KMH) * 12.0
 	trauma = maxf(0.0, trauma - delta * 1.4)
 
 func add_trauma(amount: float) -> void:
@@ -278,25 +294,45 @@ func _build_rv() -> void:
 	headlight.rotation_degrees = Vector3(-11, 0, 0)
 	rv.add_child(headlight)
 	_build_interior()
+	_build_crew()
 	add_child(rv)
 
-## 舱内视角用的简易内饰（仪表台/方向盘/座椅/A 柱/侧窗台/顶棚）
+## 驾驶舱 + 生活舱共用的程序化内饰
 func _build_interior() -> void:
 	var shell := _mat(Color(0.18, 0.17, 0.15))
 	var pad := _mat(Color(0.26, 0.22, 0.19))
 	var seat := _mat(Color(0.32, 0.25, 0.2))
-	_interior_box(Vector3(2.7, 0.1, 7.5), Vector3(0, -0.45, -0.9), shell)       # 地板
-	_interior_box(Vector3(2.6, 0.55, 0.7), Vector3(0, 0.28, -3.72), shell)       # 仪表台
-	_interior_box(Vector3(2.55, 0.06, 0.75), Vector3(0, 0.575, -3.7), pad)       # 台面
+	var wood := _mat(Color(0.4, 0.3, 0.2))
+	var steel := _mat(Color(0.33, 0.34, 0.36))
+	# 地板 / 顶棚 / 后墙
+	_interior_box(Vector3(2.7, 0.1, 7.4), Vector3(0, -0.45, -0.75), shell)
+	_interior_box(Vector3(2.7, 0.1, 7.4), Vector3(0, 2.2, -0.75), shell)
+	_interior_box(Vector3(2.62, 2.6, 0.1), Vector3(0, 0.95, 2.82), shell)
+	# 侧窗台（腰线以下）与 A 柱，保留侧窗视野
 	for sx in [-1.3, 1.3]:
-		_interior_box(Vector3(0.08, 1.1, 2.4), Vector3(sx, 0.3, -2.9), shell)    # 侧窗台（保留侧窗视野）
-		_interior_box(Vector3(0.12, 2.6, 0.14), Vector3(sx, 1.0, -4.15), shell)   # A 柱
-	_interior_box(Vector3(2.7, 0.1, 2.6), Vector3(0, 2.2, -2.95), shell)        # 顶棚
-	_interior_box(Vector3(2.6, 0.14, 0.16), Vector3(0, 2.03, -4.2), shell)       # 挡风上沿
-	_interior_box(Vector3(0.34, 0.08, 0.09), Vector3(0, 1.94, -4.02), pad)       # 后视镜
+		_interior_box(Vector3(0.08, 1.1, 7.3), Vector3(sx, 0.3, -0.75), shell)
+		_interior_box(Vector3(0.12, 2.6, 0.14), Vector3(sx, 1.0, -4.15), shell)
+	# 驾驶舱：仪表台 / 台面 / 挡风上沿 / 后视镜
+	_interior_box(Vector3(2.6, 0.55, 0.7), Vector3(0, 0.28, -3.72), shell)
+	_interior_box(Vector3(2.55, 0.06, 0.75), Vector3(0, 0.575, -3.7), pad)
+	_interior_box(Vector3(2.6, 0.14, 0.16), Vector3(0, 2.03, -4.2), shell)
+	_interior_box(Vector3(0.34, 0.08, 0.09), Vector3(0, 1.94, -4.02), pad)
 	for sx in [-0.55, 0.55]:
 		_interior_box(Vector3(0.52, 0.14, 0.55), Vector3(sx, 0.05, -1.5), seat)
 		_interior_box(Vector3(0.52, 0.66, 0.14), Vector3(sx, 0.38, -1.16), seat)
+	# 生活舱：灶台（左）/ 货架（右）/ 餐桌 / 后铺
+	_interior_box(Vector3(0.55, 0.85, 2.4), Vector3(-1.0, 0.03, -0.1), shell)
+	_interior_box(Vector3(0.6, 0.05, 2.45), Vector3(-1.0, 0.47, -0.1), steel)
+	_interior_box(Vector3(0.3, 0.16, 0.3), Vector3(-1.0, 0.57, -0.5), steel)
+	_interior_box(Vector3(0.3, 1.3, 1.6), Vector3(1.12, 0.25, 0.4), shell)
+	for sy in [-0.05, 0.4, 0.85]:
+		_interior_box(Vector3(0.34, 0.05, 1.5), Vector3(1.12, sy, 0.4), wood)
+	_interior_box(Vector3(0.7, 0.07, 0.6), Vector3(0.25, 0.32, 1.75), wood)
+	for lx in [0.05, 0.45]:
+		for lz in [1.53, 1.97]:
+			_interior_box(Vector3(0.06, 0.72, 0.06), Vector3(lx, -0.04, lz), shell)
+	_interior_box(Vector3(2.3, 0.45, 0.55), Vector3(0, 0.02, 2.5), shell)
+	_interior_box(Vector3(2.2, 0.12, 0.5), Vector3(0, 0.3, 2.5), pad)
 	# 方向盘：竖直面朝驾驶者，略向后倾
 	var wheel := MeshInstance3D.new()
 	var tor := TorusMesh.new()
@@ -321,13 +357,112 @@ func _build_interior() -> void:
 	gauge.material_override = gmat
 	gauge.position = Vector3(-0.55, 0.72, -3.43)
 	rv.add_child(gauge)
-	# 舱内暖色小灯：夜间/雾天也能看清仪表台
+	# 舱内暖色小灯：夜间/雾天也能看清仪表台与舱内
 	var cab_light := OmniLight3D.new()
 	cab_light.light_color = Color(1.0, 0.82, 0.6)
-	cab_light.light_energy = 2.2
-	cab_light.omni_range = 5.0
-	cab_light.position = Vector3(0, 1.45, -1.4)
+	cab_light.light_energy = 3.0
+	cab_light.omni_range = 8.0
+	cab_light.position = Vector3(0, 1.85, 0.4)
 	rv.add_child(cab_light)
+
+## 车内视角的队友：各自在灶台/货架/餐桌/后铺忙碌
+func _build_crew() -> void:
+	crew_font = SystemFont.new()
+	crew_font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "sans-serif"])
+	var stations := [
+		[Vector3(-0.55, -0.4, -0.1), PI * 0.5],
+		[Vector3(0.55, -0.4, 0.4), -PI * 0.5],
+		[Vector3(0.15, -0.4, 2.05), 0.0],
+		[Vector3(-0.85, -0.4, 2.05), -PI * 0.5],
+	]
+	for i in stations.size():
+		var fig := _make_crew_figure(i)
+		fig.position = stations[i][0]
+		fig.rotation.y = stations[i][1]
+		rv.add_child(fig)
+		crew_figures.append(fig)
+	_sync_crew()
+
+func _make_crew_figure(idx: int) -> Node3D:
+	var root := Node3D.new()
+	var body := Node3D.new()
+	root.add_child(body)
+	var skin := _mat(Color(0.82, 0.68, 0.55))
+	var pants := _mat(Color(0.17, 0.18, 0.2))
+	var hair := _mat(Color(0.12, 0.1, 0.09))
+	var jackets := [Color(0.38, 0.3, 0.22), Color(0.28, 0.32, 0.34), Color(0.35, 0.24, 0.24), Color(0.25, 0.28, 0.22)]
+	var jacket := _mat(jackets[idx % jackets.size()])
+	for sx in [-0.11, 0.11]:
+		_crew_box(body, Vector3(0.17, 0.86, 0.2), Vector3(sx, 0.43, 0), pants)
+	_crew_box(body, Vector3(0.5, 0.62, 0.28), Vector3(0, 1.2, 0), jacket)
+	var arms := []
+	for sx in [-0.31, 0.31]:
+		var pivot := Node3D.new()
+		pivot.position = Vector3(sx, 1.44, 0)
+		body.add_child(pivot)
+		_crew_box(pivot, Vector3(0.13, 0.56, 0.15), Vector3(0, -0.28, 0), jacket)
+		arms.append(pivot)
+	var head := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 0.155
+	sph.height = 0.34
+	head.mesh = sph
+	head.material_override = skin
+	head.position.y = 1.66
+	body.add_child(head)
+	var cap := MeshInstance3D.new()
+	var cap_mesh := SphereMesh.new()
+	cap_mesh.radius = 0.165
+	cap_mesh.height = 0.3
+	cap_mesh.is_hemisphere = true
+	cap.mesh = cap_mesh
+	cap.material_override = hair
+	cap.position = Vector3(0, 1.72, 0.01)
+	body.add_child(cap)
+	# 头顶名牌：名字 · 专长
+	var lb := Label3D.new()
+	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lb.font = crew_font
+	lb.font_size = 30
+	lb.pixel_size = 0.0025
+	lb.outline_size = 8
+	lb.modulate = Color(1.0, 0.86, 0.66)
+	lb.position = Vector3(0, 2.2, 0)
+	root.add_child(lb)
+	root.set_meta("body", body)
+	root.set_meta("arms", arms)
+	root.set_meta("label", lb)
+	return root
+
+func _sync_crew() -> void:
+	for i in crew_figures.size():
+		var f: Node3D = crew_figures[i]
+		f.visible = i < crew_members.size()
+		if f.visible:
+			var m: Dictionary = crew_members[i]
+			(f.get_meta("label") as Label3D).text = "%s · %s" % [m.get("name", ""), m.get("skill", "")]
+
+func _animate_crew(delta: float) -> void:
+	_crew_t += delta
+	for i in crew_figures.size():
+		var f: Node3D = crew_figures[i]
+		if not f.visible:
+			continue
+		var body: Node3D = f.get_meta("body")
+		body.position.y = absf(sin(_crew_t * 2.6 + i * 1.3)) * 0.02
+		body.rotation.z = sin(_crew_t * 1.7 + i) * 0.03
+		var arms: Array = f.get_meta("arms")
+		arms[0].rotation.x = sin(_crew_t * 3.2 + i) * 0.6 - 0.3
+		arms[1].rotation.x = sin(_crew_t * 3.2 + i + 2.1) * 0.6 - 0.3
+
+func _crew_box(parent: Node3D, size: Vector3, pos: Vector3, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.position = pos
+	mi.material_override = mat
+	parent.add_child(mi)
 
 func _interior_box(size: Vector3, pos: Vector3, mat: Material) -> void:
 	var mi := MeshInstance3D.new()
@@ -596,8 +731,29 @@ func try_recruit(survivor: Node3D) -> void:
 	food -= 3.0
 	crew += 1
 	survivor.queue_free()
-	hud.toast("幸存者上车！队伍 %d 人（分食 -3）" % crew)
+	var member := _next_crew_member()
+	if not member.is_empty():
+		crew_members.append(member)
+		hud.set_crew(crew_members)
+		hud.toast("%s（%s）加入队伍 · 分食 -3" % [member.get("name", ""), member.get("skill", "")])
+	else:
+		hud.toast("幸存者上车！队伍 %d 人（分食 -3）" % crew)
+	_sync_crew()
 	hud.update_stats(self)
+
+func _next_crew_member() -> Dictionary:
+	for id in CREW_ORDER:
+		var d: Dictionary = survivors_data.get(id, {})
+		if d.is_empty():
+			continue
+		var taken := false
+		for m in crew_members:
+			if m.get("id", "") == id:
+				taken = true
+				break
+		if not taken:
+			return d
+	return {}
 
 # ---------- 初始景物 ----------
 func _spawn_initial_scenery() -> void:
