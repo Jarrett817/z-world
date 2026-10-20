@@ -23,15 +23,25 @@ func _physics_process(delta: float) -> void:
 	var steer_in := clampf(touch_steer + _key_steer(), -1.0, 1.0)
 
 	if not engine_dead and gas:
-		speed_kmh = minf(speed_kmh + ACCEL * delta, main_node.MAX_KMH)
+		var grip := 0.78 if main_node.weather == "rain" else 1.0
+		speed_kmh = minf(speed_kmh + ACCEL * grip * delta, main_node.MAX_KMH)
 	elif brake:
-		speed_kmh = maxf(speed_kmh - BRAKE * delta, 0.0)
+		var braking := 0.85 if main_node.weather == "rain" else 1.0
+		speed_kmh = maxf(speed_kmh - BRAKE * braking * delta, 0.0)
 	else:
 		speed_kmh = maxf(speed_kmh - DRAG * delta, 0.0)
 
 	velocity = -global_transform.basis.z * (speed_kmh * KMH_TO_UNITS)
 	if absf(speed_kmh) > 1.0:
-		rotation.y += steer_in * delta * (0.8 + speed_kmh / main_node.MAX_KMH * 0.9)
+		# 高速转向迟滞：速度越快打舵越缓，避免掉头打转
+		var ratio: float = speed_kmh / main_node.MAX_KMH
+		rotation.y += steer_in * delta * 1.5 * (1.0 - 0.55 * ratio)
+		if absf(steer_in) < 0.05:
+			# 松手自动回正：对齐道路切线，轻微辅助不抢操控
+			var d: float = 0.6
+			var bx: float = main_node.road_x(position.z + d) - main_node.road_x(position.z - d)
+			var target := atan2(bx, -2.0 * d)
+			rotation.y = lerp_angle(rotation.y, target, delta * 1.2 * (1.0 - 0.5 * ratio))
 	move_and_slide()
 	_report_collisions()
 
@@ -61,6 +71,6 @@ func _report_collisions() -> void:
 			other.on_hit_by_rv(speed_kmh, col.get_normal())
 			main_node.on_zombie_run_over()
 		elif other is StaticBody3D and other.is_in_group("obstacle_hard"):
-			main_node.on_obstacle_hit(true, speed_kmh)
+			main_node.on_obstacle_hit(true, speed_kmh, other)
 		elif other is StaticBody3D and other.is_in_group("obstacle_soft"):
-			main_node.on_obstacle_hit(false, speed_kmh)
+			main_node.on_obstacle_hit(false, speed_kmh, other)

@@ -4,7 +4,7 @@ extends RigidBody3D
 const WALK := &"Walk"
 const ATTACK := &"Attack"
 const DEATH := &"Death"
-const BITE_RANGE := 5.9
+const BITE_RANGE := 4.4
 const BITE_INTERVAL := 0.8
 
 var main_node: Node3D

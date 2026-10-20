@@ -11,6 +11,7 @@ var rv: Node
 var speed_label: Label
 var res_label: Label
 var info_label: Label
+var weather_label: Label
 var dur_fill: ColorRect
 var fuel_fill: ColorRect
 var toast_label: Label
@@ -52,6 +53,15 @@ func build(rv_node: Node) -> void:
 	hint.offset_top = 14
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	root.add_child(hint)
+
+	# 天气
+	weather_label = _label("天气 晴", 15, TEXT_DIM)
+	weather_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	weather_label.offset_left = -200
+	weather_label.offset_right = -14
+	weather_label.offset_top = 38
+	weather_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	root.add_child(weather_label)
 
 	# 车速表
 	speed_label = _label("0 km/h", 40, TEXT_MAIN)
@@ -122,6 +132,9 @@ func update_stats(main: Node3D) -> void:
 	var h := int(main.hour)
 	var m := int((main.hour - h) * 60.0)
 	info_label.text = "里程 %.1f km · 第 %d 天 %02d:%02d" % [main.dist_km, main.day, h, m]
+
+func set_weather(w: String) -> void:
+	weather_label.text = "天气 " + {"clear": "晴", "rain": "雨", "fog": "雾"}.get(w, "晴")
 
 func toast(msg: String) -> void:
 	toast_label.text = msg
