@@ -4,6 +4,7 @@ extends Node3D
 
 const RV_SCENE := preload("res://assets/rv/gs_001.glb")
 const ZMB_SCENE := preload("res://assets/props/zmb_stand.glb")
+const ZMB_SCENE_G := preload("res://assets/props/zmb_stand_g.glb")
 const WCAR_SCENE := preload("res://assets/props/wcar.glb")
 const WTRUCK_SCENE := preload("res://assets/props/wtruck.glb")
 const BARRIERS_SCENE := preload("res://assets/props/barriers.glb")
@@ -804,8 +805,8 @@ func _spawn_zombie() -> void:
 		col.shape = cap
 		col.position.y = 0.7
 		body.add_child(col)
-		var model := ZMB_SCENE.instantiate()
-		model.scale = Vector3.ONE * 0.065
+		var model: Node3D = (ZMB_SCENE_G if randf() < 0.4 else ZMB_SCENE).instantiate()
+		model.scale = Vector3.ONE * randf_range(0.058, 0.072)
 		body.add_child(model)
 		add_child(body)
 		body.setup(self)

@@ -23,6 +23,8 @@ func setup(main: Node3D) -> void:
 	speed = randf_range(4.2, 6.6) * (1.0 + clampf(main.dist_km * 0.05, 0.0, 0.5))
 	mass = 70.0
 	linear_damp = 1.2
+	_remove_rig_controls(self)
+	_vary_materials(self)
 	anim = _find_anim_player(self)
 	if anim == null:
 		return
@@ -30,10 +32,49 @@ func setup(main: Node3D) -> void:
 	if WALK in names:
 		anim.get_animation(WALK).loop_mode = Animation.LOOP_LINEAR
 		anim.play(WALK)
+		# 随机起步相位，避免尸群动作同步
+		anim.seek(randf() * anim.get_animation(WALK).length, true)
 	if ATTACK in names:
 		anim.get_animation(ATTACK).loop_mode = Animation.LOOP_NONE
 	if DEATH in names:
 		anim.get_animation(DEATH).loop_mode = Animation.LOOP_NONE
+
+## 删除 GLB 误导出的 Blender 控制器圆环（近立方体小 mesh），否则头顶悬浮两个粉色环
+func _remove_rig_controls(node: Node) -> void:
+	for c in node.get_children():
+		if c is MeshInstance3D:
+			var s: Vector3 = (c as MeshInstance3D).get_aabb().size
+			if s.x > 0.5 and s.x < 2.0 and s.y > 0.5 and s.y < 2.0 and s.z > 0.5 and s.z < 2.0:
+				c.queue_free()
+				continue
+		_remove_rig_controls(c)
+
+## 复制材质并随机染色，让尸群出现不同腐烂程度/尸变阶段的色差
+func _vary_materials(node: Node) -> void:
+	# 四档色调：新鲜尸变（泛青）/ 普通腐绿 / 严重溃烂（泛黄）/ 干瘪发黑
+	var tints: Array[Color] = [
+		Color(0.72, 0.78, 0.82),
+		Color(0.82, 0.86, 0.72),
+		Color(0.86, 0.78, 0.62),
+		Color(0.68, 0.66, 0.62),
+	]
+	var tint: Color = tints.pick_random()
+	var brightness := randf_range(0.85, 1.05)
+	for c in node.get_children():
+		if c is MeshInstance3D:
+			_tint_mesh(c as MeshInstance3D, tint * brightness)
+		_vary_materials(c)
+
+func _tint_mesh(mi: MeshInstance3D, tint: Color) -> void:
+	if mi.mesh == null:
+		return
+	for si in mi.mesh.get_surface_count():
+		var src: Material = mi.mesh.surface_get_material(si)
+		if src == null or not (src is StandardMaterial3D):
+			continue
+		var m: StandardMaterial3D = src.duplicate() as StandardMaterial3D
+		m.albedo_color = m.albedo_color * tint
+		mi.set_surface_override_material(si, m)
 
 func _find_anim_player(node: Node) -> AnimationPlayer:
 	for c in node.get_children():
