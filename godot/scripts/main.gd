@@ -1286,8 +1286,13 @@ func _spawn_ark_camp() -> void:
 		tl.spot_range = 40.0
 		tl.spot_angle = 40.0
 		tl.position = Vector3(0.0, 9.0, 0.0)
-		tl.rotation_degrees = Vector3(-25, -sx * 1.5, 0)
+		tl.rotation_degrees = Vector3(-25, -sx * 26.0, 0)
 		tg.add_child(tl)
+		# 探照灯循环扫视；两塔起摆方向相反形成错相
+		var sweep_to: float = sx * 26.0
+		var stw := camp.create_tween().set_loops()
+		stw.tween_property(tl, "rotation_degrees:y", sweep_to, 5.2).set_trans(Tween.TRANS_SINE)
+		stw.tween_property(tl, "rotation_degrees:y", -sx * 26.0, 5.2).set_trans(Tween.TRANS_SINE)
 
 	# 帐篷群（两列排布）：底箱 + 双人字斜面顶
 	for i in range(12):
@@ -1335,19 +1340,61 @@ func _spawn_ark_camp() -> void:
 		bulb.material_override = warm_glow
 		camp.add_child(bulb)
 
-	# 人群：大门两侧聚集的人影（剪影胶囊）
-	var person_col := Color(0.12, 0.11, 0.1)
+	# 人群：大门两侧聚集欢呼的人影（躯干+头+双臂挥动）
+	var coat_cols: Array[Color] = [
+		Color(0.2, 0.24, 0.18), Color(0.28, 0.2, 0.15), Color(0.16, 0.2, 0.26),
+		Color(0.3, 0.26, 0.16), Color(0.24, 0.15, 0.17), Color(0.18, 0.18, 0.18)
+	]
 	for i in range(22):
-		var p := MeshInstance3D.new()
-		var pm3 := CapsuleMesh.new()
-		pm3.radius = 0.28
-		pm3.height = 1.7
-		p.mesh = pm3
-		p.material_override = _mat(person_col)
 		var side: float = -1.0 if i % 2 == 0 else 1.0
-		p.position = Vector3(side * rng.randf_range(7.5, 13.0), gy + 0.85, rng.randf_range(-6.0, 10.0))
-		p.rotation.y = rng.randf_range(0.0, TAU)
+		var p := Node3D.new()
+		p.position = Vector3(side * rng.randf_range(7.5, 13.0), gy, rng.randf_range(-6.0, 10.0))
+		p.rotation.y = -side * PI / 2.0 + rng.randf_range(-0.4, 0.4)
 		camp.add_child(p)
+		var coat := _mat(coat_cols[randi() % coat_cols.size()])
+		var torso := MeshInstance3D.new()
+		var tm2 := CapsuleMesh.new()
+		tm2.radius = 0.26
+		tm2.height = 1.15
+		torso.mesh = tm2
+		torso.position.y = 0.86
+		torso.material_override = coat
+		p.add_child(torso)
+		var head := MeshInstance3D.new()
+		var hm2 := SphereMesh.new()
+		hm2.radius = 0.18
+		hm2.height = 0.36
+		head.mesh = hm2
+		head.position.y = 1.62
+		head.material_override = _mat(Color(0.62, 0.5, 0.4))
+		p.add_child(head)
+		var arms: Array[Node3D] = []
+		for hsx in [-1.0, 1.0]:
+			var arm_node := Node3D.new()
+			arm_node.position = Vector3(hsx * 0.3, 1.3, 0.0)
+			arm_node.rotation.x = -1.9
+			arm_node.rotation.z = hsx * 0.3
+			p.add_child(arm_node)
+			var arm := MeshInstance3D.new()
+			var am2 := CapsuleMesh.new()
+			am2.radius = 0.08
+			am2.height = 0.7
+			arm.mesh = am2
+			arm.position.y = -0.32
+			arm.material_override = coat
+			arm_node.add_child(arm)
+			arms.append(arm_node)
+		# 挥手 + 身体起伏（各人节奏错相）
+		var period := rng.randf_range(0.5, 0.9)
+		var wave := camp.create_tween().set_loops()
+		wave.tween_property(arms[0], "rotation:x", -2.5, period).set_trans(Tween.TRANS_SINE)
+		wave.tween_property(arms[0], "rotation:x", -1.5, period).set_trans(Tween.TRANS_SINE)
+		var wave2 := camp.create_tween().set_loops()
+		wave2.tween_property(arms[1], "rotation:x", -1.4, period * 1.3).set_trans(Tween.TRANS_SINE)
+		wave2.tween_property(arms[1], "rotation:x", -2.4, period * 1.3).set_trans(Tween.TRANS_SINE)
+		var bounce := camp.create_tween().set_loops()
+		bounce.tween_property(p, "position:y", gy + 0.18, period).set_trans(Tween.TRANS_SINE)
+		bounce.tween_property(p, "position:y", gy, period).set_trans(Tween.TRANS_SINE)
 
 	# 篝火（大门内侧正中）
 	var fire := MeshInstance3D.new()
