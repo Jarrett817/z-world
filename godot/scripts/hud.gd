@@ -173,7 +173,7 @@ func set_crew(members: Array) -> void:
 		box.alignment = BoxContainer.ALIGNMENT_CENTER
 		box.add_theme_constant_override("separation", 2)
 		box.add_child(_label(String(m.get("name", "")), 18, TEXT_MAIN))
-		box.add_child(_label("%s · 工作中" % String(m.get("skill", "")), 14, ACCENT))
+		box.add_child(_label("%s · %s" % [String(m.get("skill", "")), String(m.get("passive", "工作中"))], 14, ACCENT))
 		row.add_child(box)
 		crew_rows.add_child(row)
 

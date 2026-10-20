@@ -139,13 +139,19 @@ func _update_resources(delta: float) -> void:
 	var z := rv.global_position.z
 	dist_km += (last_z - z) / 1440.0
 	last_z = z
-	# 燃料
+	# 燃料（陈默·驾驶：油耗 -25%）
 	if rv.speed_kmh > 1.0:
-		fuel = maxf(0.0, fuel - rv.speed_kmh * delta * 0.0022)
+		var burn: float = rv.speed_kmh * delta * 0.0022
+		if _has_passive("chen_mo"):
+			burn *= 0.75
+		fuel = maxf(0.0, fuel - burn)
 	rv.engine_dead = fuel <= 0.0
-	# 队友修车
+	# 队友修车（林晚·急救：额外 +0.35/s）
 	if rv.speed_kmh > 5.0 and durability < 100.0:
-		durability = minf(100.0, durability + crew * 0.12 * delta)
+		var repair := crew * 0.12
+		if _has_passive("lin_wan"):
+			repair += 0.35
+		durability = minf(100.0, durability + repair * delta)
 	hud.update_stats(self)
 	if durability <= 0.0:
 		_do_game_over()
@@ -580,6 +586,8 @@ func zombie_bite() -> void:
 		return
 	bite_cd = 1.2
 	var bite := 1.0 + minf(dist_km / 2.0, 3.0)
+	if _has_passive("tang_tang"):
+		bite *= 0.6
 	durability = maxf(0.0, durability - bite)
 	add_trauma(0.12)
 	hud.update_stats(self)
@@ -704,42 +712,56 @@ func on_zombie_run_over() -> void:
 	if hit_cd > 0.0 or rv.speed_kmh < 10.0:
 		return
 	hit_cd = 0.25
-	durability = maxf(0.0, durability - 2.0)
+	var dmg := 1.2 if _has_passive("tang_tang") else 2.0
+	durability = maxf(0.0, durability - dmg)
 	add_trauma(0.25)
 
 func on_pickup(kind: String) -> void:
 	if game_over:
 		return
+	var mult := 1.5 if _has_passive("ye_lan") else 1.0
 	match kind:
 		"fuel":
-			fuel = minf(100.0, fuel + 25.0)
-			hud.toast("+25 燃料")
+			var g := 25.0 * mult
+			fuel = minf(100.0, fuel + g)
+			hud.toast("+%d 燃料" % int(g))
 		"food":
-			food += 8.0
-			hud.toast("+8 食物")
+			var g := 8.0 * mult
+			food += g
+			hud.toast("+%d 食物" % int(g))
 		"repair":
-			durability = minf(100.0, durability + 15.0)
-			hud.toast("+15 车况")
+			var g := 15.0 * mult
+			durability = minf(100.0, durability + g)
+			hud.toast("+%d 车况" % int(g))
 	hud.update_stats(self)
 
 func try_recruit(survivor: Node3D) -> void:
 	if game_over or not is_instance_valid(survivor):
 		return
-	if food < 3.0:
+	# 苏薇·谈判：招募食物消耗 3 → 2
+	var cost := 2.0 if _has_passive("ivory") else 3.0
+	if food < cost:
 		hud.toast("食物不足，无法招募幸存者")
 		return
-	food -= 3.0
+	food -= cost
 	crew += 1
 	survivor.queue_free()
 	var member := _next_crew_member()
 	if not member.is_empty():
 		crew_members.append(member)
 		hud.set_crew(crew_members)
-		hud.toast("%s（%s）加入队伍 · 分食 -3" % [member.get("name", ""), member.get("skill", "")])
+		hud.toast("%s（%s）加入队伍 · 分食 -%d" % [member.get("name", ""), member.get("skill", ""), int(cost)])
 	else:
-		hud.toast("幸存者上车！队伍 %d 人（分食 -3）" % crew)
+		hud.toast("幸存者上车！队伍 %d 人（分食 -%d）" % [crew, int(cost)])
 	_sync_crew()
 	hud.update_stats(self)
+
+## 队友专长是否已在车上
+func _has_passive(id: String) -> bool:
+	for m in crew_members:
+		if m.get("id", "") == id:
+			return true
+	return false
 
 func _next_crew_member() -> Dictionary:
 	for id in CREW_ORDER:
