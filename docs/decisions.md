@@ -154,3 +154,26 @@
 - 移动端：竖屏 OrientationHint（md 以下显示）；HudBar 窄屏压缩（label 隐藏/间距收紧）；html/body/#root 100dvh 跟随地址栏收展。
 - 引擎选型结论：维持 Three.js 原生 + cannon-es。Babylon.js 换库=Drive3D 全套重写收益≈0；PixiJS 是 2D 渲染不解决 3D；不引入 Unity WebGL（非 JS 工作流）。
 - GitHub CLI 已装（用户目录，PATH 已加），auth 待用户 gh auth login（需 GitHub 授权）；push 已恢复直连成功。
+
+## 2026-10-20 · 引擎迁移：Three.js → Godot 4.7（实时 3D 定稿）
+
+**触发**：Three.js 驾驶版画面被用户判定「贴图游戏，太 low」——要求实时 3D 的大地图驾驶体验（光照、阴影、昼夜、动态模型），Web 手搓渲染管线性价比过低。
+
+**最终技术栈**：
+- **Godot 4.7.2**（GL Compatibility 渲染器，保证老机器/后期移动端可跑）
+- **全代码构建场景**：main.tscn 只挂一个根节点 + main.gd，其余全部 GDScript 运行时创建——延续「零编辑器依赖」铁律
+- 无头验证：`Godot.exe --headless --path godot --quit-after N` 抓脚本错误，不开编辑器即可回归
+- Godot MCP（`@coding-solo/godot-mcp`，bunx 运行）已配置进 Trae mcp.json，重启 Trae 生效
+- 原 src/（Phaser+React+Three.js）整体封存，不再维护
+
+**Godot 版核心架构**（godot/ 目录）：
+- main.gd：编排器——状态机（耐久/燃料/食物/队伍/里程/昼夜）、追尾相机（指数平滑+trauma 震屏+速度 FOV）、frontier 前沿生成（障碍/物资/幸存者按间隔刷在车前方 260m）、丧尸生成上限 22、无限地形重建触发
+- terrain.gd：`rebuild(start_z)` 程序化 ArrayMesh 条带（柏油+路肩+边线+中央虚线 6 surface），车开过 340m 即向前重建，实现无限公路
+- rv.gd：CharacterBody3D，WASD/方向键+HUD 触摸按钮双输入，`touch_*` 字段桥接移动端；slide 碰撞分发（丧尸→物理冲量+碾压判定，障碍→软/硬伤害回调）
+- zombie.gd：RigidBody3D，追车 AI（RV 相对坐标）、贴身啃咬（每 0.8s 扣耐久，随里程增强）、高速碾压播放 Death 动画、撞飞后物理接管 1.3s
+- hud.gd：SystemFont 挂微软雅黑解决 Godot 默认字体无 CJK 问题
+
+**模型规格备忘**（inspect.gd 实测后已删除）：gs_001.glb 房车朝 -Z、轮底 y≈-1.557（RV_MODEL_FOOT=1.557）；zmb_stand.glb 缩放 0.065、动画 [Attack, Death, Idle, Walk]；wtruck 缩放 0.28；barricade 缩放 0.55。
+
+**玩法定调**（已确认）：线性直行生存驾驶、追尾视角、撞丧尸/障碍扣车况、房车内部经营、丧尸随时间变强、车毁即死重开（roguelike）、昼夜循环。
+
