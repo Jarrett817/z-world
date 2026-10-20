@@ -29,12 +29,12 @@ func rebuild(start_z: float) -> void:
 func _make_mesh(start_z: float) -> ArrayMesh:
 	var am := ArrayMesh.new()
 	# 0 超宽大地（远景地面，消除两侧露天空的空洞感）
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -600.0, 600.0, -0.3, false))
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -600.0, 600.0, -0.3, false, 8))
 	# 1/2 两侧路肩土带
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -ROAD_HALF - 16.0, -ROAD_HALF, -0.05, false))
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, ROAD_HALF, ROAD_HALF + 16.0, -0.05, false))
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -ROAD_HALF - 16.0, -ROAD_HALF, -0.05, false, 2))
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, ROAD_HALF, ROAD_HALF + 16.0, -0.05, false, 2))
 	# 3 柏油路面
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -ROAD_HALF, ROAD_HALF, 0.0, false))
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -ROAD_HALF, ROAD_HALF, 0.0, false, 3))
 	# 4/5 边缘实线（发旧白）
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -ROAD_HALF + 0.35, -ROAD_HALF + 0.65, 0.02, false))
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, ROAD_HALF - 0.65, ROAD_HALF - 0.35, 0.02, false))
@@ -54,10 +54,12 @@ func _make_mesh(start_z: float) -> ArrayMesh:
 		am.surface_set_material(i, _mats[i])
 	return am
 
-## 生成一条沿路弯曲的条带（x0/x1 为相对路中心的横向范围）
-func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool) -> Array:
+## 生成一条沿路弯曲的条带（x0/x1 为相对路中心的横向范围，nx 为横向细分数）
+## 顶点叠加确定性多频噪声色，做出柏油/泥地旧化斑驳，避免纯色塑料感
+func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool, nx := 1) -> Array:
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
 	var indices := PackedInt32Array()
 	var steps := int(SPAN / SEG_LEN)
 	for i in steps:
@@ -69,25 +71,43 @@ func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool) -> 
 		var cxb: float = _main.road_x(zb)
 		var ya: float = _main.ground_y(za) + y_off
 		var yb: float = _main.ground_y(zb) + y_off
-		var a := Vector3(cxa + x0, ya, za)
-		var b := Vector3(cxa + x1, ya, za)
-		var c := Vector3(cxb + x1, yb, zb)
-		var d := Vector3(cxb + x0, yb, zb)
-		var base := verts.size()
-		verts.append(a); verts.append(b); verts.append(c); verts.append(d)
-		for k in 4:
+		var row_a: int = verts.size()
+		for j in nx + 1:
+			var t := float(j) / nx
+			var xx: float = lerpf(x0, x1, t)
+			verts.append(Vector3(cxa + xx, ya, za))
 			normals.append(Vector3.UP)
-		indices.append(base); indices.append(base + 2); indices.append(base + 1)
-		indices.append(base); indices.append(base + 3); indices.append(base + 2)
+			colors.append(_mottle(cxa + xx, za))
+		for j in nx + 1:
+			var t := float(j) / nx
+			var xx: float = lerpf(x0, x1, t)
+			verts.append(Vector3(cxb + xx, yb, zb))
+			normals.append(Vector3.UP)
+			colors.append(_mottle(cxb + xx, zb))
+		for j in nx:
+			var a := row_a + j
+			var b := row_a + j + 1
+			var c := row_a + (nx + 1) + j + 1
+			var d := row_a + (nx + 1) + j
+			indices.append(a); indices.append(c); indices.append(b)
+			indices.append(a); indices.append(d); indices.append(c)
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = verts
 	arr[Mesh.ARRAY_NORMAL] = normals
+	arr[Mesh.ARRAY_COLOR] = colors
 	arr[Mesh.ARRAY_INDEX] = indices
 	return arr
+
+## 确定性多频噪声：0.78~1.12 灰度调制，重建时同位置颜色不变
+func _mottle(x: float, z: float) -> Color:
+	var n := sin(x * 0.91 + z * 0.37) * 0.5 + sin(x * 2.3 - z * 1.7) * 0.3 + sin(z * 4.7 + x * 0.4) * 0.2
+	var v: float = clampf(0.95 + n * 0.09, 0.78, 1.12)
+	return Color(v, v, v)
 
 func _mat(col: Color, rough: float) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = col
+	m.vertex_color_use_as_albedo = true
 	m.roughness = rough
 	return m

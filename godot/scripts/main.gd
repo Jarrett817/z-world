@@ -25,6 +25,7 @@ const CREW_ORDER := ["lin_wan", "chen_mo", "ye_lan", "tang_tang", "ivory"]
 
 var rv: CharacterBody3D
 var rv_model: Node3D
+var interior: Node3D
 var cam: Camera3D
 var sun: DirectionalLight3D
 var sky_mat: ProceduralSkyMaterial
@@ -118,16 +119,20 @@ func _process(delta: float) -> void:
 	if f and not _f_down and not game_over:
 		_toggle_park()
 	_f_down = f
-	# 车内视角隐藏整车外壳，避免 GLB 车体从内部遮挡视野
+	# 追尾视角只看 GLB 车壳；车内/驾驶舱视角隐藏车壳、显示程序化内饰与队友
 	rv_model.visible = view_mode == 0
+	interior.visible = view_mode != 0
+	for i in crew_figures.size():
+		crew_figures[i].visible = view_mode == 2 and i < crew_members.size()
 	if view_mode == 1:
 		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -1.9))
 		cam.look_at(rv.to_global(Vector3(-0.55, 0.9, -30.0)))
 		cam.fov = 72.0
 	elif view_mode == 2:
-		cam.global_position = rv.to_global(Vector3(-0.55, 1.72, -2.4))
-		cam.look_at(rv.to_global(Vector3(0.25, 0.9, 2.6)))
-		cam.fov = 78.0
+		# 后铺上方俯拍：餐桌当前景，灶台/货架队友为中景，副驾在车头，全员距镜头 2m 以上
+		cam.global_position = rv.to_global(Vector3(0.25, 1.78, 2.45))
+		cam.look_at(rv.to_global(Vector3(0.0, 1.05, -1.0)))
+		cam.fov = 68.0
 		_animate_crew(delta)
 	else:
 		var target := rv.global_position + Vector3(0, 3.5, 11.0)
@@ -353,8 +358,11 @@ func _build_rv() -> void:
 	_build_crew()
 	add_child(rv)
 
-## 驾驶舱 + 生活舱共用的程序化内饰
+## 驾驶舱 + 生活舱共用的程序化内饰（仅车内/驾驶舱视角可见）
 func _build_interior() -> void:
+	interior = Node3D.new()
+	interior.name = "Interior"
+	rv.add_child(interior)
 	var shell := _mat(Color(0.18, 0.17, 0.15))
 	var pad := _mat(Color(0.26, 0.22, 0.19))
 	var seat := _mat(Color(0.32, 0.25, 0.2))
@@ -386,15 +394,15 @@ func _build_interior() -> void:
 		g.material_override = glass
 		g.position = Vector3(sx, 1.4, -0.75)
 		g.rotation.y = PI * 0.5
-		rv.add_child(g)
+		interior.add_child(g)
 	# 驾驶舱：仪表台 / 台面 / 挡风上沿 / 后视镜
 	_interior_box(Vector3(2.6, 0.55, 0.7), Vector3(0, 0.28, -3.72), shell)
 	_interior_box(Vector3(2.55, 0.06, 0.75), Vector3(0, 0.575, -3.7), pad)
 	_interior_box(Vector3(2.6, 0.14, 0.16), Vector3(0, 2.03, -4.2), shell)
 	_interior_box(Vector3(0.34, 0.08, 0.09), Vector3(0, 1.94, -4.02), pad)
 	for sx in [-0.55, 0.55]:
-		_interior_box(Vector3(0.52, 0.14, 0.55), Vector3(sx, 0.05, -1.5), seat)
-		_interior_box(Vector3(0.52, 0.66, 0.14), Vector3(sx, 0.38, -1.16), seat)
+		_interior_box(Vector3(0.52, 0.16, 0.55), Vector3(sx, 0.17, -1.5), seat)
+		_interior_box(Vector3(0.52, 0.66, 0.14), Vector3(sx, 0.54, -1.16), seat)
 	# 生活舱：灶台（左）/ 货架（右）/ 餐桌 / 后铺
 	_interior_box(Vector3(0.55, 0.85, 2.4), Vector3(-1.0, 0.03, -0.1), shell)
 	_interior_box(Vector3(0.6, 0.05, 2.45), Vector3(-1.0, 0.47, -0.1), steel)
@@ -408,16 +416,37 @@ func _build_interior() -> void:
 			_interior_box(Vector3(0.06, 0.72, 0.06), Vector3(lx, -0.04, lz), shell)
 	_interior_box(Vector3(2.3, 0.45, 0.55), Vector3(0, 0.02, 2.5), shell)
 	_interior_box(Vector3(2.2, 0.12, 0.5), Vector3(0, 0.3, 2.5), pad)
-	# 方向盘：竖直面朝驾驶者，略向后倾
+	# 方向盘：圆环 + 三辐 + 转向柱，竖直面朝驾驶者略向后倾
+	var wheel_pivot := Node3D.new()
+	wheel_pivot.position = Vector3(-0.55, 0.78, -3.2)
+	wheel_pivot.rotation.x = -PI * 0.5 + 0.28
+	interior.add_child(wheel_pivot)
 	var wheel := MeshInstance3D.new()
 	var tor := TorusMesh.new()
 	tor.inner_radius = 0.18
 	tor.outer_radius = 0.245
 	wheel.mesh = tor
 	wheel.material_override = pad
-	wheel.position = Vector3(-0.55, 0.78, -3.2)
-	wheel.rotation.x = -PI * 0.5 + 0.28
-	rv.add_child(wheel)
+	wheel_pivot.add_child(wheel)
+	for k in 3:
+		var spoke := MeshInstance3D.new()
+		var sm := BoxMesh.new()
+		sm.size = Vector3(0.035, 0.19, 0.025)
+		spoke.mesh = sm
+		spoke.material_override = pad
+		spoke.position = Vector3(0, 0.095, 0)
+		spoke.rotation.z = k * TAU / 3.0
+		wheel_pivot.add_child(spoke)
+	var hub := MeshInstance3D.new()
+	var hm2 := CylinderMesh.new()
+	hm2.top_radius = 0.06
+	hm2.bottom_radius = 0.06
+	hm2.height = 0.05
+	hub.mesh = hm2
+	hub.rotation.x = PI * 0.5
+	hub.material_override = steel
+	wheel_pivot.add_child(hub)
+	_interior_box(Vector3(0.06, 0.06, 0.6), Vector3(-0.55, 0.62, -2.95), steel)
 	# 仪表遮光罩 + 暖色仪表光条
 	_interior_box(Vector3(0.62, 0.16, 0.12), Vector3(-0.55, 0.7, -3.5), shell)
 	var gauge := MeshInstance3D.new()
@@ -431,21 +460,56 @@ func _build_interior() -> void:
 	gmat.emission_energy_multiplier = 1.0
 	gauge.material_override = gmat
 	gauge.position = Vector3(-0.55, 0.72, -3.43)
-	rv.add_child(gauge)
+	interior.add_child(gauge)
 	# 舱内暖色小灯：夜间/雾天也能看清仪表台与舱内
 	var cab_light := OmniLight3D.new()
 	cab_light.light_color = Color(1.0, 0.82, 0.6)
 	cab_light.light_energy = 3.0
 	cab_light.omni_range = 8.0
 	cab_light.position = Vector3(0, 1.85, 0.4)
-	rv.add_child(cab_light)
+	interior.add_child(cab_light)
+	# 生活舱杂物：灶台锅具 / 吊柜 / 货架货物 / 餐桌餐具 / 床铺卧具 / 窗帘
+	var cloth := _mat(Color(0.32, 0.18, 0.15))
+	var bedding := _mat(Color(0.3, 0.31, 0.3))
+	var crate_mat := _mat(Color(0.34, 0.26, 0.17))
+	var can_mat := _mat(Color(0.38, 0.39, 0.4))
+	var food_mat := _mat(Color(0.45, 0.34, 0.16))
+	# 灶台：汤锅 / 煎锅 / 水龙头 / 墙上吊柜
+	_interior_cyl(Vector3(-1.0, 0.6, -1.05), 0.16, 0.2, steel)
+	_interior_cyl(Vector3(-1.0, 0.72, -1.05), 0.15, 0.04, pad)
+	_interior_cyl(Vector3(-1.0, 0.52, 0.55), 0.19, 0.05, steel)
+	_interior_box(Vector3(0.05, 0.04, 0.22), Vector3(-0.98, 0.52, 0.78), steel)
+	_interior_cyl(Vector3(-0.88, 0.56, -0.18), 0.018, 0.14, steel)
+	_interior_box(Vector3(0.03, 0.03, 0.12), Vector3(-0.88, 0.62, -0.23), steel)
+	_interior_box(Vector3(0.28, 0.5, 1.8), Vector3(-1.16, 1.55, -0.1), wood)
+	# 货架三层货物：木箱 / 罐头 / 粮袋 / 瓶子
+	_interior_box(Vector3(0.26, 0.2, 0.34), Vector3(1.12, 0.12, -0.2), crate_mat)
+	_interior_box(Vector3(0.28, 0.24, 0.3), Vector3(1.12, 0.57, 0.35), crate_mat)
+	_interior_cyl(Vector3(1.05, 0.09, 0.55), 0.07, 0.16, can_mat)
+	_interior_cyl(Vector3(1.19, 0.09, 0.55), 0.07, 0.16, can_mat)
+	_interior_cyl(Vector3(1.06, 0.54, -0.1), 0.07, 0.16, can_mat)
+	_interior_box(Vector3(0.24, 0.2, 0.22), Vector3(1.12, 1.0, 0.0), food_mat)
+	_interior_cyl(Vector3(1.06, 0.99, 0.82), 0.035, 0.2, can_mat)
+	_interior_cyl(Vector3(1.15, 0.99, 0.85), 0.035, 0.2, can_mat)
+	# 餐桌：餐盘 / 水杯 / 酒瓶
+	_interior_cyl(Vector3(0.1, 0.37, 1.7), 0.12, 0.02, pad)
+	_interior_cyl(Vector3(0.42, 0.4, 1.62), 0.04, 0.09, steel)
+	_interior_cyl(Vector3(0.38, 0.46, 1.9), 0.035, 0.2, can_mat)
+	# 后铺：枕头 / 毯子 / 衣物卷
+	_interior_box(Vector3(0.55, 0.12, 0.3), Vector3(-0.7, 0.44, 2.28), bedding)
+	_interior_box(Vector3(1.7, 0.08, 0.9), Vector3(0.1, 0.42, 2.62), cloth)
+	var roll := _interior_cyl(Vector3(0.85, 0.48, 2.28), 0.09, 0.5, cloth)
+	roll.rotation.z = PI * 0.5
+	# 窗帘（弱化大片裸玻璃的生硬）
+	_interior_box(Vector3(0.03, 1.0, 0.5), Vector3(-1.27, 1.42, -0.4), cloth)
+	_interior_box(Vector3(0.03, 1.0, 0.5), Vector3(-1.27, 1.42, 2.5), cloth)
 
 ## 车内视角的队友：各自在灶台/货架/餐桌/后铺忙碌
 func _build_crew() -> void:
 	crew_font = SystemFont.new()
 	crew_font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "sans-serif"])
 	var stations := [
-		[Vector3(0.55, -0.28, -1.45), PI, true],   # 副驾（坐姿，首位队友）
+		[Vector3(0.55, -0.6, -1.45), 0.0, true],   # 副驾（坐姿朝车头，首位队友）
 		[Vector3(-0.55, -0.4, -0.1), PI * 0.5, false],
 		[Vector3(0.55, -0.4, 0.4), -PI * 0.5, false],
 		[Vector3(0.15, -0.4, 2.05), 0.0, false],
@@ -465,24 +529,43 @@ func _make_crew_figure(idx: int, seated := false) -> Node3D:
 	root.add_child(body)
 	var skin := _mat(Color(0.82, 0.68, 0.55))
 	var pants := _mat(Color(0.17, 0.18, 0.2))
-	var hair := _mat(Color(0.12, 0.1, 0.09))
+	var shoes := _mat(Color(0.09, 0.08, 0.075))
+	var hair := _mat(Color(0.18, 0.13, 0.09))
+	var eye_mat := _mat(Color(0.05, 0.04, 0.035))
 	var jackets := [Color(0.38, 0.3, 0.22), Color(0.28, 0.32, 0.34), Color(0.35, 0.24, 0.24), Color(0.25, 0.28, 0.22), Color(0.3, 0.26, 0.3)]
 	var jacket := _mat(jackets[idx % jackets.size()])
-	# 坐姿与站立同高（躯干以下由小腿差异表现坐姿，高座垫由站位 y 补偿）
 	if not seated:
+		# 站姿：双腿 + 鞋
 		for sx in [-0.11, 0.11]:
-			_crew_box(body, Vector3(0.17, 0.86, 0.2), Vector3(sx, 0.43, 0), pants)
+			_crew_box(body, Vector3(0.16, 0.72, 0.18), Vector3(sx, 0.4, 0), pants)
+			_crew_box(body, Vector3(0.18, 0.1, 0.26), Vector3(sx, 0.05, -0.03), shoes)
 	else:
-		# 坐姿小腿（大腿藏进座垫）
+		# 坐姿：水平大腿 + 下垂小腿 + 朝前的脚
 		for sx in [-0.11, 0.11]:
-			_crew_box(body, Vector3(0.15, 0.3, 0.16), Vector3(sx, 0.73, 0.12), pants)
-	_crew_box(body, Vector3(0.5, 0.62, 0.28), Vector3(0, 1.2, 0), jacket)
+			_crew_box(body, Vector3(0.14, 0.15, 0.42), Vector3(sx, 0.8, -0.16), pants)
+			_crew_box(body, Vector3(0.13, 0.62, 0.14), Vector3(sx, 0.42, -0.34), pants)
+			_crew_box(body, Vector3(0.16, 0.09, 0.24), Vector3(sx, 0.06, -0.42), shoes)
+	# 骨盆 + 躯干 + 领口，替代整块积木躯干
+	_crew_box(body, Vector3(0.4, 0.18, 0.24), Vector3(0, 0.88, 0), pants)
+	_crew_box(body, Vector3(0.48, 0.56, 0.26), Vector3(0, 1.17, 0), jacket)
+	_crew_box(body, Vector3(0.42, 0.1, 0.24), Vector3(0, 1.4, 0), jacket)
+	# 脖子
+	_crew_box(body, Vector3(0.12, 0.1, 0.12), Vector3(0, 1.5, 0), skin)
 	var arms := []
-	for sx in [-0.31, 0.31]:
+	for sx in [-0.3, 0.3]:
 		var pivot := Node3D.new()
-		pivot.position = Vector3(sx, 1.44, 0)
+		pivot.position = Vector3(sx, 1.43, 0)
 		body.add_child(pivot)
-		_crew_box(pivot, Vector3(0.13, 0.56, 0.15), Vector3(0, -0.28, 0), jacket)
+		_crew_box(pivot, Vector3(0.13, 0.52, 0.15), Vector3(0, -0.26, 0), jacket)
+		# 手（小球替代方胳膊头）
+		var hand := MeshInstance3D.new()
+		var hm := SphereMesh.new()
+		hm.radius = 0.06
+		hm.height = 0.12
+		hand.mesh = hm
+		hand.material_override = skin
+		hand.position = Vector3(0, -0.53, 0)
+		pivot.add_child(hand)
 		arms.append(pivot)
 	var head := MeshInstance3D.new()
 	var sph := SphereMesh.new()
@@ -490,25 +573,35 @@ func _make_crew_figure(idx: int, seated := false) -> Node3D:
 	sph.height = 0.34
 	head.mesh = sph
 	head.material_override = skin
-	head.position.y = 1.66
+	head.position.y = 1.72
 	body.add_child(head)
+	# 眼睛（脸朝本地 -Z）
+	for sx in [-0.055, 0.055]:
+		var eye := MeshInstance3D.new()
+		var em := SphereMesh.new()
+		em.radius = 0.024
+		em.height = 0.048
+		eye.mesh = em
+		eye.material_override = eye_mat
+		eye.position = Vector3(sx, 1.74, -0.135)
+		body.add_child(eye)
 	var cap := MeshInstance3D.new()
 	var cap_mesh := SphereMesh.new()
-	cap_mesh.radius = 0.162
-	cap_mesh.height = 0.22
+	cap_mesh.radius = 0.159
+	cap_mesh.height = 0.26
 	cap_mesh.is_hemisphere = true
 	cap.mesh = cap_mesh
 	cap.material_override = hair
-	cap.position = Vector3(0, 1.75, 0.01)
+	cap.position = Vector3(0, 1.8, 0.01)
 	body.add_child(cap)
 	# 头顶名牌：名字 · 专长
 	var lb := Label3D.new()
 	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	lb.font = crew_font
 	lb.font_size = 26
-	lb.pixel_size = 0.0022
+	lb.pixel_size = 0.0016
 	lb.outline_size = 10
-	lb.no_depth_test = true
+	lb.no_depth_test = false
 	lb.modulate = Color(1.0, 0.93, 0.84)
 	lb.position = Vector3(0, 2.06, 0)
 	root.add_child(lb)
@@ -520,8 +613,7 @@ func _make_crew_figure(idx: int, seated := false) -> Node3D:
 func _sync_crew() -> void:
 	for i in crew_figures.size():
 		var f: Node3D = crew_figures[i]
-		f.visible = i < crew_members.size()
-		if f.visible:
+		if i < crew_members.size():
 			var m: Dictionary = crew_members[i]
 			(f.get_meta("label") as Label3D).text = "%s · %s" % [m.get("name", ""), m.get("skill", "")]
 
@@ -554,7 +646,20 @@ func _interior_box(size: Vector3, pos: Vector3, mat: Material) -> void:
 	mi.mesh = bm
 	mi.position = pos
 	mi.material_override = mat
-	rv.add_child(mi)
+	interior.add_child(mi)
+
+## 内饰小圆柱（锅/罐/杯/瓶）：pos 为世界中心，radius/height 定尺寸，轴朝 Y
+func _interior_cyl(pos: Vector3, radius: float, height: float, mat: Material) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = radius
+	cm.bottom_radius = radius
+	cm.height = height
+	mi.mesh = cm
+	mi.position = pos
+	mi.material_override = mat
+	interior.add_child(mi)
+	return mi
 
 func _build_camera() -> void:
 	cam = Camera3D.new()
@@ -924,6 +1029,34 @@ func _spawn_initial_scenery() -> void:
 		mi.set_meta("y_off", bm.size.y * 0.4)
 		add_child(mi)
 		props.append(mi)
+	# 路肩枯草丛：两片交叉草叶，双面不剔除，随世界回收
+	var grass_mat := _mat(Color(0.31, 0.29, 0.17))
+	grass_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	for i in range(70):
+		var zz := -650.0 + randf() * 710.0
+		var side := 1.0 if randf() > 0.5 else -1.0
+		var gq := QuadMesh.new()
+		var gh := randf_range(0.35, 0.8)
+		gq.size = Vector2(randf_range(0.18, 0.34), gh)
+		var blades := Node3D.new()
+		blades.position = Vector3(
+			road_x(zz) + side * randf_range(ROAD_HALF + 0.3, ROAD_HALF + 13.0),
+			ground_y(zz),
+			zz)
+		var g := MeshInstance3D.new()
+		g.mesh = gq
+		g.material_override = grass_mat
+		g.position.y = gh * 0.5
+		g.rotation.y = randf() * PI
+		blades.add_child(g)
+		var g2 := MeshInstance3D.new()
+		g2.mesh = gq
+		g2.material_override = grass_mat
+		g2.position.y = gh * 0.5
+		g2.rotation.y = PI * 0.5
+		blades.add_child(g2)
+		add_child(blades)
+		props.append(blades)
 
 func _make_scenery(z: float) -> Node3D:
 	var root := Node3D.new()
