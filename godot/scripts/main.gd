@@ -108,6 +108,9 @@ var music_b: AudioStreamPlayer
 var music_key := ""
 var music_tween: Tween
 
+var banter_t := 9.0
+var banter_busy := false
+
 func _ready() -> void:
 	_load_survivors()
 	_load_facilities()
@@ -278,6 +281,7 @@ func _process(delta: float) -> void:
 	interior.visible = view_mode != 0
 	for i in crew_figures.size():
 		crew_figures[i].visible = view_mode == 2 and i < crew_members.size()
+	_update_banter(delta)
 	if view_mode == 1:
 		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -1.9))
 		cam.look_at(rv.to_global(Vector3(-0.55, 0.9, -30.0)))
@@ -814,6 +818,57 @@ func _sync_crew() -> void:
 			lb.text = ""
 			if old:
 				old.queue_free()
+
+# ---------- 队友互动 ----------
+## 车内视角下，队友之间隔一阵子搭一句话，听的人转头看向说的人
+func _update_banter(delta: float) -> void:
+	if banter_busy or story_active or game_over or combat_active:
+		return
+	if view_mode != 2 or crew_members.size() < 2:
+		return
+	banter_t -= delta
+	if banter_t <= 0.0:
+		_start_banter()
+
+func _start_banter() -> void:
+	banter_t = randf_range(14.0, 24.0)
+	var n := mini(crew_members.size(), crew_figures.size())
+	if n < 2:
+		return
+	var a := randi() % n
+	var b := (a + 1 + randi() % (n - 1)) % n
+	var lines: Array = crew_members[a].get("banter", [])
+	if lines.is_empty():
+		return
+	var fa: Node3D = crew_figures[a]
+	var fb: Node3D = crew_figures[b]
+	var bubble: Label3D = fa.get_meta("bubble", null)
+	if bubble == null:
+		bubble = Label3D.new()
+		bubble.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		bubble.font = crew_font
+		bubble.font_size = 22
+		bubble.pixel_size = 0.0016
+		bubble.outline_size = 9
+		bubble.modulate = Color(1.0, 0.96, 0.9)
+		bubble.position = Vector3(0, 1.28, 0.24)
+		bubble.visible = false
+		fa.add_child(bubble)
+		fa.set_meta("bubble", bubble)
+	bubble.text = String(lines[randi() % lines.size()])
+	bubble.visible = true
+	banter_busy = true
+	# 听者转向说话者，说完转回原位
+	var back := fb.rotation.y
+	var dir := fa.position - fb.position
+	fb.rotation.y = atan2(dir.x, dir.z)
+	var tw := create_tween()
+	tw.tween_interval(4.5)
+	tw.tween_callback(func() -> void:
+		bubble.visible = false
+		fb.rotation.y = back
+		banter_busy = false
+	)
 
 func _interior_box(size: Vector3, pos: Vector3, mat: Material) -> void:
 	var mi := MeshInstance3D.new()
