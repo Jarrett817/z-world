@@ -264,9 +264,9 @@ func _build_story(root: Control) -> void:
 	root.add_child(story_root)
 
 	story_portrait = TextureRect.new()
-	story_portrait.custom_minimum_size = Vector2(150, 150)
-	story_portrait.position = Vector2(26, 20)
-	story_portrait.size = Vector2(150, 150)
+	story_portrait.custom_minimum_size = Vector2(150, 200)
+	story_portrait.position = Vector2(26, 28)
+	story_portrait.size = Vector2(150, 200)
 	story_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	story_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	story_portrait.clip_contents = true
@@ -521,7 +521,7 @@ func set_crew(members: Array) -> void:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
 		var pic := TextureRect.new()
-		pic.custom_minimum_size = Vector2(64, 64)
+		pic.custom_minimum_size = Vector2(56, 72)
 		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		pic.clip_contents = true

@@ -1,5 +1,12 @@
 # 决策记录
 
+## 2026-10-21 · 拾取物改自研低模（而非继续找 Sketchfab）
+
+- **背景**：发光方块辨识度低；外部小道具模型授权/风格/轴向不可控，集成成本高于自建
+- **决策**：关键小型可拾取物（油桶/食物箱/修理箱）由 Blender bpy 程序化建模，单模型 100–170KB、10–11 个部件、Principled PBR；Godot 侧 pickup.gd 只按 kind preload + AABB 统一缩放到 0.95m，模型自管原点（脚底中心）
+- **踩坑沉淀**：①bpy `primitive_cube_add(size=1)` 后 scale 即全尺寸（不是半尺寸）；②必须先 apply scale 再设 rotation，事后对已旋转物体非均匀缩放+apply 会出错；③圆柱默认轴沿 Z，"横躺"须在创建时传 rotation 且 scale/rotation 一次性 apply（先 apply scale 再 apply rotation 会把旋转带进网格导致轴向混乱，实测用 transform_apply(rotation=True, scale=True) 一次完成）；④Blender X/Y/Z → Godot X/Z/Y（Y-up 导出），部件布局按 Blender 轴思考
+- **立绘裁切**：UI 框比例必须严格等于图源比例（1728:2304=3:4），STRETCH_KEEP_ASPECT_COVERED 才零裁切；方形框装全身图必裁头
+
 ## 2026-10-20 · 天气 / 夜间 / 人物资产决策（Godot 版）
 
 - **天气三态影响玩法**：晴/雨/雾每 50–90 秒切换；雨降低抓地力（加速 ×0.78、刹车 ×0.85），雾大幅降低能见度（fog_density 0.013）——天气不只是滤镜
