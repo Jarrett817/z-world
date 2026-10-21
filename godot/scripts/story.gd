@@ -94,6 +94,11 @@ func choose(idx: int) -> void:
 		_apply(branch.get("fx", {}))
 		if branch.has("toast"):
 			main.hud.toast(String(branch["toast"]))
+		# 分支结算后跳转叙事节点（如垂死抢修成功续命）
+		if branch.has("goto"):
+			main.hud.hide_story()
+			_open(String(branch["goto"]))
+			return
 	else:
 		_apply(opt.get("fx", {}))
 		if opt.has("toast"):
@@ -109,9 +114,11 @@ func choose(idx: int) -> void:
 	active = false
 	main.story_active = false
 	main.hud.update_stats(main)
-	# 终章选项：驶入方舟
+	# 终局选项：驶入方舟（win）/ 叙事性死亡（lose）
 	if opt.get("win", false):
 		main._do_win()
+	elif opt.get("lose", false):
+		main._do_game_over()
 
 func _apply(fx: Dictionary) -> void:
 	if fx.has("dur"):
@@ -123,8 +130,14 @@ func _apply(fx: Dictionary) -> void:
 	if fx.has("morale"):
 		main.morale = clampf(main.morale + float(fx["morale"]), 0.0, 100.0)
 
-## 选项前置条件是否满足（医疗/战力不足时按钮置灰）
+## 选项前置条件是否满足（队友/士气/人数/医疗/战力不足时按钮置灰）
 func option_available(opt: Dictionary) -> bool:
+	if opt.has("requires") and not _req_ok(String(opt["requires"])):
+		return false
+	if opt.has("requires_morale") and main.morale < float(opt["requires_morale"]):
+		return false
+	if opt.has("requires_crew") and main.crew_members.size() < int(opt["requires_crew"]):
+		return false
 	if opt.has("requires_med") and _crew_stat("med") < int(opt["requires_med"]):
 		return false
 	if opt.has("requires_atk") and _crew_stat("atk") < int(opt["requires_atk"]):

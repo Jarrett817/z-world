@@ -313,6 +313,10 @@ func _show_options() -> void:
 		c.queue_free()
 	var ev: Dictionary = story_node.events.get(story_event_id, {})
 	var opts: Array = ev.get("options", [])
+	# 选项过多时（如终章 7 个分支结局）面板自适应加高
+	var panel_h: float = maxf(334.0, 208.0 + opts.size() * 49.0)
+	story_root.offset_top = -(panel_h + 26.0)
+	story_options.size.y = panel_h - 208.0
 	for i in opts.size():
 		var b := Button.new()
 		b.text = "  " + String(opts[i].get("t", "")) + "  "

@@ -51,6 +51,8 @@ var day := 1
 var hour := 9.0
 var game_over := false
 var won := false
+var dying := false
+var story: Node
 
 var zombies: Array = []
 var props: Array = []
@@ -93,7 +95,7 @@ func _ready() -> void:
 	_spawn_initial_scenery()
 	hud.set_weather(weather)
 	# 车载电台剧情管理器
-	var story := Node.new()
+	story = Node.new()
 	story.set_script(STORY_SCRIPT)
 	add_child(story)
 	story.setup(self)
@@ -240,8 +242,13 @@ func _update_resources(delta: float) -> void:
 	elif morale >= 40.0:
 		_low_morale_warned = false
 	hud.update_stats(self)
-	if durability <= 0.0:
-		_do_game_over()
+	if durability > 0.0:
+		dying = false
+	elif not dying:
+		# 垂死选择：车辆损毁前先进入剧情（抢修可续命），而非立刻结算
+		dying = true
+		add_trauma(1.0)
+		story._open("deathbed")
 
 func _do_game_over() -> void:
 	game_over = true
