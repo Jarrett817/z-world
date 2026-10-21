@@ -16,6 +16,7 @@ const HUD_SCRIPT := preload("res://scripts/hud.gd")
 const PICKUP_SCRIPT := preload("res://scripts/pickup.gd")
 const SURVIVOR_SCRIPT := preload("res://scripts/survivor.gd")
 const STORY_SCRIPT := preload("res://scripts/story.gd")
+const PLAYER_SCRIPT := preload("res://scripts/player.gd")
 
 const GROUND_Y := -1.56
 const KMH_FACTOR := 250.0   # 世界米 → 里程公里（1440 旧值，调快后一局实际驾驶 ~15 分钟走完序章的 680km 目标）
@@ -74,6 +75,9 @@ var lamp_z := -30.0
 var lamp_side := 1.0
 var view_mode := 0   # 0 追尾 / 1 驾驶舱 / 2 车内
 var _c_down := false
+var combat_active := false
+var _g_down := false
+var _t_down := false
 var parked := false
 var _f_down := false
 var _e_down := false
@@ -160,6 +164,26 @@ func _facility(id: String) -> Dictionary:
 # ---------- 相机（追尾 / 驾驶舱 / 车内） ----------
 func _process(delta: float) -> void:
 	if rv == null:
+		return
+	# G：驻车时下车战斗 / 战斗中回到驾驶座（player.gd 内部也处理结束）
+	var gk := Input.is_physical_key_pressed(KEY_G)
+	if gk and not _g_down and not game_over and not story_active:
+		if combat_active:
+			end_combat()
+		elif parked:
+			start_combat(0)
+	_g_down = gk
+	# T：天窗射击（行驶中也可探身开火，身体固定车顶）
+	var tk := Input.is_physical_key_pressed(KEY_T)
+	if tk and not _t_down and not game_over and not story_active:
+		if combat_active:
+			end_combat()
+		else:
+			start_combat(1)
+	_t_down = tk
+	if combat_active:
+		_sync_player_to_rv(delta)
+		trauma = maxf(0.0, trauma - delta * 1.4)
 		return
 	var pressed := Input.is_physical_key_pressed(KEY_C)
 	if pressed and not _c_down:
@@ -868,13 +892,111 @@ func alert_gunshot(pos: Vector3) -> void:
 		if is_instance_valid(z):
 			z.on_hear_gunshot(pos)
 
-## 玩家被啃咬（下车战斗时）：全局冷却，扣生命/士气
+## 玩家被啃咬（下车战斗时）：全局冷却，转发伤害给玩家
 func on_player_bitten() -> void:
 	if game_over or bite_cd > 0.0:
 		return
 	bite_cd = 1.2
 	add_trauma(0.2)
+	var p := get_player_body()
+	if p != null:
+		# 唐糖·教练：身手矫健，受伤减轻 40%；士气越低越容易乱
+		var dmg := 8.0 * (2.0 - morale_factor())
+		if _has_passive("tang_tang"):
+			dmg *= 0.6
+		p.take_damage(dmg)
 	hud.toast("被丧尸抓伤了！快回车里")
+
+# ---------- 下车 / 天窗战斗 ----------
+## mode：0 下车（仅驻车），1 天窗探出（行驶中可用）
+func start_combat(m: int) -> void:
+	if combat_active or game_over or story_active:
+		return
+	if m == 0 and not parked:
+		hud.toast("先按 F 驻车才能下车")
+		return
+	var p := CharacterBody3D.new()
+	p.set_script(PLAYER_SCRIPT)
+	if m == 0:
+		# 左车门旁落地
+		p.position = rv.global_position + rv.global_transform.basis.x * 2.4 + Vector3(0, -RV_MODEL_FOOT, 0.0)
+		p.position.y = ground_y(p.position.z)
+	else:
+		# 车顶天窗：脚踩车顶（碰撞顶约 +2.35）
+		p.position = rv.global_position + Vector3(0, 2.35, 0.2)
+	p.setup(self, m)
+	add_child(p)
+	player_body = p
+	combat_active = true
+	rv.combat_in = true
+	p.aim_yaw = rv.rotation.y
+	p.aim_pitch = 0.0
+	# 第三人称战斗：强制显示车壳、隐藏内饰与队友，退出时由视图模式恢复
+	rv_model.visible = true
+	interior.visible = false
+	for f in crew_figures:
+		f.visible = false
+	p._enter()
+	hud.toast("天窗射击：鼠标瞄准 · 左键开火 · G/T 返回" if m == 1 else "下车战斗：WASD 移动 · 鼠标瞄准 · 左键开火 · G 返回车内")
+
+func end_combat() -> void:
+	if not combat_active:
+		return
+	var p := get_player_body()
+	if p != null:
+		p._exit()
+		p.queue_free()
+	player_body = null
+	combat_active = false
+	rv.combat_in = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	cam.make_current()
+	# 恢复当前视图模式下的车壳/内饰/队友显隐
+	rv_model.visible = view_mode == 0
+	interior.visible = view_mode != 0
+	for i in crew_figures.size():
+		crew_figures[i].visible = view_mode == 2 and i < crew_members.size()
+
+## 天窗模式：玩家身体每帧锚在行驶中的车顶
+func _sync_player_to_rv(_delta: float) -> void:
+	var p := get_player_body()
+	if p == null or p.mode != 1:
+		return
+	p.position = rv.global_position + Vector3(0, 2.35, 0.2)
+	p.velocity = Vector3.ZERO
+
+func on_zombie_shot() -> void:
+	hud.flash_hit_marker()
+
+func on_player_dead() -> void:
+	end_combat()
+	_do_game_over()
+
+## 枪口火光 + 弹道曳光：自发光短寿命节点
+func spawn_muzzle_flash(muzzle_ws: Vector3, hit_point: Vector3) -> void:
+	var flash := OmniLight3D.new()
+	flash.light_color = Color(1.0, 0.78, 0.42)
+	flash.light_energy = 6.0
+	flash.omni_range = 9.0
+	flash.position = muzzle_ws
+	add_child(flash)
+	var tw := create_tween()
+	tw.tween_property(flash, "light_energy", 0.0, 0.09)
+	tw.tween_callback(flash.queue_free)
+	var tracer := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	var dirv := hit_point - muzzle_ws
+	var dist := maxf(dirv.length(), 0.01)
+	bm.size = Vector3(0.025, 0.025, dist)
+	tracer.mesh = bm
+	tracer.material_override = _emis_mat(Color(1.0, 0.85, 0.5), 3.0)
+	add_child(tracer)
+	tracer.global_position = (muzzle_ws + hit_point) * 0.5
+	tracer.look_at(hit_point, Vector3.UP)
+	tracer.rotate_y(PI)
+	var tw2 := create_tween()
+	tw2.tween_interval(0.06)
+	tw2.tween_callback(tracer.queue_free)
 
 func zombie_bite() -> void:
 	# 全局冷却：同一时刻只允许一只丧尸生效，避免多只叠加秒杀

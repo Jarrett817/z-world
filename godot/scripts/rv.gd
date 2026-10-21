@@ -10,6 +10,7 @@ const KMH_TO_UNITS := 0.4
 var speed_kmh := 0.0
 var engine_dead := false
 var parked := false
+var combat_in := false   # 下车/天窗战斗中：忽略驾驶按键（惯性滑行）
 var touch_gas := false
 var touch_brake := false
 var touch_steer := 0.0   # -1 右 / +1 左
@@ -28,9 +29,13 @@ func _physics_process(delta: float) -> void:
 		rotation.x = lerpf(rotation.x, 0.0, delta * 3.0)
 		rotation.z = lerpf(rotation.z, 0.0, delta * 4.0)
 		return
-	if parked:
-		speed_kmh = 0.0
-		velocity = Vector3.ZERO
+	if parked or combat_in:
+		if parked:
+			speed_kmh = 0.0
+		else:
+			# 天窗射击：无驾驶输入，惯性滑行
+			speed_kmh = maxf(speed_kmh - DRAG * delta, 0.0)
+		velocity = -global_transform.basis.z * (speed_kmh * KMH_TO_UNITS)
 		move_and_slide()
 		position.y = main_node.ground_y(position.z) + main_node.RV_MODEL_FOOT
 		rotation.x = lerpf(rotation.x, 0.0, delta * 3.0)

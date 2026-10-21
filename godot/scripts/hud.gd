@@ -29,6 +29,14 @@ var drive_buttons: Array[Button] = []
 var _tab_down := false
 var _toast_tween: Tween
 
+# 下车/天窗战斗层
+var combat_root: Control
+var crosshair: Label
+var ammo_label: Label
+var combat_hp_fill: ColorRect
+var combat_hp_label: Label
+var _hit_tween: Tween
+
 # 电台剧情对话框
 var story_node: Node
 var story_root: Panel
@@ -72,9 +80,9 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 切换视角 · F 驻车休整 · E 设施 · Tab 队伍 · 光柱 = 幸存者", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 视角 · F 驻车 · G 下车战斗 · T 天窗射击 · E 设施 · Tab 队伍", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	hint.offset_left = -600
+	hint.offset_left = -720
 	hint.offset_right = -14
 	hint.offset_top = 14
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -235,7 +243,89 @@ func build(rv_node: Node) -> void:
 	vvb.add_child(vretry)
 	root.add_child(victory_root)
 
+	_build_combat(root)
 	_build_story(root)
+
+# ---------- 下车 / 天窗战斗层 ----------
+func _build_combat(root: Control) -> void:
+	combat_root = Control.new()
+	combat_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	combat_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	combat_root.visible = false
+	root.add_child(combat_root)
+	# 屏幕中心准星
+	crosshair = _label("+", 34, TEXT_MAIN)
+	crosshair.set_anchors_preset(Control.PRESET_CENTER)
+	crosshair.offset_left = -16
+	crosshair.offset_right = 16
+	crosshair.offset_top = -24
+	crosshair.offset_bottom = 8
+	crosshair.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	combat_root.add_child(crosshair)
+	# 右下：弹匣
+	ammo_label = _label("12/12", 30, ACCENT)
+	ammo_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	ammo_label.offset_left = -220
+	ammo_label.offset_right = -24
+	ammo_label.offset_top = -78
+	ammo_label.offset_bottom = -30
+	ammo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	combat_root.add_child(ammo_label)
+	# 左下：生命条
+	var hp_title := _label("生命", 15, TEXT_DIM, Vector2(24, -74))
+	hp_title.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	combat_root.add_child(hp_title)
+	var hp_bg := ColorRect.new()
+	hp_bg.color = Color(0, 0, 0, 0.55)
+	hp_bg.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	hp_bg.offset_left = 70
+	hp_bg.offset_top = -68
+	hp_bg.offset_right = 280
+	hp_bg.offset_bottom = -44
+	combat_root.add_child(hp_bg)
+	combat_hp_fill = ColorRect.new()
+	combat_hp_fill.color = Color(0.55, 0.8, 0.45)
+	combat_hp_fill.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	combat_hp_fill.offset_left = 72
+	combat_hp_fill.offset_top = -66
+	combat_hp_fill.offset_right = 278
+	combat_hp_fill.offset_bottom = -46
+	combat_root.add_child(combat_hp_fill)
+	combat_hp_label = _label("100", 14, TEXT_MAIN, Vector2(286, -72))
+	combat_hp_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	combat_root.add_child(combat_hp_label)
+
+func set_combat_active(active: bool, ammo: int, hp: float) -> void:
+	combat_root.visible = active
+	if active:
+		set_combat_ammo(ammo, 0)
+		set_combat_hp(hp)
+
+## 瞄准数据（相机已直接朝向，准星居中即可；保留接口）
+func set_combat_aim(_dir: Vector3, _pos: Vector3) -> void:
+	pass
+
+func set_combat_ammo(ammo: int, reloading: int) -> void:
+	if reloading != 0:
+		ammo_label.text = "换弹中……"
+	else:
+		ammo_label.text = "%d/12" % ammo
+
+func set_combat_hp(hp: float) -> void:
+	var ratio := clampf(hp / 100.0, 0.0, 1.0)
+	combat_hp_fill.size.x = 206.0 * ratio
+	combat_hp_fill.offset_right = 72.0 + 206.0 * ratio
+	combat_hp_fill.color = Color(0.75, 0.3, 0.2).lerp(Color(0.55, 0.8, 0.45), ratio)
+	combat_hp_label.text = "%d" % int(round(hp))
+
+## 命中丧尸：准星闪橙
+func flash_hit_marker() -> void:
+	crosshair.modulate = ACCENT
+	if _hit_tween != null:
+		_hit_tween.kill()
+	_hit_tween = create_tween()
+	_hit_tween.tween_interval(0.08)
+	_hit_tween.tween_property(crosshair, "modulate", TEXT_MAIN, 0.18)
 
 ## 电台剧情对话框：底部通栏，左侧立绘 + 说话人名，右侧打字机正文与选项
 func _build_story(root: Control) -> void:
