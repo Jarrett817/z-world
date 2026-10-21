@@ -213,6 +213,11 @@ func play_music(key: String) -> void:
 	music_tween.set_parallel(false)
 	music_tween.tween_callback(old_p.stop)
 
+## 退出时释放音轨引用，避免根部残留资源
+func _exit_tree() -> void:
+	music_a.stream = null
+	music_b.stream = null
+
 ## 优先级：结局 > 剧情 > 战斗 > 丧尸逼近 > 驻车 > 行驶
 func _update_music() -> void:
 	if game_over:
