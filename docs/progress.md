@@ -1,5 +1,24 @@
 # 开发日志
 
+## 2026-10-21 · n28 VRM 女性角色 GLB 全面替换方块人偶
+
+### 本次完成
+
+- 用户提供 3 个 VRM（`godot/assets/roles/`），拍板角色3 为女性主角、全角色去男性化；Blender 5.2 + vrm_addon v4.10 后台管线烘焙 idle(32f LOOP)+sit(2f 静态) 后导出 `godot/assets/roles_glb/{hero,role1,role2}.glb`，脚底 y=0、真实米数（hero 1.635m / role1 1.61m / role2 1.465m）、正面朝 +Z、Body/Face/Hair/Cloth 多材质槽
+- **char_util.gd**：3 基底统一入口，PackedScene static 缓存；hero 直连，队友按 CREW_ORDER 序号奇偶轮换 role1/role2；实例化即按名播 idle/sit
+- **main.gd**：`_build_crew` 方块人偶删除，5 站位换 GLB；AABB 实测+坐标核对调通接地（站 y=-0.4 落地板顶面，坐 y=-0.15 落坐垫顶 0.25；坐姿 Hips 下沉约 0.42）；副驾坐姿朝车头（rotation.y=PI）；车内相机居中 x=0、后移 z=2.6、降高 y=1.66、fov 72，后舱两人不再贴镜头被裁，5 人全员入镜
+- **survivor.gd**：路边幸存者方块拼装删除，换 CharUtil GLB + idle；求救光柱/OmniLight/招募 Area3D 为外挂节点不受模型替换影响；截帧确认正面朝来车、接地、光柱正常
+- 管线方法论沉淀进 art-pipeline.md §4（含 slotted Action、NLA strip 错开、sit 两帧化、J_Bip 轴向表、窗口截帧延迟、headless 不能截图、车顶遮挡顶视图等坑），§2 朝向修正为实测 +Z
+- 窗口截帧验收：车舱全员视图 + 副驾近景 + 路边幸存者，全部合格
+
+### 待办
+
+- 数据去男性化：chen_mo 陈默（双份 survivors.json）改女性角色承接 driver:true/油耗-25%；同步立绘、chapter1.json、Web 侧引用；重新考虑 3 基底对 5 人的分配（role2 猫耳兽尾与写实末世基调违和）
+- 内饰精模替换 _build_interior 程序化盒子
+- 水陆两栖、大地图探索、图标宣传图 → TapTap 预约 → 软著
+
+---
+
 ## 2026-10-21 · n27 苏薇立绘更换 a_office
 
 - 苏薇立绘从 b_white（米白开衫）换成 a_office（白高领+黑包臀裙+黑丝+黑高跟+腕表），更贴「前外贸跟单/黑高跟踩废墟」人设；1773×2364 严格 3:4 零裁切

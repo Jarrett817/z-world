@@ -87,7 +87,6 @@ var survivors_data := {}
 var crew_members: Array = []
 var crew_figures: Array = []
 var crew_font: SystemFont
-var _crew_t := 0.0
 
 func _ready() -> void:
 	_load_survivors()
@@ -186,11 +185,10 @@ func _process(delta: float) -> void:
 		cam.look_at(rv.to_global(Vector3(-0.55, 0.9, -30.0)))
 		cam.fov = 72.0
 	elif view_mode == 2:
-		# 后铺上方俯拍：餐桌当前景，灶台/货架队友为中景，副驾在车头，全员距镜头 2m 以上
-		cam.global_position = rv.to_global(Vector3(0.25, 1.78, 2.45))
-		cam.look_at(rv.to_global(Vector3(0.0, 1.05, -1.0)))
-		cam.fov = 68.0
-		_animate_crew(delta)
+		# 后铺上方俯拍：餐桌当前景，灶台/货架队友为中景，副驾在车头；后移+抬视线+宽 fov 保证后舱两人完整入镜
+		cam.global_position = rv.to_global(Vector3(0.0, 1.66, 2.6))
+		cam.look_at(rv.to_global(Vector3(0.0, 1.12, -1.0)))
+		cam.fov = 72.0
 	else:
 		var target := rv.global_position + Vector3(0, 3.5, 11.0)
 		cam_pos = cam_pos.lerp(target, 1.0 - exp(-5.0 * delta))
@@ -660,140 +658,60 @@ func _build_interior() -> void:
 	_interior_box(Vector3(0.03, 1.0, 0.5), Vector3(-1.27, 1.42, -0.4), cloth)
 	_interior_box(Vector3(0.03, 1.0, 0.5), Vector3(-1.27, 1.42, 2.5), cloth)
 
-## 车内视角的队友：各自在灶台/货架/餐桌/后铺忙碌
+## 车内视角的队友：副驾坐姿、其余站姿，各自在灶台/货架/餐桌/后铺忙碌
 func _build_crew() -> void:
 	crew_font = SystemFont.new()
 	crew_font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "sans-serif"])
+	# [本地坐标, 朝向, 是否坐姿]；GLB 正面朝 +Z，副驾朝车头(-Z)故转 180°
+	# 地板顶面 y=-0.4：站姿脚底落地板；坐姿髋部下沉约 0.42，落坐垫顶(0.25)故 root y=-0.15
 	var stations := [
-		[Vector3(0.55, -0.6, -1.45), 0.0, true],   # 副驾（坐姿朝车头，首位队友）
-		[Vector3(-0.55, -0.4, -0.1), PI * 0.5, false],
-		[Vector3(0.55, -0.4, 0.4), -PI * 0.5, false],
-		[Vector3(0.15, -0.4, 2.05), 0.0, false],
-		[Vector3(-0.85, -0.4, 2.05), -PI * 0.5, false],
+		[Vector3(0.55, -0.15, -1.45), PI, true],         # 副驾（坐姿朝车头，首位队友）
+		[Vector3(-0.55, -0.4, -0.1), -PI * 0.5, false],  # 灶台前，朝 -X
+		[Vector3(0.55, -0.4, 0.4), PI * 0.5, false],     # 货架前，朝 +X
+		[Vector3(-0.55, -0.4, 1.15), PI * 0.5, false],    # 餐桌靠车头侧，左，朝桌/右
+		[Vector3(0.55, -0.4, 1.15), -PI * 0.5, false],    # 餐桌靠车头侧，右，隔桌相望
 	]
-	for i in stations.size():
-		var fig := _make_crew_figure(i, stations[i][2])
-		fig.position = stations[i][0]
-		fig.rotation.y = stations[i][1]
+	for st in stations:
+		var fig := Node3D.new()
+		var lb := Label3D.new()
+		lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		lb.font = crew_font
+		lb.font_size = 26
+		lb.pixel_size = 0.0016
+		lb.outline_size = 10
+		lb.no_depth_test = false
+		lb.modulate = Color(1.0, 0.93, 0.84)
+		lb.position = Vector3(0, 1.72, 0)
+		fig.add_child(lb)
+		fig.position = st[0]
+		fig.rotation.y = st[1]
+		fig.set_meta("label", lb)
+		fig.set_meta("seated", st[2])
+		fig.visible = false
 		rv.add_child(fig)
 		crew_figures.append(fig)
 	_sync_crew()
 
-func _make_crew_figure(idx: int, seated := false) -> Node3D:
-	var root := Node3D.new()
-	var body := Node3D.new()
-	root.add_child(body)
-	var skin := _mat(Color(0.82, 0.68, 0.55))
-	var pants := _mat(Color(0.17, 0.18, 0.2))
-	var shoes := _mat(Color(0.09, 0.08, 0.075))
-	var hair := _mat(Color(0.18, 0.13, 0.09))
-	var eye_mat := _mat(Color(0.05, 0.04, 0.035))
-	var jackets := [Color(0.38, 0.3, 0.22), Color(0.28, 0.32, 0.34), Color(0.35, 0.24, 0.24), Color(0.25, 0.28, 0.22), Color(0.3, 0.26, 0.3)]
-	var jacket := _mat(jackets[idx % jackets.size()])
-	if not seated:
-		# 站姿：双腿 + 鞋
-		for sx in [-0.11, 0.11]:
-			_crew_box(body, Vector3(0.16, 0.72, 0.18), Vector3(sx, 0.4, 0), pants)
-			_crew_box(body, Vector3(0.18, 0.1, 0.26), Vector3(sx, 0.05, -0.03), shoes)
-	else:
-		# 坐姿：水平大腿 + 下垂小腿 + 朝前的脚
-		for sx in [-0.11, 0.11]:
-			_crew_box(body, Vector3(0.14, 0.15, 0.42), Vector3(sx, 0.8, -0.16), pants)
-			_crew_box(body, Vector3(0.13, 0.62, 0.14), Vector3(sx, 0.42, -0.34), pants)
-			_crew_box(body, Vector3(0.16, 0.09, 0.24), Vector3(sx, 0.06, -0.42), shoes)
-	# 骨盆 + 躯干 + 领口，替代整块积木躯干
-	_crew_box(body, Vector3(0.4, 0.18, 0.24), Vector3(0, 0.88, 0), pants)
-	_crew_box(body, Vector3(0.48, 0.56, 0.26), Vector3(0, 1.17, 0), jacket)
-	_crew_box(body, Vector3(0.42, 0.1, 0.24), Vector3(0, 1.4, 0), jacket)
-	# 脖子
-	_crew_box(body, Vector3(0.12, 0.1, 0.12), Vector3(0, 1.5, 0), skin)
-	var arms := []
-	for sx in [-0.3, 0.3]:
-		var pivot := Node3D.new()
-		pivot.position = Vector3(sx, 1.43, 0)
-		body.add_child(pivot)
-		_crew_box(pivot, Vector3(0.13, 0.52, 0.15), Vector3(0, -0.26, 0), jacket)
-		# 手（小球替代方胳膊头）
-		var hand := MeshInstance3D.new()
-		var hm := SphereMesh.new()
-		hm.radius = 0.06
-		hm.height = 0.12
-		hand.mesh = hm
-		hand.material_override = skin
-		hand.position = Vector3(0, -0.53, 0)
-		pivot.add_child(hand)
-		arms.append(pivot)
-	var head := MeshInstance3D.new()
-	var sph := SphereMesh.new()
-	sph.radius = 0.155
-	sph.height = 0.34
-	head.mesh = sph
-	head.material_override = skin
-	head.position.y = 1.72
-	body.add_child(head)
-	# 眼睛（脸朝本地 -Z）
-	for sx in [-0.055, 0.055]:
-		var eye := MeshInstance3D.new()
-		var em := SphereMesh.new()
-		em.radius = 0.024
-		em.height = 0.048
-		eye.mesh = em
-		eye.material_override = eye_mat
-		eye.position = Vector3(sx, 1.74, -0.135)
-		body.add_child(eye)
-	var cap := MeshInstance3D.new()
-	var cap_mesh := SphereMesh.new()
-	cap_mesh.radius = 0.159
-	cap_mesh.height = 0.26
-	cap_mesh.is_hemisphere = true
-	cap.mesh = cap_mesh
-	cap.material_override = hair
-	cap.position = Vector3(0, 1.8, 0.01)
-	body.add_child(cap)
-	# 头顶名牌：名字 · 专长
-	var lb := Label3D.new()
-	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	lb.font = crew_font
-	lb.font_size = 26
-	lb.pixel_size = 0.0016
-	lb.outline_size = 10
-	lb.no_depth_test = false
-	lb.modulate = Color(1.0, 0.93, 0.84)
-	lb.position = Vector3(0, 2.06, 0)
-	root.add_child(lb)
-	root.set_meta("body", body)
-	root.set_meta("arms", arms)
-	root.set_meta("label", lb)
-	return root
-
+## 队员加入/刷新时：按 id 实例化对应 VRM 基底（播 sit/idle）并更新名牌
 func _sync_crew() -> void:
 	for i in crew_figures.size():
 		var f: Node3D = crew_figures[i]
+		var lb: Label3D = f.get_meta("label")
+		var old: Node = f.get_node_or_null("Char")
 		if i < crew_members.size():
 			var m: Dictionary = crew_members[i]
-			(f.get_meta("label") as Label3D).text = "%s · %s" % [m.get("name", ""), m.get("skill", "")]
-
-func _animate_crew(delta: float) -> void:
-	_crew_t += delta
-	for i in crew_figures.size():
-		var f: Node3D = crew_figures[i]
-		if not f.visible:
-			continue
-		var body: Node3D = f.get_meta("body")
-		body.position.y = absf(sin(_crew_t * 2.6 + i * 1.3)) * 0.02
-		body.rotation.z = sin(_crew_t * 1.7 + i) * 0.03
-		var arms: Array = f.get_meta("arms")
-		arms[0].rotation.x = sin(_crew_t * 3.2 + i) * 0.6 - 0.3
-		arms[1].rotation.x = sin(_crew_t * 3.2 + i + 2.1) * 0.6 - 0.3
-
-func _crew_box(parent: Node3D, size: Vector3, pos: Vector3, mat: Material) -> void:
-	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = size
-	mi.mesh = bm
-	mi.position = pos
-	mi.material_override = mat
-	parent.add_child(mi)
+			lb.text = "%s · %s" % [m.get("name", ""), m.get("skill", "")]
+			var anim_name := "sit" if f.get_meta("seated") else "idle"
+			var made := CharUtil.instantiate(String(m.get("id", "")), anim_name)
+			var char: Node3D = made["node"]
+			char.name = "Char"
+			if old:
+				old.queue_free()
+			f.add_child(char)
+		else:
+			lb.text = ""
+			if old:
+				old.queue_free()
 
 func _interior_box(size: Vector3, pos: Vector3, mat: Material) -> void:
 	var mi := MeshInstance3D.new()

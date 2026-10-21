@@ -19,7 +19,7 @@
 ## 2. Blender 建模/导出规范
 
 - **单位**：场景 unit scale = 1.0，公制；角色真实身高 1.7–1.8m，导出时按 Godot 侧的实例 scale 校正，不靠缩放物体凑尺寸
-- **原点与朝向**：模型原点在双脚中心（地面 y=0）；角色/僵尸面朝 **-Y**（Godot 公路行进方向为 -Z，进引擎后在实例上统一旋转，Blender 内保持 glTF 习惯 -Y forward）
+- **原点与朝向**：模型原点在脚底（y=0 即地面）；VRM 经 vrm_addon 导出的 glTF **正面朝 +Z**（2026-10-21 AABB+截帧实测，推翻旧「-Y forward」结论），进引擎后朝向在 station 配置上按局部旋转调整，不在 Blender 里转模型
 - **命名**：网格 `geo_<物>_<件>`、骨骼 `rig_<物>`、材质 `mat_<物>_<部位>`；Blender 控制器（圆环/自定义形状）导出前必须剔除（丧尸脚本现按尺寸启发式删除，新资产应在 Blender 侧直接清理，不把垃圾带进 glb）
 - **修改器**：导出前应用非形变修改器（Solidify/Bevel/Boolean）；Armature 保留为骨骼形变
 - **贴图**：baseColor ≤1024（主角/大件可 2048），MR/normal ≤512/1024，JPEG 85（透明才 PNG）；文件名 `<glb名>_<材质>_baseColor.jpg` 与现有包保持一致，Godot 会自动同名识别
@@ -31,19 +31,47 @@
 - glb 放 `godot/assets/<分类>/`；导入器默认开 LOD/阴影网/tangent，保持默认即可
 - **贴图压缩**：Windows/S3TC 首次导入会自动生成 `.s3tc.ctex` 并改写 `.import`（VRAM compress/mode=2），这类自动改写与 glb 一起提交，避免干净环境首次运行卡顿
 - **源文件必须入库**：只允许 `.godot/imported` 缓存存在、`.import` 指向的 glb 本体缺失是事故（本次发现 `zmb_stand_g.glb` 就是此状态）。修复方式：补回本体，或删除引用改代码
-- **动画名契约**：角色/丧尸动画统一 `Walk`（LOOP_LINEAR）/ `Attack` / `Death`，脚本按名字取 AnimationPlayer 轨道；换模型不改脚本
+- **动画名契约**：VRM 人类角色统一 `idle`（LOOP_LINEAR）/ `sit`（静态坐姿循环）；丧尸沿用 `Walk` / `Attack` / `Death`。脚本经 `find_child("AnimationPlayer",true,false)` 按名取轨道，`has_animation` 守卫，换模型不改脚本
 - **实例 scale 契约**：丧尸当前实例 scale 0.058–0.072（源模型约 25m 高的历史遗留），新做的角色按真实米数建模后，在 spawn 处显式 scale=1.0，不再沿用怪比例
 - 碰撞不用 glb 内三角面：RigidBody/StaticBody 外挂 Capsule/Box 碰撞（现有 spawn 代码已是此模式，保留）
 
-## 4. 角色方案：共享骨架 + 模块化换装
+## 4. 角色方案：VRM 女性基底 + 程序化 idle/sit 烘焙
 
-5 名队友 + 路边幸存者 + 车内队友是同一批人的不同出现位置，**一套骨架一套动画，外观靠服装/发型/配件区分**：
+5 名队友 + 主角 + 路边幸存者全部为女性（2026-10-21 用户拍板：不要男性角色）。资产为 3 个 VRM 导出的 GLB 基底，`godot/scripts/char_util.gd` 统一入口：
 
-- 骨骼只做一套人形（Humanoid 骨名：hips/spine/neck/head/shoulder/elbow/hand/hip/knee/foot），T-pose 绑定
-- 外观差异件：上衣/外套/裤子/鞋/发型/随身物（林晚医药箱、陈默腰包、叶澜相机、唐棠红绷带+马尾、苏薇手提包），各自独立网格挂同一骨架
-- 动画：Idle / Walk / Wave（路边求救）/ Sit（车内）/ Drive（驾驶位），丧尸专用 Walk / Attack / Death 不与人类混用
-- 路边幸存者（survivor.gd）与车内队友（main.gd `_make_crew_figure`）加载同一角色 prefab 的不同姿态动画，删除全部方块拼装代码
-- 尸群复用同一丧尸骨架，差异靠现有四档材质染色 + 2–3 套服装网格变体 + 随机身高，维持海量同屏廉价感
+- **基底**（`godot/assets/roles_glb/`，脚底 y=0、真实米数、正面朝 +Z、自带 Body/Face/Hair/Cloth 多材质槽）：
+  - `hero.glb`：紫短发黑色战术外套主角，只映射 `hero`
+  - `role1.glb` / `role2.glb`：可复用队友基底；`CharUtil._role_key` 按 `CREW_ORDER=[lin_wan,chen_mo,ye_lan,tang_tang,ivory]` 序号奇偶轮换（偶→role1，奇→role2），id 直连（hero/role1/role2）优先
+  - PackedScene 用 `static var _scene_cache` 缓存；`instantiate(cid,anim)` 返回 `{"node","anim"}`，实例化即按名播动画
+- **车内站位**（main.gd stations：本地坐标/朝向/是否坐姿）：地板顶面 y=-0.4，站姿 station y=-0.4 精确接地；坐姿 Hips 下沉约 0.42m，root y=-0.15 使臀部落坐垫顶 y=0.25；GLB 朝 +Z，朝车头(-Z)的副驾 rotation.y=PI
+- 路边幸存者（survivor.gd）与车内队友共用同一基底与 idle 动画；求救光柱/灯光/招募 Area3D 均为外挂节点，模型替换不影响玩法碰撞
+
+### 4.1 VRM → 带动画 GLB 烘焙管线（Blender 后台脚本）
+
+工具：Blender 5.2 LTS + VRM 插件 v4.10（模块名 `vrm_addon`），全程后台无编辑器：
+
+```
+blender --background --addons vrm_addon --python run_pipeline.py -- <in.vrm> <out.glb>
+```
+
+固定要点（重导新 VRM 时照此重写脚本，脚本本体留任务上下文、不入库）：
+
+1. **后台启插件**：`--addons` 只注册 operator 不写 preferences，脚本里必须再 `addon_utils.enable("vrm_addon",default_set=True,persistent=True)` 并从 preferences 取 addon；场景用工厂启动（`use_empty` 会清掉插件 preferences）
+2. 导入 `bpy.ops.import_scene.vrm(filepath=...)`，取名为 `Armature` 的对象；删除 VRM 弹簧物理的全部 EMPTY 辅助节点
+3. **Blender 4.4+ slotted Action**：新建动作走 `anim_data.action_blok`/layer/strip 新 API，旧的 `action = bpy.data.actions.new()` 直接赋值会报错
+4. **J_Bip 局部轴向（实测）**：上臂下放 左绕局部 -Z / 右绕 +Z（`q("z",-s*86)`，s=+1 左/-1 右）；上臂前摆、前臂屈肘、大腿前抬均绕局部 -X；姿态用四元数累乘拼在 pose_bone.rotation_quaternion
+5. **动画契约**：30fps；idle 32 帧 LOOP（呼吸：Hips/脊柱小角度正弦，手臂随动，Hips z 位移 0.006）；sit 是**两帧同姿态**静态循环——单帧会被 Godot 压成 0.001s，必须第 0、1 帧插相同关键帧给非零时长；sit 姿态：大腿 x=-88°、小腿 x=+92°、上臂贴身微前、Hips location z=-0.50
+6. **NLA strip 帧范围必须错开**：多动作 `export_animation_mode="ACTIONS"` 导出时，strip 重叠会互相污染烘焙姿态；idle 占 0–32，sit 推到 40–41
+7. 导出：`bpy.ops.export_scene.gltf(export_format="GLB",export_apply=True,export_yup=True,export_animations=True,export_animation_mode="ACTIONS",export_image_quality=90)`
+8. Godot 侧 `.import` 确认 `embedded_image_handling=2`（材质内嵌）、`fps=30`；AnimationPlayer 动画库名 `""`，动画名即 idle/sit
+
+### 4.2 截帧验收法
+
+- Godot headless（dummy 渲染器）**不能截图**，必须窗口模式跑 SceneTree runner：`godot --path godot -s res://tmp_shot.gd`
+- 截图要在 `_process` 里延迟到第 50 帧以后（等 GLB 实例化/动画首帧/seek 生效），`root.get_texture().get_image().save_png(globalize_path(...))`
+- runner 里调 main.gd 自定义方法返回 Variant，`:=` 推断会报 Cannot infer type，须显式 `var x: float = main.road_x(z)`
+- 接地/尺寸用 AABB 实测：实例化后合并全部 MeshInstance3D 的 `global_transform * get_aabb()`，确认 min.y≈0、身高米数；正交顶视会被车顶（顶棚盒 y=2.2）遮挡，穿模检查用坐标严格核对而非顶视图
+- 尸群维持 Q 版方案：现有四档材质染色 + 2–3 套服装变体 + 随机身高，不换 VRM 写实基底
 
 ## 5. 立绘生成方法论（Seedream）
 
