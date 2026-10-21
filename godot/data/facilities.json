@@ -1,0 +1,38 @@
+{
+  "facilities": [
+    {
+      "id": "stove",
+      "name": "灶台",
+      "desc": "生火做热饭，提振士气",
+      "max_level": 2,
+      "upgrade": { "label": "砌砖扩灶", "parts": [4] },
+      "action": {
+        "label": "生火做饭",
+        "food": 2,
+        "hours": 2,
+        "fx_morale": [12, 18]
+      }
+    },
+    {
+      "id": "bench",
+      "name": "修车工作台",
+      "desc": "花零件做深度检修",
+      "max_level": 2,
+      "upgrade": { "label": "加装吊架", "parts": [6] },
+      "action": {
+        "label": "深度检修",
+        "parts": 1,
+        "hours": 3,
+        "fx_dur": [18, 28]
+      }
+    },
+    {
+      "id": "storage",
+      "name": "储物架",
+      "desc": "提高燃料携带上限",
+      "max_level": 3,
+      "upgrade": { "label": "加装油桶架", "parts": [5, 8] },
+      "fuel_cap": [100, 120, 140]
+    }
+  ]
+}

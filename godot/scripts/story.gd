@@ -71,6 +71,7 @@ func _open(id: String) -> void:
 	# JSON 外层 key 才是事件 id，注入副本传给 HUD
 	var evv: Dictionary = ev.duplicate()
 	evv["id"] = id
+	main.set_facilities_ui(false)
 	main.hud.show_story(evv)
 
 ## HUD 选项按钮回调
@@ -113,6 +114,7 @@ func choose(idx: int) -> void:
 	main.hud.hide_story()
 	active = false
 	main.story_active = false
+	main.set_facilities_ui(true)
 	main.hud.update_stats(main)
 	# 终局选项：驶入方舟（win）/ 叙事性死亡（lose）
 	if opt.get("win", false):

@@ -22,6 +22,10 @@ var victory_stats: Label
 var crew_panel: Panel
 var crew_rows: VBoxContainer
 var crew_visible := false
+var facilities_root: Panel
+var facilities_rows: VBoxContainer
+var facilities_title: Label
+var drive_buttons: Array[Button] = []
 var _tab_down := false
 var _toast_tween: Tween
 
@@ -68,9 +72,9 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 切换视角 · F 驻车休整 · Tab 队伍 · 光柱 = 幸存者", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 切换视角 · F 驻车休整 · E 设施 · Tab 队伍 · 光柱 = 幸存者", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	hint.offset_left = -560
+	hint.offset_left = -600
 	hint.offset_right = -14
 	hint.offset_top = 14
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -106,11 +110,11 @@ func build(rv_node: Node) -> void:
 	toast_label.modulate.a = 0.0
 	root.add_child(toast_label)
 
-	# 触摸驾驶按钮
-	_touch_button(root, "油门", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -118, 156, 98), "gas")
-	_touch_button(root, "刹车", Control.PRESET_BOTTOM_RIGHT, Rect2(-352, -118, 156, 98), "brake")
-	_touch_button(root, "左", Control.PRESET_BOTTOM_LEFT, Rect2(20, -118, 130, 98), "left")
-	_touch_button(root, "右", Control.PRESET_BOTTOM_LEFT, Rect2(170, -118, 130, 98), "right")
+	# 触摸驾驶按钮（驻车时隐藏驾驶四个）
+	drive_buttons.append(_touch_button(root, "油门", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -118, 156, 98), "gas"))
+	drive_buttons.append(_touch_button(root, "刹车", Control.PRESET_BOTTOM_RIGHT, Rect2(-352, -118, 156, 98), "brake"))
+	drive_buttons.append(_touch_button(root, "左", Control.PRESET_BOTTOM_LEFT, Rect2(20, -118, 130, 98), "left"))
+	drive_buttons.append(_touch_button(root, "右", Control.PRESET_BOTTOM_LEFT, Rect2(170, -118, 130, 98), "right"))
 	_touch_button(root, "视角", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -222, 78, 56), "view")
 	_touch_button(root, "驻车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -222, 78, 56), "park")
 
@@ -131,6 +135,49 @@ func build(rv_node: Node) -> void:
 	crew_rows.offset_bottom = -12
 	crew_rows.add_theme_constant_override("separation", 10)
 	crew_panel.add_child(crew_rows)
+
+	# 房车设施面板（驻车时 E 开关，底部居中）
+	facilities_root = Panel.new()
+	facilities_root.anchor_left = 0.5
+	facilities_root.anchor_right = 0.5
+	facilities_root.anchor_top = 1.0
+	facilities_root.anchor_bottom = 1.0
+	facilities_root.offset_left = -306
+	facilities_root.offset_right = 306
+	facilities_root.offset_top = -312
+	facilities_root.offset_bottom = -28
+	facilities_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	var fsb := StyleBoxFlat.new()
+	fsb.bg_color = Color(0.105, 0.085, 0.07, 0.96)
+	fsb.set_border_width_all(2)
+	fsb.border_color = Color(0.91, 0.53, 0.18, 0.75)
+	fsb.set_corner_radius_all(12)
+	fsb.content_margin_left = 16
+	fsb.content_margin_right = 16
+	fsb.content_margin_top = 12
+	fsb.content_margin_bottom = 12
+	facilities_root.add_theme_stylebox_override("panel", fsb)
+	facilities_root.visible = false
+	root.add_child(facilities_root)
+	var fac_margin := MarginContainer.new()
+	fac_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	fac_margin.add_theme_constant_override("margin_left", 16)
+	fac_margin.add_theme_constant_override("margin_right", 16)
+	fac_margin.add_theme_constant_override("margin_top", 12)
+	fac_margin.add_theme_constant_override("margin_bottom", 12)
+	fac_margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	facilities_root.add_child(fac_margin)
+	var fac_vbox := VBoxContainer.new()
+	fac_vbox.add_theme_constant_override("separation", 8)
+	fac_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fac_margin.add_child(fac_vbox)
+	facilities_title = _label("", 18, ACCENT, Vector2.ZERO)
+	fac_vbox.add_child(facilities_title)
+	facilities_rows = VBoxContainer.new()
+	facilities_rows.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	facilities_rows.add_theme_constant_override("separation", 6)
+	facilities_rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fac_vbox.add_child(facilities_rows)
 
 	# 结算遮罩（隐藏）
 	over_root = ColorRect.new()
@@ -344,6 +391,125 @@ func _show_options() -> void:
 func hide_story() -> void:
 	story_root.visible = false
 
+# ---------- 房车设施面板 ----------
+func set_facilities_visible(v: bool) -> void:
+	facilities_root.visible = v
+	if v:
+		_refresh_facilities()
+
+## 驻车时隐藏驾驶按钮，避免与设施面板重叠
+func set_drive_buttons_visible(v: bool) -> void:
+	for b in drive_buttons:
+		b.visible = v
+
+func refresh_facilities() -> void:
+	if facilities_root.visible:
+		_refresh_facilities()
+
+func _refresh_facilities() -> void:
+	for c in facilities_rows.get_children():
+		c.queue_free()
+	var main: Node = rv.main_node
+	facilities_title.text = "房车设施 · 零件 %d · E 收起" % int(main.parts)
+	for f in main.facilities_data.get("facilities", []):
+		var id := String(f.get("id", ""))
+		var lv := int(main.facility_levels.get(id, 0))
+		var max_lv := int(f.get("max_level", 1))
+		var act: Dictionary = f.get("action", {})
+		# 卡片底
+		var card := PanelContainer.new()
+		var csb := StyleBoxFlat.new()
+		csb.bg_color = Color(0.15, 0.12, 0.1, 0.85)
+		csb.set_border_width_all(1)
+		csb.border_color = Color(0.91, 0.53, 0.18, 0.28)
+		csb.set_corner_radius_all(8)
+		csb.content_margin_left = 12
+		csb.content_margin_right = 12
+		csb.content_margin_top = 8
+		csb.content_margin_bottom = 8
+		card.add_theme_stylebox_override("panel", csb)
+		card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 3)
+		col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(col)
+		# 第一行：名称 · 等级点 · 描述 · 按钮们
+		var top := HBoxContainer.new()
+		top.add_theme_constant_override("separation", 10)
+		var dots := ""
+		for i in max_lv:
+			dots += "●" if i <= lv else "○"
+		var head := _label("%s %s" % [String(f.get("name", "")), dots], 16, ACCENT)
+		head.custom_minimum_size = Vector2(128, 0)
+		top.add_child(head)
+		var desc_lab := _label(String(f.get("desc", "")), 14, TEXT_DIM)
+		desc_lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		desc_lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		top.add_child(desc_lab)
+		if not act.is_empty():
+			var can: bool = main.food >= float(act.get("food", 0)) and main.parts >= float(act.get("parts", 0))
+			var b := _facility_button(String(act.get("label", "使用")), can)
+			b.custom_minimum_size = Vector2(104, 0)
+			b.pressed.connect(main.facility_action.bind(id))
+			top.add_child(b)
+		if lv < max_lv - 1:
+			var costs: Array = f.get("upgrade", {}).get("parts", [])
+			var cost := int(costs[lv])
+			var ub := _facility_button("%s ·%d件" % [String(f.get("upgrade", {}).get("label", "升级")), cost], main.parts >= cost)
+			ub.custom_minimum_size = Vector2(118, 0)
+			ub.pressed.connect(main.facility_upgrade.bind(id))
+			top.add_child(ub)
+		else:
+			var max_lab := _label("已满级", 13, TEXT_DIM)
+			max_lab.custom_minimum_size = Vector2(64, 0)
+			max_lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			max_lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			top.add_child(max_lab)
+		col.add_child(top)
+		# 第二行：动作明细 / 燃料上限
+		if not act.is_empty():
+			col.add_child(_label(_action_detail(main, act, lv), 13, TEXT_MAIN))
+		elif f.has("fuel_cap"):
+			var caps: Array = f["fuel_cap"]
+			col.add_child(_label("当前燃料上限 %d" % int(caps[lv]), 13, TEXT_MAIN))
+		facilities_rows.add_child(card)
+
+## 拼接动作当前收益描述
+func _action_detail(main: Node, act: Dictionary, lv: int) -> String:
+	var cost_parts := []
+	if float(act.get("food", 0)) > 0:
+		cost_parts.append("食物 -%d" % int(act["food"]))
+	if float(act.get("parts", 0)) > 0:
+		cost_parts.append("零件 -%d" % int(act["parts"]))
+	cost_parts.append("%d 小时" % int(act.get("hours", 0)))
+	var s := " · ".join(cost_parts)
+	if act.has("fx_morale"):
+		s += "  →  士气 +%d" % int((act["fx_morale"] as Array)[lv])
+	if act.has("fx_dur"):
+		s += "  →  车况 +%d" % int((act["fx_dur"] as Array)[lv])
+	return s
+
+func _facility_button(text: String, enabled: bool) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.disabled = not enabled
+	b.add_theme_font_size_override("font_size", 14)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.17, 0.14, 0.12, 0.92)
+	sb.set_border_width_all(1)
+	sb.border_color = Color(0.91, 0.53, 0.18, 0.55 if enabled else 0.18)
+	sb.set_corner_radius_all(8)
+	sb.content_margin_left = 10
+	sb.content_margin_right = 10
+	sb.content_margin_top = 5
+	sb.content_margin_bottom = 5
+	b.add_theme_stylebox_override("normal", sb)
+	b.add_theme_stylebox_override("hover", sb)
+	b.add_theme_stylebox_override("disabled", sb)
+	b.add_theme_color_override("font_color", TEXT_MAIN if enabled else TEXT_DIM)
+	b.modulate = Color(1, 1, 1, 1 if enabled else 0.7)
+	return b
+
 func set_crew(members: Array) -> void:
 	for c in crew_rows.get_children():
 		c.queue_free()
@@ -375,11 +541,11 @@ func update_stats(main: Node3D) -> void:
 	var ratio: float = main.durability / 100.0
 	dur_fill.size.x = (BAR_W - 4.0) * ratio
 	dur_fill.color = Color(0.75, 0.3, 0.2).lerp(Color(0.55, 0.8, 0.45), ratio)
-	fuel_fill.size.x = (BAR_W - 4.0) * main.fuel / 100.0
+	fuel_fill.size.x = (BAR_W - 4.0) * main.fuel / main.fuel_cap()
 	var mr: float = main.morale / 100.0
 	morale_fill.size.x = (BAR_W - 4.0) * mr
 	morale_fill.color = Color(0.75, 0.3, 0.2).lerp(Color(0.91, 0.53, 0.18), mr)
-	res_label.text = "食物 %d · 队伍 %d 人" % [int(main.food), main.crew]
+	res_label.text = "食物 %d · 零件 %d · 燃料 %.0f/%.0f · 队伍 %d 人" % [int(main.food), int(main.parts), main.fuel, main.fuel_cap(), main.crew]
 	var h := int(main.hour)
 	var m := int((main.hour - h) * 60.0)
 	info_label.text = "里程 %.1f km · 第 %d 天 %02d:%02d%s" % [main.dist_km, main.day, h, m, " · 驻车中" if main.parked else ""]
@@ -448,7 +614,7 @@ func _add_bar(panel: Control, pos: Vector2) -> ColorRect:
 	panel.add_child(fill)
 	return fill
 
-func _touch_button(parent: Control, text: String, preset: int, rect: Rect2, action: String) -> void:
+func _touch_button(parent: Control, text: String, preset: int, rect: Rect2, action: String) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.set_anchors_preset(preset)
@@ -474,6 +640,7 @@ func _touch_button(parent: Control, text: String, preset: int, rect: Rect2, acti
 	b.button_down.connect(_on_btn_down.bind(action))
 	b.button_up.connect(_on_btn_up.bind(action))
 	parent.add_child(b)
+	return b
 
 func _on_btn_down(action: String) -> void:
 	match action:

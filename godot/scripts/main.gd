@@ -44,6 +44,7 @@ var durability := 100.0
 var fuel := 60.0
 var food := 10.0
 var morale := 70.0
+var parts := 3.0
 var crew := 0
 var story_active := false
 var dist_km := 0.0
@@ -75,6 +76,10 @@ var view_mode := 0   # 0 追尾 / 1 驾驶舱 / 2 车内
 var _c_down := false
 var parked := false
 var _f_down := false
+var _e_down := false
+var facilities_visible := false
+var facilities_data := {}
+var facility_levels := {}   # 设施 id → 当前等级（0 起）
 var _starving := false
 var _low_morale_warned := false
 var ark_spawned := false
@@ -86,6 +91,7 @@ var _crew_t := 0.0
 
 func _ready() -> void:
 	_load_survivors()
+	_load_facilities()
 	_build_sky()
 	_build_terrain()
 	_build_rv()
@@ -130,6 +136,28 @@ func _load_survivors() -> void:
 	if parsed is Dictionary:
 		survivors_data = parsed
 
+func _load_facilities() -> void:
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/facilities.json"))
+	if parsed is Dictionary:
+		facilities_data = parsed
+		for f in parsed.get("facilities", []):
+			facility_levels[f.get("id", "")] = 0
+
+## 储物架等级决定燃料上限
+func fuel_cap() -> float:
+	for f in facilities_data.get("facilities", []):
+		if f.get("id", "") == "storage":
+			var caps: Array = f.get("fuel_cap", [100.0])
+			return float(caps[facility_levels["storage"]])
+	return 100.0
+
+## 设施定义
+func _facility(id: String) -> Dictionary:
+	for f in facilities_data.get("facilities", []):
+		if f.get("id", "") == id:
+			return f
+	return {}
+
 # ---------- 相机（追尾 / 驾驶舱 / 车内） ----------
 func _process(delta: float) -> void:
 	if rv == null:
@@ -143,6 +171,11 @@ func _process(delta: float) -> void:
 	if f and not _f_down and not game_over:
 		_toggle_park()
 	_f_down = f
+	# 驻车时 E 开关房车设施面板
+	var e := Input.is_physical_key_pressed(KEY_E)
+	if e and not _e_down and parked and not game_over:
+		set_facilities_ui(not facilities_visible)
+	_e_down = e
 	# 追尾视角只看 GLB 车壳；车内/驾驶舱视角隐藏车壳、显示程序化内饰与队友
 	rv_model.visible = view_mode == 0
 	interior.visible = view_mode != 0
@@ -185,12 +218,81 @@ func _toggle_park() -> void:
 		rv.speed_kmh = 0.0
 		view_mode = 2
 		_starving = false
-		hud.toast("驻车休整 · 队友开始检修（F 出发）")
+		hud.set_drive_buttons_visible(false)
+		set_facilities_ui(true)
+		hud.toast("驻车休整 · E 设施操作，F 出发")
 	else:
 		parked = false
 		rv.parked = false
 		view_mode = 0
+		hud.set_drive_buttons_visible(true)
+		set_facilities_ui(false)
 		hud.toast("出发")
+
+## 设施面板开关（剧情对话时强制隐藏，避免遮挡与误点）
+func set_facilities_ui(v: bool) -> void:
+	facilities_visible = v and parked and not story_active
+	hud.set_facilities_visible(facilities_visible)
+
+## 推进若干小时（与驻车同倍率无关：直接结算干活花掉的时间）
+func _advance_hours(h: float) -> void:
+	hour += h
+	while hour >= 24.0:
+		hour -= 24.0
+		day += 1
+
+## HUD：执行设施主动动作（做饭 / 深度检修）
+func facility_action(id: String) -> void:
+	if not parked or game_over:
+		return
+	var f := _facility(id)
+	var act: Dictionary = f.get("action", {})
+	if act.is_empty():
+		return
+	var lv := int(facility_levels.get(id, 0))
+	var need_food := float(act.get("food", 0))
+	var need_parts := float(act.get("parts", 0))
+	if food < need_food:
+		hud.toast("食物不足")
+		return
+	if parts < need_parts:
+		hud.toast("零件不足")
+		return
+	food -= need_food
+	parts -= need_parts
+	_advance_hours(float(act.get("hours", 0)))
+	if act.has("fx_morale"):
+		var gains: Array = act["fx_morale"]
+		morale = minf(100.0, morale + float(gains[lv]))
+		hud.toast("热饭下肚，士气 +%d" % int(gains[lv]))
+	if act.has("fx_dur"):
+		var reps: Array = act["fx_dur"]
+		durability = minf(100.0, durability + float(reps[lv]))
+		hud.toast("深度检修完成，车况 +%d" % int(reps[lv]))
+	hud.update_stats(self)
+	hud.refresh_facilities()
+
+## HUD：升级设施（消耗零件）
+func facility_upgrade(id: String) -> void:
+	if not parked or game_over:
+		return
+	var f := _facility(id)
+	var up: Dictionary = f.get("upgrade", {})
+	if up.is_empty():
+		return
+	var lv := int(facility_levels.get(id, 0))
+	if lv >= int(f.get("max_level", 1)) - 1:
+		return
+	var costs: Array = up.get("parts", [])
+	var cost := float(costs[lv])
+	if parts < cost:
+		hud.toast("零件不足（需要 %d）" % int(cost))
+		return
+	parts -= cost
+	facility_levels[id] = lv + 1
+	hud.toast("%s 已升级" % String(f.get("name", "")))
+	hud.update_stats(self)
+	hud.refresh_facilities()
 
 # ---------- 数值 ----------
 ## 士气系数：50 为中轴，高士气增益、低士气惩罚（0.8 ~ 1.2）
@@ -206,7 +308,8 @@ func _update_resources(delta: float) -> void:
 		if food > 0.0:
 			food = maxf(0.0, food - delta * 0.1)
 			_starving = false
-			morale = minf(100.0, morale + delta * 0.6)
+			# 驻车闲聊只缓慢回暖；想要快速恢复士气，得用灶台做热饭
+			morale = minf(100.0, morale + delta * 0.3)
 			if durability < 100.0:
 				var rate := crew * 0.12
 				if _has_passive("lin_wan"):
@@ -1017,7 +1120,7 @@ func on_pickup(kind: String) -> void:
 	match kind:
 		"fuel":
 			var g := 25.0 * mult
-			fuel = minf(100.0, fuel + g)
+			fuel = minf(fuel_cap(), fuel + g)
 			hud.toast("+%d 燃料" % int(g))
 		"food":
 			var g := 8.0 * mult
@@ -1026,7 +1129,10 @@ func on_pickup(kind: String) -> void:
 		"repair":
 			var g := 15.0 * mult
 			durability = minf(100.0, durability + g)
-			hud.toast("+%d 车况" % int(g))
+			# 修理箱拆出可用零件（叶澜·搜刮：物资整体 +50%）
+			var pg := 2.0 * mult
+			parts += pg
+			hud.toast("+%d 车况 · +%d 零件" % [int(g), int(pg)])
 	hud.update_stats(self)
 
 func try_recruit(survivor: Node3D) -> void:
