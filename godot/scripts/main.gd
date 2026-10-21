@@ -1416,6 +1416,184 @@ func _spawn_ark_camp() -> void:
 	fl.omni_range = 14.0
 	fl.position = fire.position + Vector3(0.0, 1.2, 0.0)
 	camp.add_child(fl)
+	# 篝火明暗跳动
+	var flicker := camp.create_tween().set_loops()
+	flicker.tween_property(fl, "light_energy", 3.4, 0.16)
+	flicker.tween_property(fl, "light_energy", 2.0, 0.22)
+
+	# 篝火炊烟：灰色半透明贴片粒子，缓慢上飘并横向漂移
+	var smoke := CPUParticles3D.new()
+	smoke.amount = 64
+	smoke.lifetime = 4.6
+	smoke.lifetime_randomness = 0.5
+	smoke.preprocess = 2.0
+	smoke.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	smoke.emission_sphere_radius = 0.45
+	smoke.position = fire.position + Vector3(0.0, 0.7, 0.0)
+	smoke.direction = Vector3(0.3, 1.0, 0.0)
+	smoke.spread = 22.0
+	smoke.gravity = Vector3(1.1, 0.25, 0.0)
+	smoke.initial_velocity_min = 0.5
+	smoke.initial_velocity_max = 0.9
+	smoke.scale_amount_min = 0.9
+	smoke.scale_amount_max = 1.6
+	var alpha_ramp := Gradient.new()
+	alpha_ramp.add_point(0.0, Color(0.55, 0.53, 0.5, 0.0))
+	alpha_ramp.add_point(0.28, Color(0.55, 0.53, 0.5, 0.13))
+	alpha_ramp.add_point(1.0, Color(0.55, 0.53, 0.5, 0.0))
+	smoke.color_ramp = alpha_ramp
+	var sq := QuadMesh.new()
+	sq.size = Vector2(0.5, 0.5)
+	var soft := Gradient.new()
+	soft.add_point(0.0, Color(1, 1, 1, 1))
+	soft.add_point(0.55, Color(1, 1, 1, 0.65))
+	soft.add_point(1.0, Color(1, 1, 1, 0))
+	var soft_tex := GradientTexture2D.new()
+	soft_tex.gradient = soft
+	soft_tex.width = 64
+	soft_tex.height = 64
+	soft_tex.fill = GradientTexture2D.FILL_RADIAL
+	soft_tex.fill_from = Vector2(0.5, 0.5)
+	soft_tex.fill_to = Vector2(0.854, 0.854)
+	var sm := StandardMaterial3D.new()
+	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	sm.albedo_texture = soft_tex
+	sm.albedo_color = Color(0.55, 0.53, 0.5)
+	sm.vertex_color_use_as_albedo = true
+	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	sm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	sm.billboard_keep_scale = true
+	sq.material = sm
+	smoke.mesh = sq
+	camp.add_child(smoke)
+
+	# 门柱顶飘扬的方舟旗：横杆 + 软旗片，tween 循环缩放 x 模拟风摆
+	for sx in [-1.0, 1.0]:
+		var fp := Node3D.new()
+		fp.position = Vector3(sx * 6.0, gy + 9.4, 0.0)
+		camp.add_child(fp)
+		var yard := MeshInstance3D.new()
+		var ym := BoxMesh.new()
+		ym.size = Vector3(2.2, 0.1, 0.1)
+		yard.mesh = ym
+		yard.position.x = sx * 1.0
+		yard.material_override = dark_steel
+		fp.add_child(yard)
+		var flag := MeshInstance3D.new()
+		var fm := BoxMesh.new()
+		fm.size = Vector3(1.8, 1.0, 0.04)
+		flag.mesh = fm
+		# 旗片绕门柱那一侧摆动：原点平移到旗杆端后缩放
+		flag.position = Vector3(sx * 2.0, -0.05, 0.0)
+		flag.scale.x = 1.0
+		flag.material_override = _mat(Color(0.62, 0.18, 0.14))
+		fp.add_child(flag)
+		var flag_swing := camp.create_tween().set_loops()
+		flag_swing.tween_property(flag, "scale:x", 0.86, 0.9).set_trans(Tween.TRANS_SINE)
+		flag_swing.tween_property(flag, "scale:x", 1.0, 0.9).set_trans(Tween.TRANS_SINE)
+
+	# 营地停车场：几辆废弃/驻扎车辆残骸，硬化空地两侧
+	var wreck_cols: Array[Color] = [
+		Color(0.3, 0.32, 0.28), Color(0.24, 0.26, 0.3), Color(0.34, 0.26, 0.2),
+	]
+	for i in range(5):
+		var side: float = -1.0 if i % 2 == 0 else 1.0
+		var w := _make_wreck(wreck_cols[i % wreck_cols.size()], rng, i)
+		w.position = Vector3(side * rng.randf_range(22.0, 34.0), ground_y(gate_z - 30.0 - i * 14.0), -30.0 - i * 14.0)
+		w.rotation.y = side * rng.randf_range(-0.3, 0.35)
+		camp.add_child(w)
+
+	# 围墙巡逻哨兵：两人沿营地纵深往返走动
+	for gi in range(2):
+		var guard := Node3D.new()
+		var gside: float = -1.0 if gi == 0 else 1.0
+		guard.position = Vector3(gside * 13.0, gy, -6.0)
+		guard.rotation.y = -gside * PI / 2.0
+		camp.add_child(guard)
+		var gcoat := _mat(Color(0.18, 0.22, 0.16))
+		var gtorso := MeshInstance3D.new()
+		var gtm := CapsuleMesh.new()
+		gtm.radius = 0.24
+		gtm.height = 1.1
+		gtorso.mesh = gtm
+		gtorso.position.y = 0.86
+		gtorso.material_override = gcoat
+		guard.add_child(gtorso)
+		var ghead := MeshInstance3D.new()
+		var ghm := SphereMesh.new()
+		ghm.radius = 0.17
+		ghm.height = 0.34
+		ghead.mesh = ghm
+		ghead.position.y = 1.6
+		ghead.material_override = _mat(Color(0.6, 0.48, 0.38))
+		guard.add_child(ghead)
+		# 头盔
+		var helm := MeshInstance3D.new()
+		var helm_m := SphereMesh.new()
+		helm_m.radius = 0.19
+		helm_m.height = 0.26
+		helm.mesh = helm_m
+		helm.position.y = 1.66
+		helm.material_override = dark_steel
+		guard.add_child(helm)
+		# 巡逻：沿 z 走到营地深处再返回，到位转身
+		var far_z := -90.0 - gi * 18.0
+		var patrol := camp.create_tween().set_loops()
+		patrol.tween_property(guard, "position:z", far_z, 18.0).set_trans(Tween.TRANS_LINEAR)
+		patrol.tween_property(guard, "rotation:y", gside * PI / 2.0, 0.6)
+		patrol.tween_property(guard, "position:z", -6.0, 18.0).set_trans(Tween.TRANS_LINEAR)
+		patrol.tween_property(guard, "rotation:y", -gside * PI / 2.0, 0.6)
+		# 走动时身体轻微起伏
+		var gstep := camp.create_tween().set_loops()
+		gstep.tween_property(guard, "position:y", gy + 0.07, 0.34).set_trans(Tween.TRANS_SINE)
+		gstep.tween_property(guard, "position:y", gy, 0.34).set_trans(Tween.TRANS_SINE)
+
+## 程序化废弃/驻扎车辆残骸：锈蚀车身 + 驾驶舱 + 歪斜车轮，随机破损
+func _make_wreck(col: Color, rng: RandomNumberGenerator, seed_i: int) -> Node3D:
+	var w := Node3D.new()
+	var body_mat := _mat(col)
+	var body := MeshInstance3D.new()
+	var bm3 := BoxMesh.new()
+	bm3.size = Vector3(2.0, 0.9, 4.2)
+	body.mesh = bm3
+	body.position.y = 0.85
+	body.material_override = body_mat
+	w.add_child(body)
+	var cab := MeshInstance3D.new()
+	var cm3 := BoxMesh.new()
+	cm3.size = Vector3(1.9, 0.85, 1.8)
+	cab.mesh = cm3
+	cab.position = Vector3(0.0, 1.5, -0.9)
+	cab.material_override = body_mat
+	w.add_child(cab)
+	# 破碎挡风玻璃（暗色）
+	var glass := MeshInstance3D.new()
+	var glm := BoxMesh.new()
+	glm.size = Vector3(1.5, 0.5, 0.06)
+	glass.mesh = glm
+	glass.position = Vector3(0.0, 1.55, -1.84)
+	glass.material_override = _mat(Color(0.12, 0.14, 0.15))
+	w.add_child(glass)
+	# 四个歪斜车轮
+	var wheel_mat := _mat(Color(0.08, 0.08, 0.08))
+	for wx in [-1.05, 1.05]:
+		for wz in [-1.4, 1.4]:
+			var wheel := MeshInstance3D.new()
+			var wm := CylinderMesh.new()
+			wm.top_radius = 0.42
+			wm.bottom_radius = 0.42
+			wm.height = 0.3
+			wheel.mesh = wm
+			wheel.rotation.z = PI * 0.5
+			wheel.position = Vector3(wx, 0.42, wz)
+			wheel.rotation.y = rng.randf_range(-0.3, 0.3)
+			wheel.material_override = wheel_mat
+			w.add_child(wheel)
+	# 随机一辆侧倾/陷胎，显破败
+	if seed_i % 2 == 0:
+		w.rotation.z = rng.randf_range(-0.06, 0.06)
+		w.position.y = -0.15
+	return w
 
 func _make_scenery(z: float) -> Node3D:
 	var root := Node3D.new()
