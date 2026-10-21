@@ -1,0 +1,19 @@
+[remap]
+
+importer="mp3"
+type="AudioStreamMP3"
+uid="uid://dnivockqhrd7v"
+path="res://.godot/imported/Gunfire at Dawn.mp3-2c9f43cddec73212c66dc665cdb9654c.mp3str"
+
+[deps]
+
+source_file="res://assets/music/Gunfire at Dawn.mp3"
+dest_files=["res://.godot/imported/Gunfire at Dawn.mp3-2c9f43cddec73212c66dc665cdb9654c.mp3str"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

@@ -28,6 +28,17 @@ const VIEW_BEHIND := 40.0
 const RV_MODEL_FOOT := 1.557   # GLB 轮底到模型原点的距离
 const CREW_ORDER := ["lin_wan", "shen_man", "ye_lan", "tang_tang", "ivory"]
 
+# 场景音乐（六种处境各一首，交叉淡入淡出切换）
+const MUSIC_TRACKS := {
+	"drive": "res://assets/music/Daylight Drive.mp3",
+	"combat": "res://assets/music/Gunfire at Dawn.mp3",
+	"camp": "res://assets/music/Embers Tonight.mp3",
+	"story": "res://assets/music/The Long Quiet.mp3",
+	"danger": "res://assets/music/They Are Coming.mp3",
+	"death": "res://assets/music/Last Light Fades.mp3",
+}
+const MUSIC_VOLUME := -10.0
+
 var rv: CharacterBody3D
 var rv_model: Node3D
 var interior: Node3D
@@ -92,6 +103,11 @@ var crew_members: Array = []
 var crew_figures: Array = []
 var crew_font: SystemFont
 
+var music_a: AudioStreamPlayer
+var music_b: AudioStreamPlayer
+var music_key := ""
+var music_tween: Tween
+
 func _ready() -> void:
 	_load_survivors()
 	_load_facilities()
@@ -101,6 +117,7 @@ func _ready() -> void:
 	_build_camera()
 	_build_weather()
 	_build_hud()
+	_build_music()
 	_spawn_initial_scenery()
 	hud.set_weather(weather)
 	# 车载电台剧情管理器
@@ -161,10 +178,67 @@ func _facility(id: String) -> Dictionary:
 			return f
 	return {}
 
+# ---------- 音乐 ----------
+func _build_music() -> void:
+	music_a = AudioStreamPlayer.new()
+	music_b = AudioStreamPlayer.new()
+	music_a.volume_db = -60.0
+	music_b.volume_db = -60.0
+	add_child(music_a)
+	add_child(music_b)
+
+## 双播放器交叉淡入淡出切换场景音乐
+func play_music(key: String) -> void:
+	if key == music_key or not MUSIC_TRACKS.has(key):
+		return
+	var stream: AudioStream = load(MUSIC_TRACKS[key])
+	if stream == null:
+		return
+	stream.loop = key != "death"
+	music_key = key
+	var old_p := music_a if music_a.playing else music_b
+	var new_p := music_b if old_p == music_a else music_a
+	if music_tween != null and music_tween.is_valid():
+		music_tween.kill()
+	new_p.stream = stream
+	new_p.volume_db = -45.0
+	new_p.play()
+	music_tween = create_tween()
+	music_tween.set_parallel(true)
+	music_tween.tween_property(new_p, "volume_db", MUSIC_VOLUME, 1.0)
+	music_tween.tween_property(old_p, "volume_db", -60.0, 1.0)
+	music_tween.set_parallel(false)
+	music_tween.tween_callback(old_p.stop)
+
+## 优先级：结局 > 剧情 > 战斗 > 丧尸逼近 > 驻车 > 行驶
+func _update_music() -> void:
+	if game_over:
+		play_music("story" if won else "death")
+		return
+	if story_active:
+		play_music("story")
+		return
+	if combat_active:
+		play_music("combat")
+		return
+	if _zombies_hunting():
+		play_music("danger")
+		return
+	play_music("camp" if parked else "drive")
+
+## 附近是否有丧尸进入冲锋状态
+func _zombies_hunting() -> bool:
+	for z in zombies:
+		if is_instance_valid(z) and z.is_hunting():
+			if z.global_position.distance_to(rv.global_position) < 55.0:
+				return true
+	return false
+
 # ---------- 相机（追尾 / 驾驶舱 / 车内） ----------
 func _process(delta: float) -> void:
 	if rv == null:
 		return
+	_update_music()
 	# G：驻车时下车战斗 / 战斗中回到驾驶座（player.gd 内部也处理结束）
 	var gk := Input.is_physical_key_pressed(KEY_G)
 	if gk and not _g_down and not game_over and not story_active:

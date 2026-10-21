@@ -135,6 +135,10 @@ func _enter_chase() -> void:
 	state = St.CHASE
 	bite_t = 0.0
 
+## 是否正在狂暴冲锋（供音乐/氛围状态判定）
+func is_hunting() -> bool:
+	return state == St.CHASE and not dead
+
 # ---------- 状态机 ----------
 
 func _ai(delta: float) -> void:
