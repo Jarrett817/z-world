@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://baboljcg1y3or"
-path="res://.godot/imported/b_white.jpg-cb57f066d5e39203e9fbe9822f6ae794.ctex"
+uid="uid://du15f74hf0e2s"
+path="res://.godot/imported/a_office.jpg-dbd8f53bea6f7bdb60552aec311c03db.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/portraits/b_white.jpg"
-dest_files=["res://.godot/imported/b_white.jpg-cb57f066d5e39203e9fbe9822f6ae794.ctex"]
+source_file="res://assets/portraits/a_office.jpg"
+dest_files=["res://.godot/imported/a_office.jpg-dbd8f53bea6f7bdb60552aec311c03db.ctex"]
 
 [params]
 
