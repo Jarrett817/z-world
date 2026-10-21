@@ -1066,7 +1066,7 @@ func _next_crew_member() -> Dictionary:
 
 # ---------- 初始景物 ----------
 func _spawn_initial_scenery() -> void:
-	for i in range(80):
+	for i in range(100):
 		var zz := -650.0 + randf() * 710.0
 		props.append(_make_scenery(zz))
 	# 路面裂缝污渍
@@ -1425,7 +1425,7 @@ func _make_scenery(z: float) -> Node3D:
 		ground_y(z),
 		z)
 	var roll := randf()
-	if roll < 0.4:
+	if roll < 0.26:
 		# 枯树：树干 + 歪斜枯枝
 		var trunk := MeshInstance3D.new()
 		var tm := CylinderMesh.new()
@@ -1447,7 +1447,11 @@ func _make_scenery(z: float) -> Node3D:
 			br.rotation = Vector3(randf_range(-0.9, 0.9), randf() * TAU, randf_range(-0.9, 0.9))
 			br.material_override = _mat(Color(0.14, 0.11, 0.09))
 			root.add_child(br)
-	elif roll < 0.58:
+	elif roll < 0.42:
+		# 常青松树：矮干 + 三层锥形树冠，灰绿做旧
+		var pine := _make_pine()
+		root.add_child(pine)
+	elif roll < 0.56:
 		# 废弃电线杆
 		var pole := MeshInstance3D.new()
 		var pm := CylinderMesh.new()
@@ -1465,7 +1469,7 @@ func _make_scenery(z: float) -> Node3D:
 		cross.position.y = pm.height * 0.88
 		cross.material_override = _mat(Color(0.22, 0.21, 0.19))
 		root.add_child(cross)
-	elif roll < 0.72:
+	elif roll < 0.70:
 		# 废墟楼：近处矮楼 + 远处天际线高楼剪影
 		var far := randf() < 0.4
 		var b := MeshInstance3D.new()
@@ -1498,7 +1502,22 @@ func _make_scenery(z: float) -> Node3D:
 		panel.material_override = _mat(Color(0.36, 0.3, 0.24))
 		root.add_child(panel)
 		root.position.x = road_x(z) + side * randf_range(ROAD_HALF + 4.0, ROAD_HALF + 9.0)
-	elif roll < 0.92:
+	elif roll < 0.90:
+		# 枯灌木：两团低矮偏锥枝丛
+		var shrub_col := Color(0.20, 0.21, 0.14).lerp(Color(0.13, 0.13, 0.10), randf() * 0.6)
+		for n in randi_range(2, 3):
+			var tu := MeshInstance3D.new()
+			var tum := CylinderMesh.new()
+			tum.top_radius = 0.0
+			tum.bottom_radius = randf_range(0.45, 0.8)
+			tum.height = randf_range(0.7, 1.3)
+			tum.radial_segments = 5
+			tu.mesh = tum
+			tu.position = Vector3(randf_range(-0.7, 0.7), tum.height * 0.5, randf_range(-0.7, 0.7))
+			tu.rotation.y = randf() * TAU
+			tu.material_override = _mat(shrub_col)
+			root.add_child(tu)
+	elif roll < 0.96:
 		# 混凝土残块
 		var c := MeshInstance3D.new()
 		var cm2 := BoxMesh.new()
@@ -1521,6 +1540,41 @@ func _make_scenery(z: float) -> Node3D:
 		root.add_child(d)
 	add_child(root)
 	return root
+
+## 程序化常青松树：短干 + 三层锥形树冠（自下而上收窄），灰绿做旧，整体随机缩放
+func _make_pine() -> Node3D:
+	var p := Node3D.new()
+	var trunk_h := randf_range(1.0, 1.7)
+	var trunk := MeshInstance3D.new()
+	var tm := CylinderMesh.new()
+	tm.top_radius = 0.11
+	tm.bottom_radius = 0.22
+	tm.height = trunk_h
+	trunk.mesh = tm
+	trunk.position.y = trunk_h * 0.5
+	trunk.material_override = _mat(Color(0.17, 0.13, 0.09))
+	p.add_child(trunk)
+	var col := Color(0.16, 0.22, 0.14).lerp(Color(0.24, 0.27, 0.16), randf())
+	var tiers := [
+		Vector2(1.9, 2.0), # (底半径, 层高)
+		Vector2(1.45, 1.8),
+		Vector2(0.95, 1.6),
+	]
+	var y := trunk_h
+	for t in tiers:
+		var cone := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.0
+		cm.bottom_radius = t.x
+		cm.height = t.y
+		cone.mesh = cm
+		cone.position.y = y + t.y * 0.5 - 0.35
+		cone.material_override = _mat(col)
+		p.add_child(cone)
+		y += t.y - 0.55
+	p.scale = Vector3.ONE * randf_range(0.8, 1.25)
+	p.rotation.y = randf() * TAU
+	return p
 
 func _mat(col: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
