@@ -1,15 +1,24 @@
 extends RigidBody3D
-## 丧尸：追车 AI（朝房车走）、贴身啃咬扣耐久、被撞飞物理接管、高速碾压播放 Death。
+## 丧尸 AI：各处踱步游荡（WANDER/IDLE），听到声音才进入狂暴冲锋（CHASE）。
+## 声源：引擎声随车速扩大感知半径（main 每物理帧推送），枪声全向大半径（on_hear_gunshot）。
+## 目标：玩家下车后优先追玩家，否则追房车；贴身啃咬；被撞飞物理接管；高速碾压播放 Death。
 
 const WALK := &"Walk"
 const ATTACK := &"Attack"
 const DEATH := &"Death"
 const BITE_RANGE := 4.4
 const BITE_INTERVAL := 0.8
+const WANDER_SPEED := 0.9
+const CHASE_SPEED_BASE := 5.2
+
+enum St { WANDER, IDLE, CHASE }
 
 var main_node: Node3D
 var rv: Node3D
 var speed := 2.0
+var state: int = St.WANDER
+var state_t := 0.0
+var wander_target := Vector3.ZERO
 var flung_t := 0.0
 var bite_t := 0.0
 var dead := false
@@ -20,12 +29,15 @@ var anim: AnimationPlayer
 func setup(main: Node3D) -> void:
 	main_node = main
 	rv = main.rv
-	speed = randf_range(4.2, 6.6) * (1.0 + clampf(main.dist_km * 0.05, 0.0, 0.5))
+	speed = CHASE_SPEED_BASE + randf_range(-0.8, 1.4) * (1.0 + clampf(main.dist_km * 0.05, 0.0, 0.5))
 	mass = 70.0
 	linear_damp = 1.2
 	_remove_rig_controls(self)
 	_vary_materials(self)
 	anim = _find_anim_player(self)
+	state = St.WANDER if randf() < 0.7 else St.IDLE
+	state_t = randf_range(1.5, 5.0)
+	_pick_wander_target()
 	if anim == null:
 		return
 	var names := anim.get_animation_list()
@@ -38,6 +50,7 @@ func setup(main: Node3D) -> void:
 		anim.get_animation(ATTACK).loop_mode = Animation.LOOP_NONE
 	if DEATH in names:
 		anim.get_animation(DEATH).loop_mode = Animation.LOOP_NONE
+	_apply_anim_rate()
 
 ## 删除 GLB 误导出的 Blender 控制器圆环（近立方体小 mesh），否则头顶悬浮两个粉色环
 func _remove_rig_controls(node: Node) -> void:
@@ -102,28 +115,96 @@ func _physics_process(delta: float) -> void:
 		return
 	_ai(delta)
 
+# ---------- 声音感知 ----------
+
+## 枪声：全向大半径，听到立即狂暴
+func on_hear_gunshot(pos: Vector3) -> void:
+	if state == St.CHASE:
+		return
+	if global_position.distance_to(pos) < 85.0:
+		_enter_chase()
+
+## 引擎声：房车每物理帧推送，半径随车速；停车时只有贴脸才惊动
+func on_engine_noise(pos: Vector3, radius: float) -> void:
+	if state == St.CHASE:
+		return
+	if global_position.distance_to(pos) < radius:
+		_enter_chase()
+
+func _enter_chase() -> void:
+	state = St.CHASE
+	bite_t = 0.0
+
+# ---------- 状态机 ----------
+
 func _ai(delta: float) -> void:
 	if main_node.game_over:
 		linear_velocity = Vector3(0, linear_velocity.y, 0)
 		return
-	var to_rv := rv.global_position - global_position
-	var d_xz := Vector2(to_rv.x, to_rv.z).length()
+	state_t -= delta
+	match state:
+		St.IDLE:
+			linear_velocity = Vector3(0, linear_velocity.y, 0)
+			if anim != null:
+				anim.speed_scale = 1.0
+			if state_t <= 0.0:
+				state = St.WANDER
+				state_t = randf_range(3.0, 8.0)
+				_pick_wander_target()
+		St.WANDER:
+			_wander(delta)
+		St.CHASE:
+			_chase(delta)
+
+## 踱步：朝附近随机点慢走，到点或超时就停下发呆
+func _wander(delta: float) -> void:
+	var to := wander_target - global_position
+	to.y = 0.0
+	if to.length() < 1.5 or state_t <= 0.0:
+		state = St.IDLE
+		state_t = randf_range(1.5, 5.0)
+		linear_velocity = Vector3(0, linear_velocity.y, 0)
+		return
+	var dir := to.normalized()
+	linear_velocity = Vector3(dir.x * WANDER_SPEED, linear_velocity.y, dir.z * WANDER_SPEED)
+	rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 4.0)
+	if anim != null:
+		anim.speed_scale = 0.7
+
+func _pick_wander_target() -> void:
+	# 只在自己当前位置周围踱步，不主动朝路/车靠拢
+	var ang := randf() * TAU
+	var r := randf_range(3.0, 14.0)
+	wander_target = global_position + Vector3(cos(ang) * r, 0.0, sin(ang) * r)
+	wander_target.y = global_position.y
+
+## 狂暴冲锋：玩家下车优先追玩家，否则追房车，贴身啃咬
+func _chase(delta: float) -> void:
+	var target_pos: Vector3 = rv.global_position
+	var player: Node3D = main_node.get_player_body()
+	if is_instance_valid(player):
+		target_pos = player.global_position
+	var to_t := target_pos - global_position
+	var d_xz := Vector2(to_t.x, to_t.z).length()
 	if d_xz > BITE_RANGE:
-		var dir := Vector3(to_rv.x, 0.0, to_rv.z).normalized()
+		var dir := Vector3(to_t.x, 0.0, to_t.z).normalized()
 		linear_velocity = Vector3(dir.x * speed, linear_velocity.y, dir.z * speed)
-		rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 6.0)
+		rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 8.0)
 		_play(WALK)
 		if anim != null:
-			anim.speed_scale = clampf(speed * 0.45, 1.3, 2.6)
+			anim.speed_scale = clampf(speed * 0.45, 1.4, 2.8)
 	else:
-		# 贴身啃咬
+		# 贴身啃咬：目标是玩家时由 main 结算玩家伤害，否则啃车扣耐久
 		linear_velocity = Vector3(0, linear_velocity.y, 0)
 		if anim != null:
 			anim.speed_scale = 1.0
 		bite_t += delta
 		if bite_t >= BITE_INTERVAL:
 			bite_t = 0.0
-			main_node.zombie_bite()
+			if is_instance_valid(player):
+				main_node.on_player_bitten()
+			else:
+				main_node.zombie_bite()
 			_play_once(ATTACK)
 
 func on_hit_by_rv(speed_kmh: float, _normal: Vector3) -> void:
@@ -140,6 +221,19 @@ func on_hit_by_rv(speed_kmh: float, _normal: Vector3) -> void:
 		dead = true
 		death_t = 1.5
 		_play_once(DEATH)
+
+## 被玩家武器击中：低速车辆撞不死的枪下亡魂
+func on_shot() -> void:
+	if dead:
+		return
+	dead = true
+	death_t = 1.5
+	linear_velocity = Vector3(0, linear_velocity.y, 0)
+	_play_once(DEATH)
+
+func _apply_anim_rate() -> void:
+	if anim != null:
+		anim.speed_scale = 1.0
 
 func _play(anim_name: StringName) -> void:
 	if anim != null and anim_name in anim.get_animation_list() and anim.current_animation != String(anim_name):

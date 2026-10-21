@@ -807,10 +807,15 @@ func _update_zombies(delta: float) -> void:
 	if dist_km >= GOAL_KM - 1.5:
 		zombie_timer = 2.0
 		return
-	if zombie_timer <= 0.0 and zombies.size() < 22:
+	if zombie_timer <= 0.0 and zombies.size() < 34:
 		var difficulty: float = clampf(dist_km * 0.8 + (rv.speed_kmh / MAX_KMH) * 1.5, 0.0, 2.8)
-		zombie_timer = clampf(2.6 - difficulty * 0.8, 0.8, 2.6)
+		zombie_timer = clampf(2.2 - difficulty * 0.6, 0.7, 2.2)
 		_spawn_zombie()
+	# 引擎声推送：半径随车速；怠速停车只有贴脸才惊动游荡尸群
+	var engine_radius: float = lerpf(6.0, 34.0, clampf(rv.speed_kmh / MAX_KMH, 0.0, 1.0))
+	for z in zombies:
+		if is_instance_valid(z):
+			z.on_engine_noise(rv.global_position, engine_radius)
 	zombies = zombies.filter(func(z):
 		if not is_instance_valid(z):
 			return false
@@ -820,17 +825,23 @@ func _update_zombies(delta: float) -> void:
 		return true)
 
 func _spawn_zombie() -> void:
-	# 成批生成在车前 30-100m，形成远处尸群的视觉压迫
+	# 成批生成在车前各处：路面、路肩、远处野地都有踱步的丧尸，靠声音才被惊动
 	var rvz := rv.global_position.z
-	var count := randi_range(1, 3)
-	var base_z := rvz - 30.0 - randf() * 70.0
+	var count := randi_range(1, 4)
+	var base_z := rvz - 20.0 - randf() * 150.0
 	for i in count:
 		var body := RigidBody3D.new()
 		body.set_script(ZOMBIE_SCRIPT)
 		body.name = "Zombie"
-		var zz := base_z - i * randf_range(2.5, 7.0)
-		var lane := (randf() - 0.5) * 13.0
-		body.position = Vector3(road_x(zz) + lane, GROUND_Y + 0.5, zz)
+		var zz := base_z - i * randf_range(3.0, 10.0)
+		# 45% 在道路附近，55% 散布到两侧野地（最远约 60m）
+		var off: float
+		if randf() < 0.45:
+			off = (randf() - 0.5) * 13.0
+		else:
+			var side2 := 1.0 if randf() > 0.5 else -1.0
+			off = side2 * randf_range(ROAD_HALF + 3.0, 60.0)
+		body.position = Vector3(road_x(zz) + off, GROUND_Y + 0.5, zz)
 		var col := CollisionShape3D.new()
 		var cap := CapsuleShape3D.new()
 		cap.radius = 0.35
@@ -844,6 +855,26 @@ func _spawn_zombie() -> void:
 		add_child(body)
 		body.setup(self)
 		zombies.append(body)
+
+## 玩家下车后的角色实体（战斗系统启用；在车内时为 null，丧尸追车）
+var player_body: Node3D = null
+
+func get_player_body() -> Node3D:
+	return player_body if is_instance_valid(player_body) else null
+
+## 枪声/爆炸：全向惊动周围游荡丧尸进入狂暴
+func alert_gunshot(pos: Vector3) -> void:
+	for z in zombies:
+		if is_instance_valid(z):
+			z.on_hear_gunshot(pos)
+
+## 玩家被啃咬（下车战斗时）：全局冷却，扣生命/士气
+func on_player_bitten() -> void:
+	if game_over or bite_cd > 0.0:
+		return
+	bite_cd = 1.2
+	add_trauma(0.2)
+	hud.toast("被丧尸抓伤了！快回车里")
 
 func zombie_bite() -> void:
 	# 全局冷却：同一时刻只允许一只丧尸生效，避免多只叠加秒杀
