@@ -20,3 +20,11 @@ Thumbs.db
 blender/dl/
 blender/seq/
 blender/*.png
+
+# 工具产物（TRAE 技能安装）
+agent/
+data/
+skills/
+skills-lock.json
+
+.*
