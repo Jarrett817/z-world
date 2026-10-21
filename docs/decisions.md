@@ -1,5 +1,13 @@
 # 决策记录
 
+## 2026-10-21 · 场景音乐与队友互动的最小实现
+
+- **音乐**：Suno 生成 6 首纯器乐（行驶/战斗/营地/剧情/丧尸逼近/结局），MP3 直接放 `godot/assets/music/`；main.gd 用两只 AudioStreamPlayer 做 1s 交叉淡入淡出，按「结局 > 剧情 > 战斗 > 丧尸逼近 > 驻车 > 行驶」单函数选曲。不引 FMOD/Wwise 之类中间件——一局内只有六种状态，代码 40 行即可
+- **选曲触发不靠事件回调**：每帧读当前状态（parked/story_active/combat_active/附近丧尸冲锋），避免漏接状态机分支
+- **丧尸逼近判定**：`zombie.is_hunting()`（CHASE 且未死）+ 55m 距离；超过阈值立刻回落到行驶/营地曲
+- **队友互动**：数据驱动 banter 数组（survivors.json）+ Label3D 气泡 + 听者转身，不做对话分支/选项树。它为的是「车内有人气」，不是玩法系统
+- **踩坑**：新增 mp3 必须跑一次 `--headless --import` 生成 .import，否则运行时报 `No loader found for resource`；Suno 下载必须先点格式按钮（MP3），Unlock & Download 才从 disabled 变可用
+
 ## 2026-10-21 · 拾取物改自研低模（而非继续找 Sketchfab）
 
 - **背景**：发光方块辨识度低；外部小道具模型授权/风格/轴向不可控，集成成本高于自建

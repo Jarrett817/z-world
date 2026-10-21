@@ -1,5 +1,25 @@
 # 开发日志
 
+## 2026-10-21 · n29 战斗系统收尾 + 六首场景音乐 + 队友互动
+
+### 本次完成
+
+- **战斗系统**（commit f89a81d）：`player.gd` 第三人称持枪角色（程序化步枪 + 枪口闪光 + 曳光弹射线）；G 驻车下车、T 行驶中天窗探出射击；丧尸中弹死亡、枪声 85m 惊动全向狂暴；被咬掉血、血尽结算；HUD 战斗层（准星/弹药/生命条/命中闪标）
+- **曳光弹朝向修复**：`Transform3D().looking_at` 三参不存在（被解析成 Node3D 两参签名），改为 add_child → 实例 `look_at(target, Vector3.UP)` → `rotate_y(PI)` 对齐 BoxMesh 长轴
+- **六首 Suno 场景音乐**（commit 0f08e38）：Daylight Drive（行驶）/ Gunfire at Dawn（战斗）/ Embers Tonight（驻车营地）/ The Long Quiet（剧情）/ They Are Coming（丧尸逼近）/ Last Light Fades（失败挽歌），纯器乐，落盘 `godot/assets/music/`
+- **音乐系统**（main.gd）：双 AudioStreamPlayer 交叉淡入淡出，按 结局 > 剧情 > 战斗 > 丧尸逼近 > 驻车 > 行驶 优先级选曲；`zombie.is_hunting()` 提供 55m 内冲锋判定
+- **队友互动**（commit 7a47d28）：车内视角下每 14~24s 随机一名队友说一句（`survivors.json` 新增 banter 数组，五人各 3 句），Label3D 气泡 4.5s，听者转身看向说话者后转回
+- Suno 下载流程沉淀：More options → Download → 先点 MP3（否则 Unlock 按钮 disabled）→ Unlock & Download；切片过短（0:10/0:16）需改 prompt 重生成
+
+### 待办
+
+- 窗口实测：下车/天窗开火全链路、被咬掉血、死亡结算、六种音乐切换听感
+- 沈蔓立绘/头像缺失（`godot/assets/portraits/` 仍留 chen_mo/chenmo_normal 旧文件）
+- 内饰精模替换程序化盒子、水陆两栖、大地图探索
+- 图标/宣传图 → TapTap 预约 → 软著
+
+---
+
 ## 2026-10-21 · n28 VRM 女性角色 GLB 全面替换方块人偶
 
 ### 本次完成
