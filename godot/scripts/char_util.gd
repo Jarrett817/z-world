@@ -19,7 +19,7 @@ static func instantiate(cid: String, anim_name := "idle") -> Dictionary:
 		anim.play(anim_name)
 	return {"node": char, "anim": anim}
 
-## 队员 id → 角色基底：按 CREW_ORDER 序号奇偶在 role1/role2 间轮换，未知名回退 role1。
+## 队员 id → 角色基底：写实 role1 / 洋装 role2 按人设分配，未知名回退 role1。
 static func _get_scene(cid: String) -> PackedScene:
 	var key := _role_key(cid)
 	if not _scene_cache.has(key):
@@ -29,9 +29,6 @@ static func _get_scene(cid: String) -> PackedScene:
 static func _role_key(cid: String) -> String:
 	if ROLE_SCENES.has(cid):
 		return cid
-	# CREW_ORDER：lin_wan→role1，其余按出现序在两套女性基底间轮换
-	var order := ["lin_wan", "chen_mo", "ye_lan", "tang_tang", "ivory"]
-	var idx := order.find(cid)
-	if idx < 0:
-		idx = 0
-	return "role1" if idx % 2 == 0 else "role2"
+	# role1 写实：医生/司机/教练；role2 洋装：记者/外贸跟单（优雅都市人设）
+	var roles := {"lin_wan": "role1", "shen_man": "role1", "tang_tang": "role1", "ye_lan": "role2", "ivory": "role2"}
+	return roles.get(cid, "role1")

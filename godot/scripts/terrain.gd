@@ -45,23 +45,31 @@ func _make_mesh(start_z: float) -> ArrayMesh:
 	# 7/8 公路波形护栏（双横梁 + 立柱，沿弯路逐段挤出）
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _rail(start_z, -1.0))
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _rail(start_z, 1.0))
-	# 9/10 近层山脊剪影（大气透视蓝灰，双面）
+	# 9/10 近层青山剪影（草木覆盖，大气透视偏青，双面）
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _ridge(start_z, -150.0))
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _ridge(start_z, 150.0))
-	# 11/12 远层山脊（更矮更淡，拉出纵深）
+	# 11/12 远层青山（更矮更淡，拉出纵深）
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _ridge(start_z, -380.0, 280.0, 0.6))
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _ridge(start_z, 380.0, 280.0, 0.6))
+	# 13/14 路边河湖：顺弯路展开的条带水面，随重建位置固定（明媚风光）
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _water(start_z, -1.0))
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _water(start_z, 1.0))
 	if _mats.is_empty():
 		var rail_mat := _mat(Color(0.42, 0.43, 0.44), 0.55)
 		rail_mat.metallic = 0.35
-		var ridge_mat := _mat(Color(0.18, 0.21, 0.26), 1.0)
+		var ridge_mat := _mat(Color(0.23, 0.34, 0.22), 1.0)
 		ridge_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		var ridge_far_mat := _mat(Color(0.30, 0.34, 0.40), 1.0)
+		var ridge_far_mat := _mat(Color(0.42, 0.55, 0.45), 1.0)
 		ridge_far_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		var water_mat := StandardMaterial3D.new()
+		water_mat.albedo_color = Color(0.16, 0.36, 0.46)
+		water_mat.roughness = 0.12
+		water_mat.metallic = 0.25
+		water_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		_mats = [
-			_mat(Color(0.17, 0.155, 0.135), 1.0),
-			_mat(Color(0.21, 0.18, 0.15), 1.0),
-			_mat(Color(0.21, 0.18, 0.15), 1.0),
+			_mat(Color(0.24, 0.33, 0.16), 1.0),
+			_mat(Color(0.31, 0.34, 0.20), 1.0),
+			_mat(Color(0.31, 0.34, 0.20), 1.0),
 			_mat(Color(0.115, 0.11, 0.105), 0.98),
 			_mat(Color(0.5, 0.48, 0.43), 0.9),
 			_mat(Color(0.5, 0.48, 0.43), 0.9),
@@ -72,6 +80,8 @@ func _make_mesh(start_z: float) -> ArrayMesh:
 			ridge_mat,
 			ridge_far_mat,
 			ridge_far_mat,
+			water_mat,
+			water_mat,
 		]
 	for i in _mats.size():
 		am.surface_set_material(i, _mats[i])
@@ -122,11 +132,57 @@ func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool, nx 
 	arr[Mesh.ARRAY_INDEX] = indices
 	return arr
 
-## 确定性多频噪声：0.78~1.12 灰度调制，重建时同位置颜色不变
+## 确定性多频噪声：0.78~1.12 亮度调制并带轻微绿相漂移，重建时同位置颜色不变
 func _mottle(x: float, z: float) -> Color:
 	var n := sin(x * 0.91 + z * 0.37) * 0.5 + sin(x * 2.3 - z * 1.7) * 0.3 + sin(z * 4.7 + x * 0.4) * 0.2
 	var v: float = clampf(0.95 + n * 0.09, 0.78, 1.12)
-	return Color(v, v, v)
+	# 枯草/裸土斑块：低频噪声把部分草地带向黄绿，避免整片塑料绿
+	var dry: float = sin(x * 0.05 + z * 0.031) * 0.5 + sin(x * 0.013 - z * 0.017) * 0.5
+	return Color(v * (1.0 + dry * 0.05), v, v * (1.0 - dry * 0.07))
+
+## 路边河湖：沿 z 的确定性包络让水面一段段出现/消失，宽度平滑收缩到零
+func _water(start_z: float, side: float) -> Array:
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
+	var steps := int(SPAN / SEG_LEN)
+	var nx := 6
+	var rows: Array[PackedInt32Array] = []
+	for i in steps + 1:
+		var zz: float = start_z - i * SEG_LEN
+		var cx: float = _main.road_x(zz)
+		var gy: float = _main.ground_y(zz)
+		# 沿 z 周期出现的河湖段，左右岸错相；0~1 包络控制水面半宽
+		var phase := zz * 0.0062 + (2.1 if side > 0.0 else 0.0)
+		var env: float = clampf(sin(phase) * 2.2 - 0.55, 0.0, 1.0)
+		var center := side * 150.0
+		var half := 30.0 * env
+		var row: int = verts.size()
+		var row_idx := PackedInt32Array()
+		for j in nx + 1:
+			var t := float(j) / nx
+			# 岸边与地面齐平、中心下沉的碟形；env→0 时整条与地面齐平即隐形
+			var xx: float = center + lerpf(-half, half, t)
+			var y := gy - sin(t * PI) * 0.22 * env
+			verts.append(Vector3(cx + xx, y, zz))
+			normals.append(Vector3.UP)
+			colors.append(Color(1, 1, 1))
+			row_idx.append(row + j)
+		rows.append(row_idx)
+	for i in steps:
+		var a: PackedInt32Array = rows[i]
+		var b: PackedInt32Array = rows[i + 1]
+		for j in nx:
+			indices.append(a[j]); indices.append(b[j + 1]); indices.append(a[j + 1])
+			indices.append(a[j]); indices.append(b[j]); indices.append(b[j + 1])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = normals
+	arr[Mesh.ARRAY_COLOR] = colors
+	arr[Mesh.ARRAY_INDEX] = indices
+	return arr
 
 ## 公路波形护栏：每 RAIL_SEG 一段横梁（矩形截面挤出）+ 段首立柱，沿路随弯平移
 func _rail(start_z: float, side: float) -> Array:

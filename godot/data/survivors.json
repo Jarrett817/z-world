@@ -11,17 +11,17 @@
     "driver": false,
     "avatar": "/assets/avatars/lin_wan.jpg"
   },
-  "chen_mo": {
-    "id": "chen_mo",
-    "name": "陈默",
-    "title": "货车司机",
+  "shen_man": {
+    "id": "shen_man",
+    "name": "沈蔓",
+    "title": "重卡司机",
     "desc": "话少，手稳。拖过车，也埋过人。",
     "skill": "驾驶",
     "passive": "油耗 -25%",
     "atk": 4,
     "med": 0,
     "driver": true,
-    "avatar": "/assets/avatars/chen_mo.jpg"
+    "avatar": "/assets/avatars/shen_man.jpg"
   },
   "ye_lan": {
     "id": "ye_lan",

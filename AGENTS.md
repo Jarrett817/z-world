@@ -4,59 +4,71 @@
 
 ## 项目一句话
 
-末日生存游戏「末世：我要当救世主」——Phaser（地图场景）+ React 19（UI）+ Vite + TypeScript，JSON 数据驱动，全代码工作流，零编辑器依赖。
+末日生存游戏「末世：我要当救世主」——**Godot 4.7 + GDScript**，全代码工作流（零编辑器依赖），JSON 数据驱动。PC 单机 3D：线性公路驾驶 + 下车战斗 + 营地经营 + 剧情。
 
-## 包管理：必须用 Bun
-
-- 安装依赖：`bun install` / `bun add <pkg>` / `bun add -d <pkg>`
-- 跑脚本：`bun dev` / `bun run build`
-- 跑二进制：`bunx <cmd>`（替代 npx）
-- **禁止**使用 npm / pnpm / yarn 的任何命令
+工程根目录：`godot/`（场景 `godot/main.tscn`，入口 `godot/scripts/main.gd`，数据 `godot/data/*.json`，资产 `godot/assets/`）。
 
 ## 铁律：最小可靠改动
 
 1. **只做被要求的事**——不多做、不少做。修 bug 不顺手"优化"周边代码，加功能不附带"顺手重构"
 2. **优先编辑现有文件**，禁止随意新建文件；禁止主动创建 README/文档（用户明确要求除外）
-3. **禁止冗余验证逻辑**：不写防御不可能发生的场景的代码；信任内部代码与框架保证，只在系统边界（用户输入、外部 API）做校验
+3. **禁止冗余验证逻辑**：不写防御不可能发生的场景的代码；信任内部代码与引擎保证，只在系统边界（用户输入、外部文件）做校验
 4. **禁止过度抽象**：不为一次性操作造 helper/util/抽象层；三行相似代码好过 premature abstraction；不为假想的未来需求设计
-5. **禁止冗余文件与中间产物**：不留草稿、测试脚本、调试输出在项目里
+5. **禁止冗余文件与中间产物**：不留草稿、测试脚本、调试输出在项目里（临时脚本/导出产物放 `%TEMP%`，用后即删）
 6. **无 backwards-compatibility 包袱**：确认没用的代码直接删，不留 `_unused` 变量、re-export、"// removed" 注释
 
-## 铁律：成熟库优先
+## 铁律：成熟资产优先
 
-**写任何功能前，先查现成库。禁止手写已有成熟实现的东西。**
+**写任何功能前，先查现成资产/库。禁止手写引擎或插件已能做的东西。**
 
-- 状态管理、日期处理、动画、表单、校验……一律先想"哪个库干这个"
-- 本项目 UI 组件用 **shadcn**，动画用 **react motion**，样式用 **Tailwind CSS**
-- 引入新库前确认：维护活跃、体积合理、与现有栈兼容
-- 例外：游戏核心状态机这类强领域逻辑可以自研，但保持极简
+- 3D 模型/动画优先用 `godot/assets/` 现有 GLB 与 `godot/assets/props/scene_models/`，不足再走资产管线
+- 角色/丧尸模型统一 GLB（VRM 需经 Blender 管线转换，见 `docs/art-pipeline.md`）
+- 例外：游戏核心状态机、无限公路流式生成这类强领域逻辑可以自研，但保持极简
 
-## 样式规范
+## 视觉规范
 
-- **只用 Tailwind CSS**，禁止手写 CSS 文件（`src/index.css` 仅存 Tailwind 入口与全局重置）
-- 颜色用项目色板：`#e8862e`（篝火橙 accent）、`#2a2320`（面板）、`#161210`（背景）、`#e8ded2`（主文字）、`#8a7d6d`（次文字）
-- 禁止在页面上暴露技术栈信息
+- 美术基调：**明媚末日**——蓝天白云、阳光明亮、草木葱郁、水面清澈、远处高楼废墟，风景本身是好的，威胁来自丧尸而非天气
+- 场景全部代码生成（`ArrayMesh`/`BoxMesh`/`StandardMaterial3D` 等），不依赖在编辑器里摆场景
+- 材质颜色直接写在生成代码或数据 JSON 中；程序化材质允许做旧/随机变化
+- 禁止在画面上暴露引擎、插件或技术栈信息
 
-## 组件规范
+## 代码规范
 
-- 合理拆分与复用：可复用的组件、hooks、utils 必须抽出来，放对应目录
-- 组件单一职责，文件不过长
-- 游戏状态桥接统一走 `useSyncExternalStore(Game.subscribe, Game.getState)`，不引入第二套状态流
+- GDScript 4.x：静态类型标注（`var x: int`、函数参数返回值），tab 缩进
+- 可复用逻辑抽成独立脚本（如 `char_util.gd`），单一职责，文件不过长
+- 游戏状态以 `main.gd` 为唯一中心；HUD/子节点通过持有 main 引用读写，不引入第二套状态源
+- 数值/文案只改 `godot/data/*.json`，不硬编码进逻辑
+- preload 资源用常量集中在文件头部
 
 ## 工作流
 
-1. 改代码 → 2. `bunx tsc --noEmit` 通过（零新增错误）→ 3. 立即 `git commit`
+1. 改代码 → 2. Godot 无头回归通过（零新增错误）→ 3. 立即 `git commit`
 4. commit 后立即 push；**push 失败（GitHub SNI 阻断 / Connection reset）不硬重试**，告知用户开 VPN 后再试
 5. commit message：英文、conventional commits 风格（feat/fix/chore/docs）
 6. 重要决策与进度沉淀到 `docs/decisions.md` 与 `docs/progress.md`——轻量记录，不堆砌
 
+### Godot 无头回归（唯一验证手段）
+
+```powershell
+& "C:\Users\Jarrett\Downloads\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe" --headless --path d:\Projects\z-world\godot --quit-after 120
+```
+
+- **EXIT=0 即通过**。dummy 渲染器噪声 `ERROR: Parameter "material" is null.` 是已知唯一允许的基线噪声
+- 新增脚本/资源后首次运行会自动导入，属正常输出
+- 视觉改动需要截帧验收时，另行用窗口模式跑场景确认
+
+## 资产管线（详见 docs/art-pipeline.md）
+
+- VRM→GLB：Blender 后台脚本烘焙（idle/sit 等动画、glTF 正面朝 +Z、脚底 y=0）
+- 立绘/2D：Seedream skill，先存 `%TEMP%` 目检合格再覆盖正式目录
+- 二进制大文件（GLB/VRM/图片/音频）走 git LFS
+- PowerShell 下 commit message 含多行时用多个 `-m` 参数（heredoc 会报 ParserError）
+
 ## 项目特定禁忌
 
-- **禁止 React StrictMode**：双挂载会重复创建/销毁 Phaser.Game 实例导致崩溃
-- 排查交互异常前，先 `localStorage.clear()` 排除旧存档干扰
-- 游戏数值/文案只改 `src/data/*.json`，不硬编码进逻辑
-- 存档 key 变更必须同步 `SaveManager` 并考虑旧档清理
-- **禁止**复活 Cocos 时代的任何文件与工作流（该项目已整体废弃）
+- **禁止复活已废弃的 Web（Phaser/React/Vite）时代任何文件与工作流**（该工程已整体删除）
+- 存档/配置 key 变更必须考虑旧数据清理
+- 丧尸是"好风景里的威胁"：不要靠永久阴雨/灰雾营造末日感，恶劣天气只是偶发天气
 
 ## 沟通
 

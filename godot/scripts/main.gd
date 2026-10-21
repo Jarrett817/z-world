@@ -25,7 +25,7 @@ const MAX_KMH := 140.0
 const VIEW_AHEAD := 260.0
 const VIEW_BEHIND := 40.0
 const RV_MODEL_FOOT := 1.557   # GLB 轮底到模型原点的距离
-const CREW_ORDER := ["lin_wan", "chen_mo", "ye_lan", "tang_tang", "ivory"]
+const CREW_ORDER := ["lin_wan", "shen_man", "ye_lan", "tang_tang", "ivory"]
 
 var rv: CharacterBody3D
 var rv_model: Node3D
@@ -322,10 +322,10 @@ func _update_resources(delta: float) -> void:
 		# 行驶中的精神消耗：缓慢但持续，事件与驻车是主要士气来源
 		if rv.speed_kmh > 1.0:
 			morale = maxf(0.0, morale - delta * 0.05)
-		# 燃料（陈默·驾驶：油耗 -25%；高士气开车更稳更省）
+		# 燃料（沈蔓·驾驶：油耗 -25%；高士气开车更稳更省）
 		if rv.speed_kmh > 1.0:
 			var burn: float = rv.speed_kmh * delta * 0.0022
-			if _has_passive("chen_mo"):
+			if _has_passive("shen_man"):
 				burn *= 0.75
 			burn *= 2.0 - morale_factor()
 			fuel = maxf(0.0, fuel - burn)
@@ -367,32 +367,35 @@ func _do_win() -> void:
 # ---------- 昼夜 ----------
 func _build_sky() -> void:
 	sky_mat = ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.2, 0.27, 0.35)
-	sky_mat.sky_horizon_color = Color(0.44, 0.47, 0.5)
-	sky_mat.ground_bottom_color = Color(0.1, 0.09, 0.085)
-	sky_mat.ground_horizon_color = Color(0.3, 0.29, 0.27)
-	sky_mat.sun_angle_max = 40.0
-	sky_mat.sun_curve = 0.12
+	sky_mat.sky_top_color = Color(0.27, 0.5, 0.82)
+	sky_mat.sky_horizon_color = Color(0.62, 0.78, 0.92)
+	sky_mat.ground_bottom_color = Color(0.16, 0.22, 0.12)
+	sky_mat.ground_horizon_color = Color(0.55, 0.66, 0.52)
+	sky_mat.sun_angle_max = 45.0
+	sky_mat.sun_curve = 0.13
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_SKY
 	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_energy = 1.0
+	environment.ambient_light_energy = 1.25
 	environment.fog_enabled = true
-	environment.fog_light_color = Color(0.52, 0.55, 0.58)
-	environment.fog_density = 0.0036
-	environment.fog_sky_affect = 0.35
+	environment.fog_light_color = Color(0.68, 0.78, 0.88)
+	environment.fog_density = 0.0011
+	environment.fog_sky_affect = 0.25
 	environment.glow_enabled = true
-	environment.glow_intensity = 0.4
+	environment.glow_intensity = 0.55
+	environment.glow_bloom = 0.12
+	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	environment.tonemap_exposure = 1.08
 	self.env = environment
 	get_viewport().world_3d.environment = environment
 	sun = DirectionalLight3D.new()
-	sun.light_color = Color(1.0, 0.95, 0.88)
-	sun.light_energy = 1.35
+	sun.light_color = Color(1.0, 0.97, 0.9)
+	sun.light_energy = 1.75
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 140.0
+	sun.directional_shadow_max_distance = 180.0
 	sun.rotation_degrees = Vector3(-42, 24, 0)
 	add_child(sun)
 	# 路灯灯头共享材质：夜间开自发光，靠 glow 发亮，不用真实光源
@@ -418,10 +421,11 @@ func _update_sun() -> void:
 		sky_mat.sky_horizon_color = Color(0.1, 0.11, 0.16)
 	else:
 		var p := clampf(1.0 - absf(deg + 60.0) / 70.0, 0.0, 1.0)
-		sun.light_energy = 0.25 + p * 1.2
-		sun.light_color = Color(1.0, 0.95, 0.88).lerp(Color(1.0, 0.55, 0.32), 1.0 - p)
-		sky_mat.sky_top_color = Color(0.2, 0.27, 0.35).lerp(Color(0.4, 0.26, 0.21), 1.0 - p)
-		sky_mat.sky_horizon_color = Color(0.44, 0.47, 0.5).lerp(Color(0.85, 0.46, 0.28), 1.0 - p)
+		sun.light_energy = 0.5 + p * 1.4
+		sun.light_color = Color(1.0, 0.98, 0.92).lerp(Color(1.0, 0.72, 0.5), 1.0 - p)
+		# 明媚末日：正午饱和蓝天，晨昏只在近日落处留一抹暖橙
+		sky_mat.sky_top_color = Color(0.27, 0.5, 0.82).lerp(Color(0.42, 0.34, 0.32), (1.0 - p) * 0.6)
+		sky_mat.sky_horizon_color = Color(0.62, 0.78, 0.92).lerp(Color(0.92, 0.58, 0.36), (1.0 - p) * 0.7)
 	# 天气调制：雾=白茫茫能见度低，雨=阴沉
 	match weather:
 		"fog":
@@ -437,8 +441,8 @@ func _update_sun() -> void:
 			env.fog_light_color = Color(0.4, 0.43, 0.46)
 			sun.light_energy *= 0.55
 		_:
-			env.fog_density = 0.0036
-			env.fog_light_color = Color(0.52, 0.55, 0.58)
+			env.fog_density = 0.0011
+			env.fog_light_color = Color(0.68, 0.78, 0.88)
 	# 夜间/雾天自动开灯
 	var dark := deg > -15.0 or deg < -165.0
 	headlight.light_energy = 11.0 if dark or weather == "fog" else (2.6 if weather == "rain" else 0.0)
@@ -451,7 +455,7 @@ func _update_sun() -> void:
 		env.ambient_light_energy = 1.6
 	else:
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		env.ambient_light_energy = 1.0
+		env.ambient_light_energy = 1.25
 
 # ---------- 地形（无限重建） ----------
 func _build_terrain() -> void:
@@ -778,7 +782,8 @@ func _update_weather(delta: float) -> void:
 		return
 	weather_timer = randf_range(50.0, 90.0)
 	var roll := randf()
-	weather = "rain" if roll < 0.32 else ("fog" if roll < 0.55 else "clear")
+	# 明媚基调：晴天占大头，恶劣天气只是偶发
+	weather = "rain" if roll < 0.15 else ("fog" if roll < 0.30 else "clear")
 	rain.emitting = weather == "rain"
 	rain.visible = weather == "rain"
 	match weather:
@@ -1130,9 +1135,13 @@ func _spawn_initial_scenery() -> void:
 		mi.set_meta("y_off", bm.size.y * 0.4)
 		add_child(mi)
 		props.append(mi)
-	# 路肩枯草丛：两片交叉草叶，双面不剔除，随世界回收
-	var grass_mat := _mat(Color(0.31, 0.29, 0.17))
+	# 路肩青草丛：两片交叉草叶，双面不剔除，随世界回收
+	var grass_mat := _mat(Color(0.2, 0.34, 0.13))
 	grass_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# 野花：三色小贴片散布草丛间
+	var flower_mats := [_mat(Color(0.9, 0.36, 0.42)), _mat(Color(0.95, 0.82, 0.25)), _mat(Color(0.55, 0.5, 0.92))]
+	for fm in flower_mats:
+		fm.cull_mode = BaseMaterial3D.CULL_DISABLED
 	for i in range(70):
 		var zz := -650.0 + randf() * 710.0
 		var side := 1.0 if randf() > 0.5 else -1.0
@@ -1158,6 +1167,40 @@ func _spawn_initial_scenery() -> void:
 		blades.add_child(g2)
 		add_child(blades)
 		props.append(blades)
+	# 野花：细茎 + 花冠小十字贴片
+	var stem_mat := _mat(Color(0.16, 0.3, 0.12))
+	for i in range(60):
+		var zz := -650.0 + randf() * 710.0
+		var side := 1.0 if randf() > 0.5 else -1.0
+		var flower := Node3D.new()
+		flower.position = Vector3(
+			road_x(zz) + side * randf_range(ROAD_HALF + 1.0, ROAD_HALF + 22.0),
+			ground_y(zz),
+			zz)
+		var fh := randf_range(0.28, 0.55)
+		var stem_mi := MeshInstance3D.new()
+		var stem_bm := BoxMesh.new()
+		stem_bm.size = Vector3(0.03, fh, 0.03)
+		stem_mi.mesh = stem_bm
+		stem_mi.material_override = stem_mat
+		stem_mi.position.y = fh * 0.5
+		flower.add_child(stem_mi)
+		var fq := QuadMesh.new()
+		fq.size = Vector2(0.16, 0.16)
+		var head := MeshInstance3D.new()
+		head.mesh = fq
+		head.material_override = flower_mats[i % flower_mats.size()]
+		head.position.y = fh + 0.05
+		head.rotation.y = randf() * PI
+		flower.add_child(head)
+		var head2 := MeshInstance3D.new()
+		head2.mesh = fq
+		head2.material_override = flower_mats[i % flower_mats.size()]
+		head2.position.y = fh + 0.05
+		head2.rotation.y = PI * 0.5
+		flower.add_child(head2)
+		add_child(flower)
+		props.append(flower)
 
 # ---------- 方舟集结点（终点营地） ----------
 ## 车接近 680km 终点时一次性生成：钢制大门、哨塔、围墙、帐篷、灯海、人群
@@ -1634,8 +1677,8 @@ func _make_scenery(z: float) -> Node3D:
 		ground_y(z),
 		z)
 	var roll := randf()
-	if roll < 0.26:
-		# 枯树：树干 + 歪斜枯枝
+	if roll < 0.06:
+		# 枯树：树干 + 歪斜枯枝（少量点缀，提醒这是末世）
 		var trunk := MeshInstance3D.new()
 		var tm := CylinderMesh.new()
 		tm.top_radius = 0.1
@@ -1656,8 +1699,12 @@ func _make_scenery(z: float) -> Node3D:
 			br.rotation = Vector3(randf_range(-0.9, 0.9), randf() * TAU, randf_range(-0.9, 0.9))
 			br.material_override = _mat(Color(0.14, 0.11, 0.09))
 			root.add_child(br)
-	elif roll < 0.42:
-		# 常青松树：矮干 + 三层锥形树冠，灰绿做旧
+	elif roll < 0.30:
+		# 阔叶绿树：树干 + 三团鲜绿叶冠，末世里草木照样疯长
+		var tree := _make_broadleaf()
+		root.add_child(tree)
+	elif roll < 0.44:
+		# 常青松树：矮干 + 三层锥形树冠
 		var pine := _make_pine()
 		root.add_child(pine)
 	elif roll < 0.56:
@@ -1679,19 +1726,38 @@ func _make_scenery(z: float) -> Node3D:
 		cross.material_override = _mat(Color(0.22, 0.21, 0.19))
 		root.add_child(cross)
 	elif roll < 0.70:
-		# 废墟楼：近处矮楼 + 远处天际线高楼剪影
-		var far := randf() < 0.4
+		# 废墟楼：近处矮楼 + 远处玻璃幕墙高楼天际线
+		var far := randf() < 0.55
 		var b := MeshInstance3D.new()
 		var bm := BoxMesh.new()
 		if far:
-			bm.size = Vector3(randf_range(7.0, 15.0), randf_range(10.0, 30.0), randf_range(7.0, 13.0))
+			bm.size = Vector3(randf_range(9.0, 18.0), randf_range(28.0, 72.0), randf_range(9.0, 16.0))
 		else:
 			bm.size = Vector3(randf_range(5.0, 10.0), randf_range(6.0, 14.0), randf_range(5.0, 10.0))
 		b.mesh = bm
 		b.position.y = bm.size.y * 0.5
-		b.material_override = _mat(Color(0.13, 0.14, 0.17) if far else Color(0.19, 0.2, 0.22))
+		if far:
+			# 玻璃幕墙：低粗糙、微蓝、反射天光，晴天里明亮挺拔
+			var glass := StandardMaterial3D.new()
+			glass.albedo_color = Color(0.52, 0.66, 0.78)
+			glass.metallic = 0.35
+			glass.roughness = 0.22
+			b.material_override = glass
+		else:
+			b.material_override = _mat(Color(0.3, 0.3, 0.31))
 		root.add_child(b)
-		root.position.x = road_x(z) + side * (randf_range(95.0, 150.0) if far else randf_range(45.0, 90.0))
+		# 楼顶破损女儿墙/天线，强化废墟感
+		if far and randf() < 0.5:
+			var antenna := MeshInstance3D.new()
+			var am2 := CylinderMesh.new()
+			am2.top_radius = 0.05
+			am2.bottom_radius = 0.08
+			am2.height = randf_range(3.0, 8.0)
+			antenna.mesh = am2
+			antenna.position = Vector3(randf_range(-bm.size.x * 0.3, bm.size.x * 0.3), bm.size.y + am2.height * 0.5, 0)
+			antenna.material_override = _mat(Color(0.25, 0.25, 0.26))
+			root.add_child(antenna)
+		root.position.x = road_x(z) + side * (randf_range(105.0, 190.0) if far else randf_range(45.0, 90.0))
 	elif roll < 0.82:
 		# 路边广告牌：双腿 + 锈蚀面板
 		for px in [-1.1, 1.1]:
@@ -1712,15 +1778,15 @@ func _make_scenery(z: float) -> Node3D:
 		root.add_child(panel)
 		root.position.x = road_x(z) + side * randf_range(ROAD_HALF + 4.0, ROAD_HALF + 9.0)
 	elif roll < 0.90:
-		# 枯灌木：两团低矮偏锥枝丛
-		var shrub_col := Color(0.20, 0.21, 0.14).lerp(Color(0.13, 0.13, 0.10), randf() * 0.6)
+		# 茂盛灌木：两团鲜绿球丛，部分顶端点缀花色
+		var shrub_col := Color(0.17, 0.34, 0.13).lerp(Color(0.3, 0.42, 0.16), randf())
 		for n in randi_range(2, 3):
 			var tu := MeshInstance3D.new()
 			var tum := CylinderMesh.new()
-			tum.top_radius = 0.0
+			tum.top_radius = randf_range(0.35, 0.6)
 			tum.bottom_radius = randf_range(0.45, 0.8)
 			tum.height = randf_range(0.7, 1.3)
-			tum.radial_segments = 5
+			tum.radial_segments = 6
 			tu.mesh = tum
 			tu.position = Vector3(randf_range(-0.7, 0.7), tum.height * 0.5, randf_range(-0.7, 0.7))
 			tu.rotation.y = randf() * TAU
@@ -1763,7 +1829,7 @@ func _make_pine() -> Node3D:
 	trunk.position.y = trunk_h * 0.5
 	trunk.material_override = _mat(Color(0.17, 0.13, 0.09))
 	p.add_child(trunk)
-	var col := Color(0.16, 0.22, 0.14).lerp(Color(0.24, 0.27, 0.16), randf())
+	var col := Color(0.13, 0.3, 0.12).lerp(Color(0.26, 0.4, 0.17), randf())
 	var tiers := [
 		Vector2(1.9, 2.0), # (底半径, 层高)
 		Vector2(1.45, 1.8),
@@ -1784,6 +1850,40 @@ func _make_pine() -> Node3D:
 	p.scale = Vector3.ONE * randf_range(0.8, 1.25)
 	p.rotation.y = randf() * TAU
 	return p
+
+## 程序化阔叶树：树干 + 三团高低错落的鲜绿叶冠（低多边形球体），整体随机缩放
+func _make_broadleaf() -> Node3D:
+	var t := Node3D.new()
+	var trunk_h := randf_range(2.6, 4.2)
+	var trunk := MeshInstance3D.new()
+	var tm := CylinderMesh.new()
+	tm.top_radius = 0.12
+	tm.bottom_radius = 0.3
+	tm.height = trunk_h
+	trunk.mesh = tm
+	trunk.position.y = trunk_h * 0.5
+	trunk.material_override = _mat(Color(0.26, 0.19, 0.12))
+	t.add_child(trunk)
+	var leaf_col := Color(0.16, 0.38, 0.12).lerp(Color(0.34, 0.52, 0.18), randf())
+	var blobs := [
+		Vector3(0.0, 0.0, 0.0),
+		Vector3(0.9, -0.5, 0.4),
+		Vector3(-0.8, -0.7, -0.3),
+	]
+	for off in blobs:
+		var crown := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = randf_range(1.2, 1.7)
+		sm.height = sm.radius * randf_range(1.5, 1.9)
+		sm.radial_segments = 7
+		sm.rings = 5
+		crown.mesh = sm
+		crown.position = Vector3(off.x, trunk_h + 1.0 + off.y, off.z)
+		crown.material_override = _mat(leaf_col.lerp(Color(0.4, 0.55, 0.2), randf() * 0.25))
+		t.add_child(crown)
+	t.scale = Vector3.ONE * randf_range(0.85, 1.3)
+	t.rotation.y = randf() * TAU
+	return t
 
 func _mat(col: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
