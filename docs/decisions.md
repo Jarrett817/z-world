@@ -1,5 +1,14 @@
 # 决策记录
 
+## 2026-10-22 · terrain v1：zone 数据驱动海拔架构 + `-s` 脚本验收时序坑
+
+- **架构**：`ground_y(z)` 是全场景唯一贴地函数 = 基础值 + `_elev_at(z)`（分段海拔）+ 微起伏；terrain.gd 网格、RV/玩家/队友/丧尸/幸存者/障碍全部基于它——改 ground_y 全场景自动起伏，不逐个调
+- **zone 循环走 JSON**（data/terrain_zones.json，type/elev/len 10 段循环）：数值策划只改 JSON 不动代码；`zone_at` 用 `fposmod(-z, total)` 定位，`zone_weight` 段中心 1.0 首尾 90m 淡入淡出（供水面宽度渐变）
+- **走廊外地势与走廊解耦**：`side_elev(z, dist)` 24m 死区内恒 0（路面绝不被山坡侵入），山段 d*0.55 隆起、湖海段下沉成床；大地带必须用**非均匀断点网格**（±20/±34 关键点有顶点）——均匀粗网格的线性插值会把山坡盖到路面上方
+- **残骸落地冻结**：WorldBoundaryShape3D 只有 y=-1.56 一个平面，高海拔段撞飞的刚体残骸会沉穿视觉地面——`_wrecks` 每帧判 `y<=ground_y(z)+0.35` 即 freeze
+- **验收坑沉淀**：`-s` SceneTree 脚本的 `_initialize()` 里 `root.add_child()` 时主循环尚未启动，**`_ready()` 不会被调用**——断言依赖 `_ready` 加载的数据前必须 `await process_frame`（曾因此误报 11 项 FAIL，游戏代码本身无 bug）
+- **环境限制**：当前环境无法创建 OS 窗口（all display drivers failed），视觉验收以 headless 数值断言兜底，窗口目检待有显示环境时补
+
 ## 2026-10-22 · 角色 GLB 验收改 Blender 渲染，摆姿全面转世界空间
 
 - **触发**：用户实测「车内角色坐姿不对，头和身体反向」。诊断链：数值核对全部正确（sit 髋高 = station + 0.46 = 坐垫顶）→ Blender 导入 GLB 摆 sit 姿势渲染 → 实锤烘焙姿态本身畸变（髋后移 0.49 的高脚凳），另有 2×2×2 默认 Cube 残留进 GLB 且 Godot 里可见
