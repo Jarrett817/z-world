@@ -114,6 +114,7 @@ var ark_spawned := false
 var survivors_data := {}
 var crew_members: Array = []
 var crew_figures: Array = []
+var driver_figure: Node3D   # 主角驾驶位模型（坐姿 + 双手 IK 握方向盘）
 var crew_font: SystemFont
 
 var music_a: AudioStreamPlayer
@@ -132,6 +133,7 @@ func _ready() -> void:
 	_build_sky()
 	_build_terrain()
 	_build_rv()
+	_build_driver()
 	_build_camera()
 	_build_weather()
 	_build_hud()
@@ -321,6 +323,8 @@ func _process(delta: float) -> void:
 	interior.visible = view_mode != 0
 	for i in crew_figures.size():
 		crew_figures[i].visible = view_mode == 2 and i < crew_members.size()
+	if driver_figure != null:
+		driver_figure.visible = view_mode == 2 and not combat_active
 	_update_banter(delta)
 	if view_mode == 1:
 		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -1.9))
@@ -740,6 +744,52 @@ func _sync_crew() -> void:
 			if old:
 				old.queue_free()
 
+## 主角驾驶位：hero 坐主驾播 sit，双手 TwoBoneIK3D 持续握方向盘（仅车内视角可见）
+func _build_driver() -> void:
+	var fig := Node3D.new()
+	# 主驾坐垫中心（与副驾站位对称）；坐姿髋部下沉落在 seat_b0 坐垫上
+	fig.position = Vector3(-0.55, -0.4, -1.45)
+	fig.rotation.y = PI  # 朝车头
+	var lb := Label3D.new()
+	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lb.font = crew_font
+	lb.font_size = 26
+	lb.pixel_size = 0.0016
+	lb.outline_size = 10
+	lb.no_depth_test = false
+	lb.modulate = Color(1.0, 0.93, 0.84)
+	lb.position = Vector3(0, 1.35, 0)
+	lb.text = "我 · 驾驶中"
+	fig.add_child(lb)
+	var char: Node3D = CharUtil.instantiate("hero", "sit")["node"]
+	char.name = "Char"
+	fig.add_child(char)
+	fig.visible = false
+	rv.add_child(fig)
+	driver_figure = fig
+	# 双手握方向盘：内饰 wheel 圈心 rv 局部 (-0.55, 0.78, -3.2)，握 10 点/2 点方位
+	var skel: Skeleton3D = char.find_child("Skeleton3D", true, false)
+	if skel == null:
+		return
+	for side in ["L", "R"]:
+		var sgn: float = -1.0 if side == "L" else 1.0
+		var grip := Node3D.new()
+		grip.position = Vector3(-0.55 + sgn * 0.2, 0.9, -3.15)
+		rv.add_child(grip)
+		# pole 决定肘部朝向：放在肩后下方偏外侧，肘自然下垂外张
+		var pole := Node3D.new()
+		pole.position = Vector3(-0.55 + sgn * 0.35, 0.3, -1.9)
+		rv.add_child(pole)
+		var ik := TwoBoneIK3D.new()
+		skel.add_child(ik)
+		ik.setting_count = 1
+		ik.set_root_bone_name(0, "J_Bip_%s_UpperArm" % side)
+		ik.set_middle_bone_name(0, "J_Bip_%s_LowerArm" % side)
+		ik.set_end_bone_name(0, "J_Bip_%s_Hand" % side)
+		ik.set_target_node(0, ik.get_path_to(grip))
+		ik.set_pole_node(0, ik.get_path_to(pole))
+		ik.set_extend_end_bone(0, true)
+
 # ---------- 队友互动 ----------
 ## 车内视角下，队友之间隔一阵子搭一句话，听的人转头看向说的人
 func _update_banter(delta: float) -> void:
@@ -979,6 +1029,8 @@ func start_combat(m: int) -> void:
 	interior.visible = false
 	for f in crew_figures:
 		f.visible = false
+	if driver_figure != null:
+		driver_figure.visible = false
 	p._enter()
 	# 下车模式：全队队友下车协同作战（天窗模式身体探出车顶，队友留车内）
 	if m == 0:
@@ -1013,6 +1065,8 @@ func end_combat() -> void:
 	interior.visible = view_mode != 0
 	for i in crew_figures.size():
 		crew_figures[i].visible = view_mode == 2 and i < crew_members.size()
+	if driver_figure != null:
+		driver_figure.visible = view_mode == 2
 	# 驻车状态下恢复设施面板（start_combat 时收起了）
 	if parked:
 		set_facilities_ui(true)
