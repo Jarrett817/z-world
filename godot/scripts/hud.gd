@@ -16,9 +16,9 @@ class Joystick:
 
 	func _draw() -> void:
 		var c := size * 0.5
-		draw_circle(c, 62.0, Color(1, 1, 1, 0.07))
-		draw_arc(c, 62.0, 0.0, TAU, 48, Color(0.91, 0.53, 0.18, 0.45), 3.0)
-		draw_circle(c + knob * 36.0, 26.0, Color(0.91, 0.53, 0.18, 0.4))
+		draw_circle(c, 62.0, Color(0, 0, 0, 0.28))
+		draw_arc(c, 62.0, 0.0, TAU, 48, Color(0.91, 0.53, 0.18, 0.85), 3.0)
+		draw_circle(c + knob * 36.0, 26.0, Color(0.91, 0.53, 0.18, 0.75))
 
 	func _gui_input(e: InputEvent) -> void:
 		if e is InputEventScreenTouch:
@@ -59,6 +59,7 @@ var facilities_root: Panel
 var facilities_rows: VBoxContainer
 var facilities_title: Label
 var drive_buttons: Array[Button] = []
+var drive_misc_buttons: Array[Button] = []   # 视角/驻车/天窗/下车/车内（战斗时连同驾驶键一起收起）
 var combat_fire_buttons: Array[Button] = []   # 车内行走时要藏起来的开火类按钮
 var _tab_down := false
 var _toast_tween: Tween
@@ -159,11 +160,11 @@ func build(rv_node: Node) -> void:
 	drive_buttons.append(_touch_button(root, "刹车", Control.PRESET_BOTTOM_RIGHT, Rect2(-352, -118, 156, 98), "brake"))
 	drive_buttons.append(_touch_button(root, "左", Control.PRESET_BOTTOM_LEFT, Rect2(20, -118, 130, 98), "left"))
 	drive_buttons.append(_touch_button(root, "右", Control.PRESET_BOTTOM_LEFT, Rect2(170, -118, 130, 98), "right"))
-	_touch_button(root, "视角", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -222, 78, 56), "view")
-	_touch_button(root, "驻车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -222, 78, 56), "park")
-	_touch_button(root, "天窗", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -284, 78, 56), "sunroof")
-	_touch_button(root, "下车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -284, 78, 56), "exitveh")
-	_touch_button(root, "车内", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -346, 78, 56), "rvwalk")
+	drive_misc_buttons.append(_touch_button(root, "视角", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -222, 78, 56), "view"))
+	drive_misc_buttons.append(_touch_button(root, "驻车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -222, 78, 56), "park"))
+	drive_misc_buttons.append(_touch_button(root, "天窗", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -284, 78, 56), "sunroof"))
+	drive_misc_buttons.append(_touch_button(root, "下车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -284, 78, 56), "exitveh"))
+	drive_misc_buttons.append(_touch_button(root, "车内", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -346, 78, 56), "rvwalk"))
 	# 右上：队伍 / 设施（手游触屏替代 Tab/E 快捷键）
 	_touch_button(root, "队伍", Control.PRESET_TOP_RIGHT, Rect2(-196, 14, 88, 46), "crew")
 	_touch_button(root, "设施", Control.PRESET_TOP_RIGHT, Rect2(-100, 14, 88, 46), "fac")
@@ -373,9 +374,17 @@ func _build_combat(root: Control) -> void:
 
 func set_combat_active(active: bool, ammo: int, hp: float) -> void:
 	combat_root.visible = active
+	# 战斗时收起整个驾驶面板（左/右压在摇杆上、视角压在跳跃上）；结束按驻车状态恢复
+	for b in drive_buttons:
+		b.visible = not active and not _is_parked()
+	for b in drive_misc_buttons:
+		b.visible = not active
 	if active:
 		set_combat_ammo(ammo, 0)
 		set_combat_hp(hp)
+
+func _is_parked() -> bool:
+	return rv != null and rv.main_node != null and rv.main_node.parked
 
 ## 车内行走：复用战斗 HUD 底板，但只留摇杆与「上车」撤离（无法开枪/跳跃/换枪）
 func set_rv_walk_active(v: bool) -> void:

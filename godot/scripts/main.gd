@@ -132,6 +132,7 @@ var _shot_at := -1.0  # --shot=路径 命令行截帧：启动后计时保存并
 var _shot_path := ""
 var _shot_t := 0.0
 var _shot_walk := false  # --shotrvwalk：截帧前先进车内行走
+var _shot_combat := false  # --shotcombat：截帧前先进下车战斗
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
@@ -140,6 +141,8 @@ func _ready() -> void:
 			_shot_at = 3.0
 		elif a == "--shotrvwalk":
 			_shot_walk = true
+		elif a == "--shotcombat":
+			_shot_combat = true
 	_load_survivors()
 	_load_facilities()
 	_load_zones()
@@ -308,6 +311,17 @@ func _process(delta: float) -> void:
 				rv.speed_kmh = 0.0
 				set_facilities_ui(false)
 				start_rv_walk()
+				_shot_at = 1.5
+				_shot_t = 0.0
+				return
+			if _shot_combat and not combat_active:
+				# --shotcombat：先驻车再下车战斗，稳定 1.5s 后截帧
+				_shot_combat = false
+				parked = true
+				rv.parked = true
+				rv.speed_kmh = 0.0
+				set_facilities_ui(false)
+				start_combat(0)
 				_shot_at = 1.5
 				_shot_t = 0.0
 				return
