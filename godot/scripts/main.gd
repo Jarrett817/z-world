@@ -107,6 +107,7 @@ var music_a: AudioStreamPlayer
 var music_b: AudioStreamPlayer
 var music_key := ""
 var music_tween: Tween
+var sfx: Sfx
 
 var banter_t := 9.0
 var banter_busy := false
@@ -121,6 +122,8 @@ func _ready() -> void:
 	_build_weather()
 	_build_hud()
 	_build_music()
+	sfx = Sfx.new()
+	add_child(sfx)
 	_spawn_initial_scenery()
 	hud.set_weather(weather)
 	# 车载电台剧情管理器
@@ -247,6 +250,7 @@ func _process(delta: float) -> void:
 	if rv == null:
 		return
 	_update_music()
+	sfx.set_engine(clampf(rv.speed_kmh / 55.0, 0.0, 1.0))
 	# G：驻车时下车战斗 / 战斗中回到驾驶座（player.gd 内部也处理结束）
 	var gk := Input.is_physical_key_pressed(KEY_G)
 	if gk and not _g_down and not game_over and not story_active:
@@ -1325,6 +1329,7 @@ func on_zombie_run_over() -> void:
 	var dmg := 1.2 if _has_passive("tang_tang") else 2.0
 	durability = maxf(0.0, durability - dmg)
 	add_trauma(0.25)
+	sfx.play("run_over")
 
 func on_pickup(kind: String) -> void:
 	if game_over:
@@ -1346,6 +1351,7 @@ func on_pickup(kind: String) -> void:
 			var pg := 2.0 * mult
 			parts += pg
 			hud.toast("+%d 车况 · +%d 零件" % [int(g), int(pg)])
+	sfx.play("pickup")
 	hud.update_stats(self)
 
 func try_recruit(survivor: Node3D) -> void:

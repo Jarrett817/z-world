@@ -130,6 +130,7 @@ func _physics_process(delta: float) -> void:
 	var rk := Input.is_physical_key_pressed(KEY_R)
 	if rk and not _r_down and ammo < MAG_SIZE and reload_t == 0.0:
 		reload_t = RELOAD_TIME
+		main_node.sfx.play("reload", 1.05)
 		main_node.hud.toast("换弹中……")
 	_r_down = rk
 	if mode == Mode.ON_FOOT:
@@ -185,6 +186,7 @@ func _try_fire() -> void:
 	if ammo == 0:
 		if reload_t == 0.0:
 			reload_t = RELOAD_TIME
+			main_node.sfx.play("reload")
 			main_node.hud.toast("弹匣空了，换弹……")
 		return
 	if reload_t > 0.0:
@@ -192,6 +194,7 @@ func _try_fire() -> void:
 	ammo -= 1
 	fire_cd = FIRE_INTERVAL
 	_recoil = 1.0
+	main_node.sfx.play("gunshot", 1.0, 0.05, 2.0)
 	# 射线命中：从屏幕准星（相机中心）发射
 	var from := cam.global_position
 	var dir := -cam.global_transform.basis.z

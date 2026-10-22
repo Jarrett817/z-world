@@ -72,6 +72,7 @@ func _open(id: String) -> void:
 	var evv: Dictionary = ev.duplicate()
 	evv["id"] = id
 	main.set_facilities_ui(false)
+	main.sfx.play("story_open", 1.0, 0.03, -4.0)
 	main.hud.show_story(evv)
 
 ## HUD 选项按钮回调

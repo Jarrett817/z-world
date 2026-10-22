@@ -24,6 +24,7 @@ var bite_t := 0.0
 var dead := false
 var death_t := 0.0
 var should_free := false
+var growl_t := 0.0
 var anim: AnimationPlayer
 
 func setup(main: Node3D) -> void:
@@ -252,6 +253,11 @@ func _pick_wander_target() -> void:
 
 ## 狂暴冲锋：玩家下车优先追玩家，否则追房车，贴身啃咬
 func _chase(delta: float) -> void:
+	# 追击嘶吼：随机间隔，3D 方位衰减
+	growl_t -= delta
+	if growl_t <= 0.0:
+		growl_t = randf_range(4.0, 9.0)
+		main_node.sfx.play3d("zombie_growl", global_position, 1.0, 0.15)
 	var target_pos: Vector3 = rv.global_position
 	var player: Node3D = main_node.get_player_body()
 	if is_instance_valid(player):
@@ -277,6 +283,7 @@ func _chase(delta: float) -> void:
 				main_node.on_player_bitten()
 			else:
 				main_node.zombie_bite()
+			main_node.sfx.play3d("zombie_bite", global_position, 1.0, 0.1)
 			_play_once(ATTACK)
 
 func on_hit_by_rv(speed_kmh: float, _normal: Vector3) -> void:
@@ -292,6 +299,7 @@ func on_hit_by_rv(speed_kmh: float, _normal: Vector3) -> void:
 	if speed_kmh > 45.0:
 		dead = true
 		death_t = 1.5
+		main_node.sfx.play3d("zombie_die", global_position, 1.1, 0.12)
 		_play_once(DEATH)
 
 ## 被玩家武器击中：低速车辆撞不死的枪下亡魂
@@ -301,6 +309,7 @@ func on_shot() -> void:
 	dead = true
 	death_t = 1.5
 	linear_velocity = Vector3(0, linear_velocity.y, 0)
+	main_node.sfx.play3d("zombie_die", global_position, 1.0, 0.12)
 	_play_once(DEATH)
 
 func _apply_anim_rate() -> void:
