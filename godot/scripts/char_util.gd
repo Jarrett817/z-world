@@ -16,6 +16,8 @@ static func instantiate(cid: String, anim_name := "idle") -> Dictionary:
 	var char: Node3D = packed.instantiate()
 	var anim: AnimationPlayer = char.find_child("AnimationPlayer", true, false)
 	if anim != null and anim_name != "" and anim.has_animation(anim_name):
+		# idle/sit 必须循环，否则播完停在末帧，人物变成静止人偶
+		anim.get_animation(anim_name).loop_mode = Animation.LOOP_LINEAR
 		anim.play(anim_name)
 	return {"node": char, "anim": anim}
 
