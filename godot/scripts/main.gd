@@ -88,6 +88,8 @@ var lamp_z := -30.0
 var lamp_side := 1.0
 var view_mode := 0   # 0 追尾 / 1 驾驶舱 / 2 车内
 var _c_down := false
+var _fv_yaw := 0.0     # 车内自由视角：右键拖动环顾的偏航/俯仰偏移
+var _fv_pitch := 0.0
 var combat_active := false
 var _g_down := false
 var _t_down := false
@@ -276,6 +278,8 @@ func _process(delta: float) -> void:
 	var pressed := Input.is_physical_key_pressed(KEY_C)
 	if pressed and not _c_down:
 		view_mode = (view_mode + 1) % 3
+		_fv_yaw = 0.0
+		_fv_pitch = 0.0
 	_c_down = pressed
 	# 驻车休整（F 开关）
 	var f := Input.is_physical_key_pressed(KEY_F)
@@ -300,7 +304,10 @@ func _process(delta: float) -> void:
 	elif view_mode == 2:
 		# 后铺上方俯拍：餐桌当前景，灶台/货架队友为中景，副驾在车头；后移+抬视线+宽 fov 保证后舱两人完整入镜
 		cam.global_position = rv.to_global(Vector3(0.0, 1.66, 2.6))
-		cam.look_at(rv.to_global(Vector3(0.0, 1.12, -1.0)))
+		# 自由视角：按住右键拖动环顾舱内（默认朝车头的略俯视线为基准）
+		var base_dir := Vector3(0.0, -0.148, -0.989)
+		var look_dir := Basis(Vector3.UP, _fv_yaw) * Basis(Vector3.RIGHT, _fv_pitch) * base_dir
+		cam.look_at(cam.global_position + rv.global_transform.basis * look_dir * 5.0, Vector3.UP)
 		cam.fov = 72.0
 	else:
 		var target := rv.global_position + Vector3(0, 3.5, 11.0)
@@ -318,6 +325,13 @@ func _process(delta: float) -> void:
 func add_trauma(amount: float) -> void:
 	trauma = minf(1.0, trauma + amount)
 
+## 车内自由视角：按住右键拖动环顾（不捕获鼠标，左键仍可点设施 UI）
+func _unhandled_input(event: InputEvent) -> void:
+	if view_mode == 2 and event is InputEventMouseMotion \
+			and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+		_fv_yaw -= event.relative.x * 0.0032
+		_fv_pitch = clampf(_fv_pitch - event.relative.y * 0.0032, -0.9, 0.75)
+
 ## 驻车休整：全员检修，消耗食物，时间快进；再按 F 出发
 func _toggle_park() -> void:
 	if not parked:
@@ -331,7 +345,7 @@ func _toggle_park() -> void:
 		_starving = false
 		hud.set_drive_buttons_visible(false)
 		set_facilities_ui(true)
-		hud.toast("驻车休整 · E 设施操作，F 出发")
+		hud.toast("驻车休整 · E 设施操作 · 右键拖动环顾舱内 · F 出发")
 	else:
 		parked = false
 		rv.parked = false
