@@ -75,6 +75,7 @@ blender --background --addons vrm_addon --python run_pipeline.py -- <in.vrm> <ou
 17. **Godot 天空环境下金属材质偏蓝（2026-10-22 教训）**：metallic ≥0.7 的材质会镜面反射环境天空，在舱内第一视角反出突兀亮蓝（转向柱曾是视觉正中央一根亮蓝柱子）。**内饰金属件 metal ≤0.25、rough ≥0.5**（钢台面/罐头定版 0.25/0.55、0.2/0.5），靠浅灰基色而非金属度表达"金属感"；Blender Workbench 预览看不出来，必须 Godot 窗口截帧验收
 18. **Quaternius 官网下载被墙时的镜像直链法（2026-10-22 教训）**：quaternius.com 的 Download 按钮实际指向 Google Drive 文件夹（本机 ERR_CONNECTION_TIMED_OUT）。fallback = poly.pizza 官方镜像：PowerShell `Invoke-WebRequest -UseBasicParsing` 抓模型页面 HTML，正则提取 `https://static.poly.pizza/<uuid>.glb` 直链直接下载（本机直连可达，无需浏览器）。同一作者多包混杂，按上传日期甄别包归属（Zombie Apocalypse Kit = 2024-03-17 上传，CC0；2021 年的 Animated Zombie 是 CC-BY 老物）
 19. **poly.pizza GLB 的 NLA 前缀动画导出法（2026-10-22 教训，两次翻车定版）**：poly.pizza 下的 GLB 导入 Blender 后动画 stash 在 NLA（16 轨），active action 带 `CharacterArmature|` 前缀。直接删前缀 action 会把 active 一并删掉、`ACTIONS` 模式导出丢全部动画（Godot 里无 AnimationPlayer）；只改裸名也匹配不上带前缀的轨名。定版做法：`short_name(n)=n.split("|")[-1]` **同步**重命名全部 action 与 NLA 轨名（`Idle_Attack`→`Attack` 契约一并完成）→ `arm.animation_data.action = None` → `export_animation_mode='NLA_TRACKS'` 导出
+20. **重导入只认 `--import`，游戏模式与 `--editor --quit` 都不可靠（2026-10-22 教训，补第 16 条）**：根因——游戏模式（`-s script`）**只读 `.godot/imported` 缓存，完全不重扫源资产**；`--headless --editor --quit` 看似能触发导入，但 quit 可能早于 import 完成（GLB 大时尤为明显），属不可靠。**唯一稳妥：覆盖 GLB 后先跑 `Godot --headless --import --path godot`（该命令等导入完成才退出），再截帧/回归**。曾因此误判「贴图丢失」三道排查（疑 emission 白洗、疑 UV 塌陷、dumpmat 查材质），最后实锤是 Godot 在读旧缓存——**「GLB 文件正确 + Godot 端表现错」时，先怀疑 import 缓存过期**
 
 ### 4.2 截帧验收法
 
