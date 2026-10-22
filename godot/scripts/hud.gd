@@ -7,6 +7,39 @@ const TEXT_MAIN := Color("e8ded2")
 const TEXT_DIM := Color("8a7d6d")
 const BAR_W := 168.0
 
+## 虚拟摇杆：手游战斗移动输入，输出 -1..1 向量（推满自动奔跑由 player 判定）
+class Joystick:
+	extends Control
+	var knob := Vector2.ZERO
+	var _active := false
+	signal moved(v: Vector2)
+
+	func _draw() -> void:
+		var c := size * 0.5
+		draw_circle(c, 62.0, Color(1, 1, 1, 0.07))
+		draw_arc(c, 62.0, 0.0, TAU, 48, Color(0.91, 0.53, 0.18, 0.45), 3.0)
+		draw_circle(c + knob * 36.0, 26.0, Color(0.91, 0.53, 0.18, 0.4))
+
+	func _gui_input(e: InputEvent) -> void:
+		if e is InputEventScreenTouch:
+			_active = e.pressed
+			if _active:
+				_update(e.position)
+			else:
+				knob = Vector2.ZERO
+				moved.emit(knob)
+				queue_redraw()
+		elif e is InputEventScreenDrag and _active:
+			_update(e.position)
+
+	func _update(p: Vector2) -> void:
+		var v := (p - size * 0.5) / 38.0
+		if v.length() > 1.0:
+			v = v.normalized()
+		knob = v
+		moved.emit(knob)
+		queue_redraw()
+
 var rv: Node
 var speed_label: Label
 var res_label: Label
@@ -127,6 +160,11 @@ func build(rv_node: Node) -> void:
 	drive_buttons.append(_touch_button(root, "右", Control.PRESET_BOTTOM_LEFT, Rect2(170, -118, 130, 98), "right"))
 	_touch_button(root, "视角", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -222, 78, 56), "view")
 	_touch_button(root, "驻车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -222, 78, 56), "park")
+	_touch_button(root, "天窗", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -284, 78, 56), "sunroof")
+	_touch_button(root, "下车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -284, 78, 56), "exitveh")
+	# 右上：队伍 / 设施（手游触屏替代 Tab/E 快捷键）
+	_touch_button(root, "队伍", Control.PRESET_TOP_RIGHT, Rect2(-196, 14, 88, 46), "crew")
+	_touch_button(root, "设施", Control.PRESET_TOP_RIGHT, Rect2(-100, 14, 88, 46), "fac")
 
 	# 队伍面板（Tab 开关）
 	crew_panel = _panel(Vector2.ZERO, Vector2.ZERO)
@@ -212,8 +250,11 @@ func build(rv_node: Node) -> void:
 	over_stats = _label("", 22, TEXT_MAIN)
 	over_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(over_stats)
-	var retry := _label("按 R 重新出发", 24, TEXT_MAIN)
-	retry.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var retry := Button.new()
+	retry.text = "重新出发"
+	retry.custom_minimum_size = Vector2(260, 64)
+	retry.add_theme_font_size_override("font_size", 26)
+	retry.pressed.connect(func() -> void: get_tree().reload_current_scene())
 	vb.add_child(retry)
 	root.add_child(over_root)
 
@@ -240,8 +281,11 @@ func build(rv_node: Node) -> void:
 	victory_stats = _label("", 22, TEXT_MAIN)
 	victory_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vvb.add_child(victory_stats)
-	var vretry := _label("按 R 重新出发", 24, TEXT_MAIN)
-	vretry.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var vretry := Button.new()
+	vretry.text = "重新出发"
+	vretry.custom_minimum_size = Vector2(260, 64)
+	vretry.add_theme_font_size_override("font_size", 26)
+	vretry.pressed.connect(func() -> void: get_tree().reload_current_scene())
 	vvb.add_child(vretry)
 	root.add_child(victory_root)
 
@@ -264,46 +308,61 @@ func _build_combat(root: Control) -> void:
 	crosshair.offset_bottom = 8
 	crosshair.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	combat_root.add_child(crosshair)
-	# 右下：弹匣 + 枪名
+	# 右下：弹匣 + 枪名（在开火按钮上方）
 	ammo_label = _label("12/12", 30, ACCENT)
 	ammo_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	ammo_label.offset_left = -220
 	ammo_label.offset_right = -24
-	ammo_label.offset_top = -78
-	ammo_label.offset_bottom = -30
+	ammo_label.offset_top = -196
+	ammo_label.offset_bottom = -148
 	ammo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	combat_root.add_child(ammo_label)
 	gun_label = _label("", 16, TEXT_DIM)
 	gun_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	gun_label.offset_left = -220
 	gun_label.offset_right = -24
-	gun_label.offset_top = -108
-	gun_label.offset_bottom = -82
+	gun_label.offset_top = -226
+	gun_label.offset_bottom = -200
 	gun_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	combat_root.add_child(gun_label)
-	# 换枪按钮（触屏）
-	_touch_button(combat_root, "换枪", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -190, 152, 56), "swapgun")
-	# 左下：生命条
-	var hp_title := _label("生命", 15, TEXT_DIM, Vector2(24, -74))
+	# 触屏战斗按钮组：开火（大）/ 换弹 / 换枪 / 上车撤离
+	_touch_button(combat_root, "开火", Control.PRESET_BOTTOM_RIGHT, Rect2(-170, -140, 146, 116), "fire")
+	_touch_button(combat_root, "换弹", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -140, 150, 54), "reload")
+	_touch_button(combat_root, "换枪", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -76, 150, 54), "swapgun")
+	_touch_button(combat_root, "上车", Control.PRESET_TOP_RIGHT, Rect2(-170, 64, 146, 54), "exitcombat")
+	# 左下：虚拟摇杆（手游移动）
+	var js := Joystick.new()
+	js.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	js.offset_left = 36
+	js.offset_top = -206
+	js.offset_right = 186
+	js.offset_bottom = -56
+	js.moved.connect(func(v: Vector2) -> void:
+		var p: Node3D = rv.main_node.get_player_body()
+		if p != null:
+			p.touch_move = v)
+	combat_root.add_child(js)
+	# 生命条（摇杆上方，避免遮挡）
+	var hp_title := _label("生命", 15, TEXT_DIM, Vector2(24, -258))
 	hp_title.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	combat_root.add_child(hp_title)
 	var hp_bg := ColorRect.new()
 	hp_bg.color = Color(0, 0, 0, 0.55)
 	hp_bg.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	hp_bg.offset_left = 70
-	hp_bg.offset_top = -68
+	hp_bg.offset_top = -252
 	hp_bg.offset_right = 280
-	hp_bg.offset_bottom = -44
+	hp_bg.offset_bottom = -228
 	combat_root.add_child(hp_bg)
 	combat_hp_fill = ColorRect.new()
 	combat_hp_fill.color = Color(0.55, 0.8, 0.45)
 	combat_hp_fill.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	combat_hp_fill.offset_left = 72
-	combat_hp_fill.offset_top = -66
+	combat_hp_fill.offset_top = -250
 	combat_hp_fill.offset_right = 278
-	combat_hp_fill.offset_bottom = -46
+	combat_hp_fill.offset_bottom = -230
 	combat_root.add_child(combat_hp_fill)
-	combat_hp_label = _label("100", 14, TEXT_MAIN, Vector2(286, -72))
+	combat_hp_label = _label("100", 14, TEXT_MAIN, Vector2(286, -256))
 	combat_hp_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	combat_root.add_child(combat_hp_label)
 
@@ -777,6 +836,30 @@ func _on_btn_down(action: String) -> void:
 		"swapgun":
 			if rv.main_node != null and rv.main_node.get_player_body() != null:
 				rv.main_node.get_player_body().switch_gun_next()
+		"fire":
+			if rv.main_node != null and rv.main_node.get_player_body() != null:
+				rv.main_node.get_player_body().press_fire()
+		"reload":
+			if rv.main_node != null and rv.main_node.get_player_body() != null:
+				rv.main_node.get_player_body().reload()
+		"exitcombat":
+			if rv.main_node != null:
+				rv.main_node.end_combat()
+		"sunroof":
+			if rv.main_node != null:
+				if rv.main_node.combat_active:
+					rv.main_node.end_combat()
+				else:
+					rv.main_node.start_combat(1)
+		"exitveh":
+			if rv.main_node != null and rv.main_node.parked and not rv.main_node.combat_active:
+				rv.main_node.start_combat(0)
+		"crew":
+			crew_visible = not crew_visible
+			crew_panel.visible = crew_visible
+		"fac":
+			if rv.main_node != null and rv.main_node.parked:
+				rv.main_node.set_facilities_ui(not rv.main_node.facilities_visible)
 
 func _on_btn_up(action: String) -> void:
 	match action:
@@ -784,3 +867,6 @@ func _on_btn_up(action: String) -> void:
 		"brake": rv.touch_brake = false
 		"left": if rv.touch_steer > 0.0: rv.touch_steer = 0.0
 		"right": if rv.touch_steer < 0.0: rv.touch_steer = 0.0
+		"fire":
+			if rv.main_node != null and rv.main_node.get_player_body() != null:
+				rv.main_node.get_player_body().release_fire()

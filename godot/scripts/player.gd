@@ -35,6 +35,7 @@ var _firing := false             # 左键按住（全自动连发用）
 
 var _r_down := false
 var _recoil := 0.0
+var touch_move := Vector2.ZERO   # HUD 虚拟摇杆输入（-1..1），与键盘并存
 
 func setup(main: Node, m: int) -> void:
 	main_node = main
@@ -132,10 +133,29 @@ func _unhandled_input(event: InputEvent) -> void:
 		_firing = event.pressed
 		if event.pressed:
 			_try_fire()
+	elif event is InputEventScreenDrag:
+		# 触屏右半屏拖动瞄准（摇杆区事件已被 HUD 消费，到不了这里）
+		aim_yaw -= event.relative.x * MOUSE_SENS * 1.6
+		aim_pitch = clampf(aim_pitch - event.relative.y * MOUSE_SENS * 1.6, -1.2, 0.35)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		# 数字键 1-4 直选武器
 		if event.keycode >= KEY_1 and event.keycode <= KEY_4:
 			switch_gun(int(event.keycode - KEY_1))
+
+## HUD 开火按钮：按下开火（半自动单发、全自动按住连发），松开停火
+func press_fire() -> void:
+	_firing = true
+	_try_fire()
+
+func release_fire() -> void:
+	_firing = false
+
+## HUD 换弹按钮（R 键路径复用）
+func reload() -> void:
+	if ammo() < int(_cfg()["mag_size"]) and reload_t == 0.0:
+		reload_t = float(_cfg()["reload_time"])
+		main_node.sfx.play("reload", 1.05)
+		main_node.hud.toast("换弹中……")
 
 func _physics_process(delta: float) -> void:
 	if main_node == null or main_node.game_over:
@@ -149,10 +169,8 @@ func _physics_process(delta: float) -> void:
 		_try_fire()
 	# G/T 撤离由 main 统一处理（同时负责开关）；R：换弹
 	var rk := Input.is_physical_key_pressed(KEY_R)
-	if rk and not _r_down and ammo() < int(_cfg()["mag_size"]) and reload_t == 0.0:
-		reload_t = float(_cfg()["reload_time"])
-		main_node.sfx.play("reload", 1.05)
-		main_node.hud.toast("换弹中……")
+	if rk and not _r_down:
+		reload()
 	_r_down = rk
 	if mode == Mode.ON_FOOT:
 		_move_foot(delta)
@@ -171,7 +189,9 @@ func _move_foot(delta: float) -> void:
 		input.x -= 1.0
 	if Input.is_physical_key_pressed(KEY_D) or Input.is_physical_key_pressed(KEY_RIGHT):
 		input.x += 1.0
-	var sprinting := Input.is_physical_key_pressed(KEY_SHIFT)
+	# 触屏摇杆输入叠加，推满自动奔跑
+	input += touch_move
+	var sprinting := Input.is_physical_key_pressed(KEY_SHIFT) or touch_move.length() > 0.85
 	var spd := RUN_SPEED if sprinting else WALK_SPEED
 	var yaw_basis := Basis(Vector3.UP, aim_yaw)
 	var dir := yaw_basis * Vector3(input.x, 0, input.y)
