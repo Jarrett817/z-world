@@ -842,9 +842,6 @@ func _spawn_zombie() -> void:
 	var count := randi_range(1, 4)
 	var base_z := rvz - 20.0 - randf() * 150.0
 	for i in count:
-		var body := RigidBody3D.new()
-		body.set_script(ZOMBIE_SCRIPT)
-		body.name = "Zombie"
 		var zz := base_z - i * randf_range(3.0, 10.0)
 		# 45% 在道路附近，55% 散布到两侧野地（最远约 60m）
 		var off: float
@@ -853,21 +850,29 @@ func _spawn_zombie() -> void:
 		else:
 			var side2 := 1.0 if randf() > 0.5 else -1.0
 			off = side2 * randf_range(ROAD_HALF + 3.0, 60.0)
+		var body := _make_zombie_body()
 		body.position = Vector3(road_x(zz) + off, GROUND_Y + 0.5, zz)
-		var col := CollisionShape3D.new()
-		var cap := CapsuleShape3D.new()
-		cap.radius = 0.35
-		cap.height = 1.4
-		col.shape = cap
-		col.position.y = 0.7
-		body.add_child(col)
-		var model: Node3D = (ZMB_SCENE_G if randf() < 0.4 else ZMB_SCENE).instantiate()
-	# Quaternius 模型按真实米数建模（站立约 2m），随机缩放保持体型差异
-		model.scale = Vector3.ONE * randf_range(0.75, 0.9)
-		body.add_child(model)
 		add_child(body)
 		body.setup(self)
 		zombies.append(body)
+
+## 创建一只丧尸实体（胶囊碰撞 + Quaternius 模型随机缩放）；位置与 AI 目标由调用者设置
+func _make_zombie_body() -> RigidBody3D:
+	var body := RigidBody3D.new()
+	body.set_script(ZOMBIE_SCRIPT)
+	body.name = "Zombie"
+	var col := CollisionShape3D.new()
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.35
+	cap.height = 1.4
+	col.shape = cap
+	col.position.y = 0.7
+	body.add_child(col)
+	var model: Node3D = (ZMB_SCENE_G if randf() < 0.4 else ZMB_SCENE).instantiate()
+	# Quaternius 模型按真实米数建模（站立约 2m），随机缩放保持体型差异
+	model.scale = Vector3.ONE * randf_range(0.75, 0.9)
+	body.add_child(model)
+	return body
 
 ## 玩家下车后的角色实体（战斗系统启用；在车内时为 null，丧尸追车）
 var player_body: Node3D = null
@@ -1111,8 +1116,20 @@ func _spawn_survivor(z: float) -> void:
 	if not upcoming.is_empty():
 		s.setup(upcoming.get("id", ""))
 	var side := 1.0 if randf() > 0.5 else -1.0
-	s.position = Vector3(road_x(z) + side * randf_range(5.5, 8.0), ground_y(z), z)
+	# 野地逃命者：从路外野地跑向路缘（survivor.gd 自管逃命/据枪）
+	var off := randf_range(ROAD_HALF + 2.5, ROAD_HALF + 9.0)
+	s.position = Vector3(road_x(z) + side * off, ground_y(z), z)
 	add_child(s)
+	# 身后追兵：外侧 8~14m 直接狂暴，锁幸存者为猎杀目标，制造追逃场面
+	for i in randi_range(1, 2):
+		var zz := z + randf_range(-4.0, 4.0)
+		var body := _make_zombie_body()
+		body.position = Vector3(road_x(zz) + side * (off + randf_range(8.0, 14.0)), GROUND_Y + 0.5, zz)
+		add_child(body)
+		body.setup(self)
+		body.hunt_target = s
+		body._enter_chase()
+		zombies.append(body)
 
 ## 路灯：杆 + 朝路面的悬臂 + 自发光灯头，每 55m 交替两侧
 func _spawn_lamp(z: float) -> void:
@@ -1222,6 +1239,11 @@ func try_recruit(survivor: Node3D) -> void:
 		hud.toast("幸存者上车！队伍 %d 人（分食 -%d）" % [crew, int(cost)])
 	_sync_crew()
 	hud.update_stats(self)
+	# 上车短对话：recruit_<id> 事件无 at/weight，只在此处手动触发
+	if not member.is_empty():
+		var ev_id := "recruit_" + String(member.get("id", ""))
+		if story.events.has(ev_id):
+			story._open(ev_id)
 
 ## 队友专长是否已在车上
 func _has_passive(id: String) -> bool:

@@ -53,7 +53,7 @@ func _ready() -> void:
 		_anim.get_animation(a).loop_mode = Animation.LOOP_LINEAR
 	add_child(model_root)
 	# 程序化步枪：枪托/机匣/枪管 + 枪口节点；位置按 aim 动作双手实测对位
-	gun = _build_gun()
+	gun = CharUtil.build_gun()
 	gun.position = Vector3(-0.12, 1.30, 0.33)
 	model_root.add_child(gun)
 	muzzle = Node3D.new()
@@ -63,49 +63,6 @@ func _ready() -> void:
 	cam.fov = 68.0
 	cam.current = false
 	add_child(cam)
-
-func _build_gun() -> Node3D:
-	var g := Node3D.new()
-	var steel := StandardMaterial3D.new()
-	steel.albedo_color = Color(0.12, 0.12, 0.13)
-	steel.metallic = 0.6
-	steel.roughness = 0.4
-	var wood := StandardMaterial3D.new()
-	wood.albedo_color = Color(0.28, 0.19, 0.11)
-	wood.roughness = 0.9
-	var body := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = Vector3(0.07, 0.1, 0.55)
-	body.mesh = bm
-	body.material_override = steel
-	body.position.z = 0.05
-	g.add_child(body)
-	var barrel := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.022
-	cyl.bottom_radius = 0.022
-	cyl.height = 0.42
-	barrel.mesh = cyl
-	barrel.rotation.x = PI * 0.5
-	barrel.position = Vector3(0, 0.03, 0.5)
-	barrel.material_override = steel
-	g.add_child(barrel)
-	var grip := MeshInstance3D.new()
-	var gm := BoxMesh.new()
-	gm.size = Vector3(0.06, 0.16, 0.08)
-	grip.mesh = gm
-	grip.position = Vector3(0, -0.12, -0.02)
-	grip.rotation.x = -0.3
-	grip.material_override = wood
-	g.add_child(grip)
-	var stock := MeshInstance3D.new()
-	var sm := BoxMesh.new()
-	sm.size = Vector3(0.06, 0.11, 0.22)
-	stock.mesh = sm
-	stock.position = Vector3(0, -0.02, -0.32)
-	stock.material_override = wood
-	g.add_child(stock)
-	return g
 
 func _enter() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

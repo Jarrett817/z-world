@@ -15,6 +15,7 @@ enum St { WANDER, IDLE, CHASE }
 
 var main_node: Node3D
 var rv: Node3D
+var hunt_target: Node3D   # 锁定猎杀目标（如逃命的幸存者）；null 时按玩家→房车优先级
 var speed := 2.0
 var state: int = St.WANDER
 var state_t := 0.0
@@ -184,7 +185,10 @@ func _chase(delta: float) -> void:
 		main_node.sfx.play3d("zombie_growl", global_position, 1.0, 0.15)
 	var target_pos: Vector3 = rv.global_position
 	var player: Node3D = main_node.get_player_body()
-	if is_instance_valid(player):
+	var hunt: Node3D = hunt_target if is_instance_valid(hunt_target) else null
+	if hunt != null:
+		target_pos = hunt.global_position
+	elif is_instance_valid(player):
 		target_pos = player.global_position
 	var to_t := target_pos - global_position
 	var d_xz := Vector2(to_t.x, to_t.z).length()
@@ -196,14 +200,16 @@ func _chase(delta: float) -> void:
 		if anim != null:
 			anim.speed_scale = clampf(speed * 0.45, 1.4, 2.8)
 	else:
-		# 贴身啃咬：目标是玩家时由 main 结算玩家伤害，否则啃车扣耐久
+		# 贴身啃咬：猎杀目标有自卫钩子则交给它（幸存者反杀），玩家由 main 结算，否则啃车
 		linear_velocity = Vector3(0, linear_velocity.y, 0)
 		if anim != null:
 			anim.speed_scale = 1.0
 		bite_t += delta
 		if bite_t >= BITE_INTERVAL:
 			bite_t = 0.0
-			if is_instance_valid(player):
+			if hunt != null and hunt.has_method("on_bitten"):
+				hunt.on_bitten(self)
+			elif is_instance_valid(player):
 				main_node.on_player_bitten()
 			else:
 				main_node.zombie_bite()
