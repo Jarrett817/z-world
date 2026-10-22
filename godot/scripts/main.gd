@@ -32,6 +32,7 @@ const MAX_KMH := 140.0
 const VIEW_AHEAD := 260.0
 const VIEW_BEHIND := 40.0
 const RV_MODEL_FOOT := 1.557   # GLB 轮底到模型原点的距离
+const RV_ROOF_Y := 2.077       # 实测 gs_001.glb 主车壳(Object_16)顶面局部高度，天窗站立用
 const CREW_ORDER := ["lin_wan", "shen_man", "ye_lan", "tang_tang", "ivory"]
 
 # 场景音乐（六种处境各一首，交叉淡入淡出切换）
@@ -955,6 +956,8 @@ func start_combat(m: int) -> void:
 	if m == 0 and not parked:
 		hud.toast("先按 F 驻车才能下车")
 		return
+	# 下车/探天窗前收起驻车设施面板，免得挡住战斗操作；end_combat 里按 parked 恢复
+	set_facilities_ui(false)
 	var p := CharacterBody3D.new()
 	p.set_script(PLAYER_SCRIPT)
 	if m == 0:
@@ -962,8 +965,8 @@ func start_combat(m: int) -> void:
 		p.position = rv.global_position + rv.global_transform.basis.x * 2.4 + Vector3(0, -RV_MODEL_FOOT, 0.0)
 		p.position.y = ground_y(p.position.z)
 	else:
-		# 车顶天窗：脚踩车顶（碰撞顶约 +2.35）
-		p.position = rv.global_position + Vector3(0, 2.35, 0.2)
+		# 车顶天窗：脚踩实测车壳顶面（to_global 含行驶俯仰，不再悬空）
+		p.position = rv.to_global(Vector3(0, RV_ROOF_Y, 0.2))
 	p.setup(self, m)
 	add_child(p)
 	player_body = p
@@ -1010,13 +1013,16 @@ func end_combat() -> void:
 	interior.visible = view_mode != 0
 	for i in crew_figures.size():
 		crew_figures[i].visible = view_mode == 2 and i < crew_members.size()
+	# 驻车状态下恢复设施面板（start_combat 时收起了）
+	if parked:
+		set_facilities_ui(true)
 
 ## 天窗模式：玩家身体每帧锚在行驶中的车顶
 func _sync_player_to_rv(_delta: float) -> void:
 	var p := get_player_body()
 	if p == null or p.mode != 1:
 		return
-	p.position = rv.global_position + Vector3(0, 2.35, 0.2)
+	p.position = rv.to_global(Vector3(0, RV_ROOF_Y, 0.2))
 	p.velocity = Vector3.ZERO
 
 func on_zombie_shot() -> void:
