@@ -27,6 +27,23 @@
 
 ---
 
+## 2026-10-22 · n35 第 3 种精致丧尸 + 碾压真实物理 + 现成音效替换
+
+### 本次完成
+
+- **新增精致写实丧尸 zmb_ripper.glb**（Sketchfab pxltiger "Zombie"，CC-BY 3.0 需署名）：2684 顶点带 PBR 全套贴图，10 动画契约齐（Walk/Attack 直有，FallingBack 改名 Death）；gltf-transform 纹理 1k+webp 压到 2.7MB；spawn 池三混编 ripper 30% / 蓝胖 28% / 绿瘦 42%，旧两款保留
+- **碾压物理真实化**：RV 独占碰撞层 2，丧尸被撞飞/击毙即清 mask 第 2 位不再挡车（消除顿帧）；车速按动量衰减 `speed_kmh *= 4000/4070`（房车 4 吨 vs 丧尸 70kg，单撞无感、尸群累积拖慢）；震屏 0.25→0.08、耐久扣 2.0→0.5（唐棠 1.2→0.3）
+- **音效换现成资产**（弃程序合成）：引擎 opengameart domasx2 引擎循环（CC0）；丧尸 growl/bite/die 换 opengameart Colodical ZombiePackSFX 2（CC-BY 3.0 需署名）
+- .gitattributes 补 `*.webp` LFS
+- 无头回归 EXIT=0
+
+### 待办
+
+- 署名页：pxltiger（模型）+ Colodical（音效）CC-BY 3.0 两处署名待入游戏关于页
+- push 9a70279 起多个 commit 待 VPN 推送
+
+---
+
 ## 2026-10-22 · n34 丧尸换 Quaternius CC0 双模型修长手 + 立绘回收
 
 ### 本次完成

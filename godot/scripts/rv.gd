@@ -18,6 +18,8 @@ var main_node: Node3D
 
 func _ready() -> void:
 	main_node = get_parent()
+	# 独占碰撞层 2：被撞飞的丧尸清掉 mask 第 2 位后不再挡车，消除碾压顿帧
+	collision_layer = 2
 
 func _physics_process(delta: float) -> void:
 	# 坡度姿态：前后 5m 地面高差算俯仰（车头朝 -Z，前方更高即上坡抬车头）
@@ -95,6 +97,8 @@ func _report_collisions() -> void:
 			continue
 		if other is RigidBody3D and other.has_method("on_hit_by_rv"):
 			other.on_hit_by_rv(speed_kmh, col.get_normal())
+			# 动量衰减：房车 ~4 吨 vs 丧尸 70kg，单个几乎无感，尸群累积才拖慢
+			speed_kmh *= 4000.0 / 4070.0
 			main_node.on_zombie_run_over()
 		elif other.is_in_group("obstacle_hard"):
 			main_node.on_obstacle_hit(true, speed_kmh, other)

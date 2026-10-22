@@ -34,6 +34,8 @@ func setup(main: Node3D) -> void:
 	speed = CHASE_SPEED_BASE + randf_range(-0.8, 1.4) * (1.0 + clampf(main.dist_km * 0.05, 0.0, 0.5))
 	mass = 70.0
 	linear_damp = 1.2
+	# mask=层1(地面/障碍/玩家)+层2(房车)：平时能贴身拦车；被撞飞/击毙后清第2位不再挡车
+	collision_mask = 3
 	# 锁死物理旋转：否则胶囊体受地面/碰撞扭矩会整体乱转，朝向只由 AI 脚本控制
 	lock_rotation = true
 	angular_velocity = Vector3.ZERO
@@ -219,6 +221,7 @@ func _chase(delta: float) -> void:
 func on_hit_by_rv(speed_kmh: float, _normal: Vector3) -> void:
 	if dead:
 		return
+	set_collision_mask_value(2, false)  # 撞飞后不再与房车碰撞，避免尸体挡车顿帧
 	var dir := global_position - rv.global_position
 	dir.y = 0.0
 	dir = dir.normalized() if dir.length() > 0.01 else Vector3.BACK
@@ -236,6 +239,7 @@ func on_hit_by_rv(speed_kmh: float, _normal: Vector3) -> void:
 func on_shot() -> void:
 	if dead:
 		return
+	set_collision_mask_value(2, false)  # 尸体不挡车
 	dead = true
 	death_t = 1.5
 	linear_velocity = Vector3(0, linear_velocity.y, 0)

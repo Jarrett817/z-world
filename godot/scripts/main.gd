@@ -6,6 +6,7 @@ const RV_SCENE := preload("res://assets/rv/gs_001.glb")
 const RV_INTERIOR_SCENE := preload("res://assets/rv_interior.glb")
 const ZMB_SCENE := preload("res://assets/props/zmb_stand.glb")
 const ZMB_SCENE_G := preload("res://assets/props/zmb_stand_g.glb")
+const ZMB_SCENE_R := preload("res://assets/props/zmb_ripper.glb")
 const WCAR_SCENE := preload("res://assets/props/wcar.glb")
 const WTRUCK_SCENE := preload("res://assets/props/wtruck.glb")
 const BARRIERS_SCENE := preload("res://assets/props/barriers.glb")
@@ -909,7 +910,9 @@ func _make_zombie_body() -> RigidBody3D:
 	col.shape = cap
 	col.position.y = 0.7
 	body.add_child(col)
-	var model: Node3D = (ZMB_SCENE_G if randf() < 0.4 else ZMB_SCENE).instantiate()
+	# 三种丧尸混编：精致写实(ripper) 30% / 蓝胖 28% / 绿瘦 42%
+	var roll := randf()
+	var model: Node3D = (ZMB_SCENE_R if roll < 0.3 else (ZMB_SCENE_G if roll < 0.58 else ZMB_SCENE)).instantiate()
 	# Quaternius 模型按真实米数建模（站立约 2m），随机缩放保持体型差异
 	model.scale = Vector3.ONE * randf_range(0.75, 0.9)
 	body.add_child(model)
@@ -1271,9 +1274,9 @@ func on_zombie_run_over() -> void:
 	if hit_cd > 0.0 or rv.speed_kmh < 10.0:
 		return
 	hit_cd = 0.25
-	var dmg := 1.2 if _has_passive("tang_tang") else 2.0
+	var dmg := 0.3 if _has_passive("tang_tang") else 0.5
 	durability = maxf(0.0, durability - dmg)
-	add_trauma(0.25)
+	add_trauma(0.08)
 	sfx.play("run_over")
 
 func on_pickup(kind: String) -> void:
