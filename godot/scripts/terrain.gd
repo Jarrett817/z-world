@@ -55,6 +55,9 @@ func _make_mesh(start_z: float) -> ArrayMesh:
 	# 13/14 路边河湖：顺弯路展开的条带水面，随重建位置固定（明媚风光）
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _water(start_z, -1.0))
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _water(start_z, 1.0))
+	# 15/16 岔路：土路支路（斜出收窄收尾）与沥青十字路口，车可真实拐入
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _side_roads(start_z, false))
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _side_roads(start_z, true))
 	if _mats.is_empty():
 		var rail_mat := _mat(Color(0.42, 0.43, 0.44), 0.55)
 		rail_mat.metallic = 0.35
@@ -83,6 +86,8 @@ func _make_mesh(start_z: float) -> ArrayMesh:
 			ridge_far_mat,
 			water_mat,
 			water_mat,
+			_mat(Color(0.29, 0.235, 0.155), 1.0),
+			_mat(Color(0.13, 0.125, 0.12), 0.98),
 		]
 	for i in _mats.size():
 		am.surface_set_material(i, _mats[i])
@@ -201,6 +206,77 @@ func _water(start_z: float, side: float) -> Array:
 	arr[Mesh.ARRAY_INDEX] = indices
 	return arr
 
+## 岔路条带：cross=false 土路支路（斜出主路、末端收窄），cross=true 沥青十字路口
+## 窗口内无对应岔路时塞地底退化三角形（add_surface 不允许空数组）
+func _side_roads(start_z: float, cross: bool) -> Array:
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
+	for j in _main.junctions_in(start_z, start_z - SPAN):
+		if (int(j["kind"]) == 1) != cross:
+			continue
+		if cross:
+			_cross_road(verts, normals, colors, indices, j)
+		else:
+			_branch_road(verts, normals, colors, indices, j)
+	if verts.is_empty():
+		verts.append_array([Vector3(0, -500, 0), Vector3(1, -500, 0), Vector3(0, -500, 1)])
+		normals.append_array([Vector3.UP, Vector3.UP, Vector3.UP])
+		colors.append_array([Color.WHITE, Color.WHITE, Color.WHITE])
+		indices.append_array([0, 1, 2])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = normals
+	arr[Mesh.ARRAY_COLOR] = colors
+	arr[Mesh.ARRAY_INDEX] = indices
+	return arr
+
+## 土路支路：从主路边缘斜出，2.6m 半宽，末端 15% 收窄收尾没入草地
+func _branch_road(verts: PackedVector3Array, normals: PackedVector3Array,
+		colors: PackedColorArray, indices: PackedInt32Array, j: Dictionary) -> void:
+	var zj: float = j["z"]
+	var side: float = j["side"]
+	var dir := Vector3(side * sin(j["ang"]), 0, -cos(j["ang"])).normalized()
+	var perp := Vector3(-dir.z, 0, dir.x)
+	var org := Vector3(_main.road_x(zj) + side * (ROAD_HALF - 0.8), 0, zj)
+	var seg := 3.0
+	var steps := int(j["len"] / seg)
+	for i in steps + 1:
+		var p := org + dir * (i * seg)
+		var t := float(i) / steps
+		var half := 2.6 * (1.0 if t < 0.85 else maxf(0.15, (1.0 - t) / 0.15))
+		var y: float = _main.ground_y(p.z) + 0.015
+		var row: int = verts.size()
+		verts.append(Vector3(p.x - perp.x * half, y, p.z - perp.z * half))
+		verts.append(Vector3(p.x + perp.x * half, y, p.z + perp.z * half))
+		normals.append_array([Vector3.UP, Vector3.UP])
+		colors.append_array([_mottle(p.x, p.z), _mottle(p.x, p.z)])
+		if i > 0:
+			var a := row - 2
+			indices.append_array([a, a + 2, a + 3, a, a + 3, a + 1])
+
+## 沥青十字路口：垂直主路横穿 ±80m，略抬高避免与主路 z-fight
+func _cross_road(verts: PackedVector3Array, normals: PackedVector3Array,
+		colors: PackedColorArray, indices: PackedInt32Array, j: Dictionary) -> void:
+	var zj: float = j["z"]
+	var cx: float = _main.road_x(zj)
+	var half_w := 4.2
+	var step := 4.0
+	var steps := int(160.0 / step)
+	for i in steps + 1:
+		var x := cx - 80.0 + i * step
+		var y: float = _main.ground_y(zj) + 0.012
+		var row: int = verts.size()
+		verts.append(Vector3(x, y, zj - half_w))
+		verts.append(Vector3(x, y, zj + half_w))
+		normals.append_array([Vector3.UP, Vector3.UP])
+		colors.append_array([_mottle(x, zj), _mottle(x, zj)])
+		if i > 0:
+			var a := row - 2
+			indices.append_array([a, a + 2, a + 3, a, a + 3, a + 1])
+
 ## 公路波形护栏：每 RAIL_SEG 一段横梁（矩形截面挤出）+ 段首立柱，沿路随弯平移
 func _rail(start_z: float, side: float) -> Array:
 	var verts := PackedVector3Array()
@@ -210,8 +286,9 @@ func _rail(start_z: float, side: float) -> Array:
 	for i in steps:
 		var za := start_z - i * RAIL_SEG
 		var zb := za - RAIL_SEG
-		# 每 15 段留一处缺口（损毁护栏，末世感），立柱照旧
-		var broken := fmod(float(i) + (1.0 if side > 0.0 else 7.0), 15.0) == 0.0
+		# 每 15 段留一处缺口（损毁护栏，末世感），岔路口断开让车辆拐入，立柱照旧
+		var broken: bool = fmod(float(i) + (1.0 if side > 0.0 else 7.0), 15.0) == 0.0 \
+			or _main.junction_gap((za + zb) * 0.5, side)
 		var xa: float = _main.road_x(za) + side * RAIL_OFFSET
 		var xb: float = _main.road_x(zb) + side * RAIL_OFFSET
 		if not broken:

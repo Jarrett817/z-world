@@ -2268,10 +2268,49 @@ func _emis_mat(col: Color, energy: float) -> StandardMaterial3D:
 
 # ---------- 地形函数（全场景共享） ----------
 func road_x(z: float) -> float:
-	return sin(z * 0.035) * 3.5 + sin(z * 0.1 + 1.5) * 1.6
+	# 直弯变化：长周期包络低值压成长直道，高值叠大摆幅连续弯
+	var w := _bend_weight(z)
+	return (sin(z * 0.035) * 3.5 + sin(z * 0.1 + 1.5) * 1.6 + sin(z * 0.008 + 0.7) * 7.0) * w
+
+func _bend_weight(z: float) -> float:
+	var t := sin(z * 0.011) * 0.6 + sin(z * 0.0043 + 2.0) * 0.4
+	return smoothstep(-0.15, 0.45, t)
 
 func ground_y(z: float) -> float:
 	return GROUND_Y + _elev_at(z) + sin(z * 0.06) * 0.08 + sin(z * 0.13 + 2.1) * 0.05 + sin(z * 0.031 + 5.0) * 0.04
+
+# ---------- 岔路/路口（确定性生成，护栏缺口与地形条带共用） ----------
+const JUNCTION_EVERY := 170.0   # 岔路间距基准（米）
+
+## 岔路哈希：同 index 恒定
+func _jh(n: int) -> float:
+	return fposmod(sin(float(n) * 127.1) * 43758.5453, 1.0)
+
+## 窗口 [z1, z0]（z0 > z1，向 -Z 前进）内的岔路清单：{z, side, kind, ang, len}
+## kind：0 土路支路 / 1 沥青十字路口；约 25% 的位置没有岔路
+func junctions_in(z0: float, z1: float) -> Array:
+	var out: Array = []
+	var n0 := int(ceil(-z0 / JUNCTION_EVERY))
+	var n1 := int(floor(-z1 / JUNCTION_EVERY))
+	for n in range(maxi(n0, 1), n1 + 1):
+		if _jh(n) > 0.75:
+			continue
+		var cross := _jh(n + 2000) < 0.28
+		out.append({
+			"z": -n * JUNCTION_EVERY,
+			"side": 1.0 if _jh(n + 1000) < 0.5 else -1.0,
+			"kind": 1 if cross else 0,
+			"ang": lerpf(0.5, 1.0, _jh(n + 3000)),
+			"len": lerpf(60.0, 120.0, _jh(n + 4000)),
+		})
+	return out
+
+## 护栏缺口查询：z 附近 ±12m 内有岔路且在该侧（十字两侧都断）
+func junction_gap(z: float, side: float) -> bool:
+	var n := int(round(-z / JUNCTION_EVERY))
+	if n < 1 or absf(-n * JUNCTION_EVERY - z) > 12.0 or _jh(n) > 0.75:
+		return false
+	return _jh(n + 2000) < 0.28 or signf(side) == (1.0 if _jh(n + 1000) < 0.5 else -1.0)
 
 ## 定位路段所属景观带（向 -Z 前进，zones 循环）
 func zone_at(z: float) -> String:
