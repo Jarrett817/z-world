@@ -94,7 +94,10 @@ func _report_collisions() -> void:
 		if other is RigidBody3D and other.has_method("on_hit_by_rv"):
 			other.on_hit_by_rv(speed_kmh, col.get_normal())
 			main_node.on_zombie_run_over()
-		elif other is StaticBody3D and other.is_in_group("obstacle_hard"):
+		elif other.is_in_group("obstacle_hard"):
 			main_node.on_obstacle_hit(true, speed_kmh, other)
-		elif other is StaticBody3D and other.is_in_group("obstacle_soft"):
+		elif other.is_in_group("obstacle_soft"):
+			# 已撞飞的解冻残骸：推着走不当墙，避免房车被自己的战利品卡死
+			if other is RigidBody3D and not other.freeze:
+				other.apply_central_impulse(-global_transform.basis.z * speed_kmh * KMH_TO_UNITS * other.mass * 0.4)
 			main_node.on_obstacle_hit(false, speed_kmh, other)

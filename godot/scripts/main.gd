@@ -1106,7 +1106,15 @@ func _spawn_obstacle(z: float) -> void:
 	# 只占单侧车道，且保证另一侧至少留 4.8 宽通道（房车宽 3.8）
 	var side := 1.0 if randf() > 0.5 else -1.0
 	var x_off := side * (hx - 2.2 + randf() * 2.2)
-	var body := StaticBody3D.new()
+	var body: PhysicsBody3D
+	if hard:
+		body = StaticBody3D.new()
+	else:
+		# 软障碍用冻结刚体：被撞前等同静态，命中后解冻物理撞飞，残骸留在路面
+		var rb := RigidBody3D.new()
+		rb.freeze = true
+		rb.mass = 80.0 if scene == WCAR_SCENE else 40.0
+		body = rb
 	body.add_to_group("consumable")
 	body.add_to_group("obstacle_hard" if hard else "obstacle_soft")
 	var col := CollisionShape3D.new()
@@ -1199,6 +1207,9 @@ func on_obstacle_hit(hard: bool, speed_kmh: float, obstacle: Node3D = null) -> v
 	# 低速贴靠不计伤害，避免卡在障碍旁被反复结算
 	if hit_cd > 0.0 or speed_kmh < 12.0:
 		return
+	# 已撞飞的软障碍残骸不再重复结算
+	if not hard and obstacle != null and obstacle.has_meta("knocked"):
+		return
 	hit_cd = 0.8 if hard else 0.45
 	if hard:
 		durability = maxf(0.0, durability - (8.0 + speed_kmh * 0.06))
@@ -1214,8 +1225,13 @@ func on_obstacle_hit(hard: bool, speed_kmh: float, obstacle: Node3D = null) -> v
 		rv.speed_kmh *= 0.6
 		add_trauma(0.4)
 		hud.toast("撞飞路障")
-		if obstacle != null:
-			obstacle.queue_free()
+		if obstacle is RigidBody3D:
+			# 解冻刚体：按车速冲量撞飞，翻滚落地后留在原地（不消失）
+			obstacle.set_meta("knocked", true)
+			obstacle.freeze = false
+			var dir := -rv.global_transform.basis.z
+			obstacle.apply_central_impulse((dir * (4.0 + speed_kmh * 0.06) + Vector3(0.0, 2.2, 0.0)) * obstacle.mass)
+			obstacle.apply_torque_impulse(Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * 3.0 * obstacle.mass)
 	hud.update_stats(self)
 
 func on_zombie_run_over() -> void:
