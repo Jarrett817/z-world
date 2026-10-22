@@ -164,6 +164,7 @@ func _physics_process(delta: float) -> void:
 	_update_resources(delta)
 	_update_weather(delta)
 	_update_zombies(delta)
+	_update_bullets(delta)
 	_update_frontier()
 	_recycle_world()
 	# 终点前 8km 方舟营地进入视野
@@ -1086,8 +1087,8 @@ func on_player_dead() -> void:
 	end_combat()
 	_do_game_over()
 
-## 枪口火光 + 弹道曳光：自发光短寿命节点
-func spawn_muzzle_flash(muzzle_ws: Vector3, hit_point: Vector3) -> void:
+## 枪口火光：自发光短寿命点光
+func spawn_muzzle_flash(muzzle_ws: Vector3) -> void:
 	var flash := OmniLight3D.new()
 	flash.light_color = Color(1.0, 0.78, 0.42)
 	flash.light_energy = 6.0
@@ -1097,20 +1098,75 @@ func spawn_muzzle_flash(muzzle_ws: Vector3, hit_point: Vector3) -> void:
 	var tw := create_tween()
 	tw.tween_property(flash, "light_energy", 0.0, 0.09)
 	tw.tween_callback(flash.queue_free)
-	var tracer := MeshInstance3D.new()
+
+# ---------- 实弹弹道 ----------
+## 弹丸按真实弹速飞行：扫掠射线防穿透、重力下坠、曳光长亮条，命中延迟结算
+var _bullets: Array = []
+
+## 发射一发实弹（exclude：不参与的碰撞 RID，如射手自身与房车）
+func spawn_bullet(from: Vector3, dir: Vector3, speed: float, exclude: Array) -> void:
+	var root := Node3D.new()
+	add_child(root)
+	root.global_position = from
+	root.look_at(from + dir, Vector3.UP)
+	# 曳光杆：-Z 朝飞行方向，杆身拖在弹头后方
+	var trail := MeshInstance3D.new()
 	var bm := BoxMesh.new()
-	var dirv := hit_point - muzzle_ws
-	var dist := maxf(dirv.length(), 0.01)
-	bm.size = Vector3(0.025, 0.025, dist)
-	tracer.mesh = bm
-	tracer.material_override = _emis_mat(Color(1.0, 0.85, 0.5), 3.0)
-	add_child(tracer)
-	tracer.global_position = (muzzle_ws + hit_point) * 0.5
-	tracer.look_at(hit_point, Vector3.UP)
-	tracer.rotate_y(PI)
-	var tw2 := create_tween()
-	tw2.tween_interval(0.06)
-	tw2.tween_callback(tracer.queue_free)
+	var trail_len := clampf(speed * 0.012, 2.0, 9.0)
+	bm.size = Vector3(0.03, 0.03, trail_len)
+	trail.mesh = bm
+	trail.material_override = _emis_mat(Color(1.0, 0.85, 0.5), 4.0)
+	trail.position.z = trail_len * 0.5
+	root.add_child(trail)
+	_bullets.append({
+		"vel": dir.normalized() * speed,
+		"pos": from,
+		"dist": 120.0,
+		"exclude": exclude,
+		"node": root,
+	})
+
+func _update_bullets(delta: float) -> void:
+	if _bullets.is_empty():
+		return
+	var space := get_world_3d().direct_space_state
+	for i in range(_bullets.size() - 1, -1, -1):
+		var b: Dictionary = _bullets[i]
+		var step: Vector3 = b["vel"] * delta
+		var q := PhysicsRayQueryParameters3D.create(b["pos"], b["pos"] + step)
+		q.collide_with_areas = false
+		q.exclude = b["exclude"]
+		var hit := space.intersect_ray(q)
+		if hit:
+			_bullet_impact(hit)
+			b["node"].queue_free()
+			_bullets.remove_at(i)
+			continue
+		b["pos"] += step
+		b["vel"].y -= 9.8 * delta
+		b["dist"] -= step.length()
+		var node: Node3D = b["node"]
+		node.global_position = b["pos"]
+		node.look_at(b["pos"] + b["vel"].normalized(), Vector3.UP)
+		if b["dist"] <= 0.0:
+			node.queue_free()
+			_bullets.remove_at(i)
+
+## 命中结算：丧尸中弹 + 命中点火花
+func _bullet_impact(hit: Dictionary) -> void:
+	var col: Object = hit["collider"]
+	if col is RigidBody3D and col.has_method("on_shot"):
+		col.on_shot()
+		on_zombie_shot()
+	var flash := OmniLight3D.new()
+	flash.light_color = Color(1.0, 0.8, 0.45)
+	flash.light_energy = 2.5
+	flash.omni_range = 4.0
+	flash.position = hit["position"] + Vector3(0, 0.06, 0)
+	add_child(flash)
+	var tw := create_tween()
+	tw.tween_property(flash, "light_energy", 0.0, 0.08)
+	tw.tween_callback(flash.queue_free)
 
 func zombie_bite() -> void:
 	# 全局冷却：同一时刻只允许一只丧尸生效，避免多只叠加秒杀

@@ -86,9 +86,11 @@ func on_bitten(z: Node3D) -> void:
 
 func _fire_at(z: Node3D) -> void:
 	_fire_cd = FIRE_CD
-	_main.spawn_muzzle_flash(_muzzle.global_position, z.global_position + Vector3(0, 1.1, 0))
+	var from := _muzzle.global_position
+	var dir := (z.global_position + Vector3(0, 1.1, 0) - from).normalized()
+	_main.spawn_bullet(from, dir, 600.0, [])
+	_main.spawn_muzzle_flash(from)
 	_main.sfx.play3d("gunshot", global_position, 0.9, 0.08)
-	z.on_shot()
 
 func _face(target: Vector3, delta: float) -> void:
 	var to := target - global_position

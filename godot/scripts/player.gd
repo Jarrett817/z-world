@@ -226,25 +226,22 @@ func _try_fire() -> void:
 	fire_cd = float(cfg["fire_interval"])
 	_recoil = float(cfg["recoil"])
 	main_node.sfx.play("gunshot", 1.0, 0.05, 2.0)
-	# 射线命中：从屏幕准星（相机中心）发射
-	var from := cam.global_position
-	var dir := -cam.global_transform.basis.z
-	var to := from + dir * RAY_DIST
+	# 准星收敛弹道：先求相机中心射线目标点，实弹从枪口朝该点飞（排除自身与房车）
+	var exclude := [self.get_rid(), main_node.rv.get_rid()]
+	var aim_from := cam.global_position
+	var aim_dir := -cam.global_transform.basis.z
 	var space := get_world_3d().direct_space_state
-	var q := PhysicsRayQueryParameters3D.create(from, to)
+	var q := PhysicsRayQueryParameters3D.create(aim_from, aim_from + aim_dir * RAY_DIST)
 	q.collide_with_areas = false
-	# 天窗模式枪口穿出车顶：排除玩家自身与房车碰撞，否则只会打到车顶
-	q.exclude = [self.get_rid(), main_node.rv.get_rid()]
+	q.exclude = exclude
 	var hit := space.intersect_ray(q)
+	var target: Vector3 = hit["position"] if hit else aim_from + aim_dir * RAY_DIST
 	var muzzle_ws := muzzle.global_position
-	if hit:
-		var col: Object = hit.collider
-		if col is RigidBody3D and col.has_method("on_shot"):
-			col.on_shot()
-			main_node.on_zombie_shot()
+	var dir := (target - muzzle_ws).normalized()
+	main_node.spawn_bullet(muzzle_ws, dir, float(cfg["bullet_speed"]), exclude)
 	# 枪声惊动周围尸群
 	main_node.alert_gunshot(muzzle_ws)
-	main_node.spawn_muzzle_flash(muzzle_ws, from + dir * (hit.position.distance_to(from) if hit else RAY_DIST))
+	main_node.spawn_muzzle_flash(muzzle_ws)
 	main_node.hud.set_combat_ammo(ammo(), int(reload_t > 0.0))
 
 func _finish_reload() -> void:
