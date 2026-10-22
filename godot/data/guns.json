@@ -1,0 +1,61 @@
+{
+	"order": ["m4", "ak", "glock", "deagle"],
+	"guns": {
+		"m4": {
+			"name": "M4 卡宾枪",
+			"model": "res://assets/guns/m4.glb",
+			"scale": 0.124,
+			"rot_deg": [0.0, 0.0, 0.0],
+			"auto": true,
+			"fire_interval": 0.11,
+			"mag_size": 30,
+			"reload_time": 2.2,
+			"bullet_speed": 880.0,
+			"recoil": 0.5,
+			"muzzle": [0.0, 0.35, 2.972],
+			"grip": [0.0, -0.9, -1.37]
+		},
+		"ak": {
+			"name": "AKM 突击步枪",
+			"model": "res://assets/guns/ak.glb",
+			"scale": 0.066,
+			"rot_deg": [0.0, 180.0, 0.0],
+			"auto": true,
+			"fire_interval": 0.14,
+			"mag_size": 30,
+			"reload_time": 2.4,
+			"bullet_speed": 715.0,
+			"recoil": 0.8,
+			"muzzle": [0.0, 0.6, -6.814],
+			"grip": [0.0, -1.2, 2.82]
+		},
+		"glock": {
+			"name": "格洛克 17",
+			"model": "res://assets/guns/glock.glb",
+			"scale": 0.058,
+			"rot_deg": [0.0, -90.0, 0.0],
+			"auto": false,
+			"fire_interval": 0.18,
+			"mag_size": 17,
+			"reload_time": 1.6,
+			"bullet_speed": 375.0,
+			"recoil": 0.35,
+			"muzzle": [2.027, 1.9, -0.134],
+			"grip": [0.58, 0.8, -0.134]
+		},
+		"deagle": {
+			"name": "沙漠之鹰",
+			"model": "res://assets/guns/deagle.glb",
+			"scale": 0.001,
+			"rot_deg": [-90.0, 90.0, 0.0],
+			"auto": false,
+			"fire_interval": 0.35,
+			"mag_size": 7,
+			"reload_time": 2.0,
+			"bullet_speed": 470.0,
+			"recoil": 1.2,
+			"muzzle": [-100.995, 24.0, 40.0],
+			"grip": [120.0, 24.0, -35.0]
+		}
+	}
+}

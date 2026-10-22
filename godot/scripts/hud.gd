@@ -33,6 +33,8 @@ var _toast_tween: Tween
 var combat_root: Control
 var crosshair: Label
 var ammo_label: Label
+var gun_label: Label
+var _cur_mag: int = 12
 var combat_hp_fill: ColorRect
 var combat_hp_label: Label
 var _hit_tween: Tween
@@ -262,7 +264,7 @@ func _build_combat(root: Control) -> void:
 	crosshair.offset_bottom = 8
 	crosshair.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	combat_root.add_child(crosshair)
-	# 右下：弹匣
+	# 右下：弹匣 + 枪名
 	ammo_label = _label("12/12", 30, ACCENT)
 	ammo_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	ammo_label.offset_left = -220
@@ -271,6 +273,16 @@ func _build_combat(root: Control) -> void:
 	ammo_label.offset_bottom = -30
 	ammo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	combat_root.add_child(ammo_label)
+	gun_label = _label("", 16, TEXT_DIM)
+	gun_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	gun_label.offset_left = -220
+	gun_label.offset_right = -24
+	gun_label.offset_top = -108
+	gun_label.offset_bottom = -82
+	gun_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	combat_root.add_child(gun_label)
+	# 换枪按钮（触屏）
+	_touch_button(combat_root, "换枪", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -190, 152, 56), "swapgun")
 	# 左下：生命条
 	var hp_title := _label("生命", 15, TEXT_DIM, Vector2(24, -74))
 	hp_title.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
@@ -309,7 +321,13 @@ func set_combat_ammo(ammo: int, reloading: int) -> void:
 	if reloading != 0:
 		ammo_label.text = "换弹中……"
 	else:
-		ammo_label.text = "%d/12" % ammo
+		ammo_label.text = "%d/%d" % [ammo, _cur_mag]
+
+## 切枪：刷新枪名与弹匣上限
+func set_combat_gun(gun_name: String, ammo: int, mag: int) -> void:
+	_cur_mag = mag
+	gun_label.text = gun_name
+	set_combat_ammo(ammo, 0)
 
 func set_combat_hp(hp: float) -> void:
 	var ratio := clampf(hp / 100.0, 0.0, 1.0)
@@ -756,6 +774,9 @@ func _on_btn_down(action: String) -> void:
 		"park":
 			if rv.main_node != null:
 				rv.main_node._toggle_park()
+		"swapgun":
+			if rv.main_node != null and rv.main_node.get_player_body() != null:
+				rv.main_node.get_player_body().switch_gun_next()
 
 func _on_btn_up(action: String) -> void:
 	match action:

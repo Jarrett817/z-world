@@ -1,14 +1,12 @@
 extends CharacterBody3D
 ## 沈蔓下车战斗：第三人称肩后视角，鼠标瞄准，左键射击。
 ## 车顶天窗模式：身体固定在 RV 顶部，只能转身开火（行车中也能用）。
-## W/A/S/D 地面移动，Shift 奔跑，R 换弹，G 回到驾驶座结束模式。
+## W/A/S/D 地面移动，Shift 奔跑，R 换弹，1-4 换枪，G 回到驾驶座结束模式。
+## 武器数据驱动（res://data/guns.json）：模型/缩放/朝向/射速/弹匣/后坐全在 JSON。
 
 const WALK_SPEED := 4.2
 const RUN_SPEED := 6.8
 const MOUSE_SENS := 0.0026
-const FIRE_INTERVAL := 0.16
-const MAG_SIZE := 12
-const RELOAD_TIME := 1.4
 const RAY_DIST := 90.0
 const GRAVITY := 18.0
 
@@ -20,14 +18,20 @@ var aim_yaw := 0.0
 var aim_pitch := -0.32   # 高位俯视默认下压枪口，准星落在地面战场
 var fire_cd := 0.0
 var reload_t := 0.0
-var ammo := MAG_SIZE
 var hp := 100.0
 var model_root: Node3D
 var muzzle: Node3D
-var gun: Node3D
+var gun: Node3D          # 当前枪的挂点（grip 对齐点），俯仰/后坐作用在它身上
 var cam: Camera3D
 var _anim: AnimationPlayer
 var _cur_anim := ""
+
+## 武器系统：JSON 数据 + 每枪独立余弹
+var _guns: Dictionary = {}       # id -> 配置
+var _gun_order: Array = []
+var _gun_idx := 0
+var _ammo_map: Dictionary = {}   # id -> 余弹
+var _firing := false             # 左键按住（全自动连发用）
 
 var _r_down := false
 var _recoil := 0.0
@@ -52,46 +56,101 @@ func _ready() -> void:
 	for a in ["aim", "walk", "run"]:
 		_anim.get_animation(a).loop_mode = Animation.LOOP_LINEAR
 	add_child(model_root)
-	# 程序化步枪：枪托/机匣/枪管 + 枪口节点；位置按 aim 动作双手实测对位
-	gun = CharUtil.build_gun()
+	# 武器数据
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/guns.json"))
+	_guns = parsed["guns"]
+	_gun_order = parsed["order"]
+	for id in _gun_order:
+		_ammo_map[id] = int(_guns[id]["mag_size"])
+	# 枪挂点：位置按 aim 动作双手实测对位；grip 点对齐到这里
+	gun = Node3D.new()
 	gun.position = Vector3(-0.12, 1.30, 0.33)
 	model_root.add_child(gun)
-	muzzle = Node3D.new()
-	muzzle.position = Vector3(0, 0.04, 0.72)
-	gun.add_child(muzzle)
+	_equip_current()
 	cam = Camera3D.new()
 	cam.fov = 68.0
 	cam.current = false
 	add_child(cam)
 
+## 当前枪配置
+func _cfg() -> Dictionary:
+	return _guns[_gun_order[_gun_idx]]
+
+func ammo() -> int:
+	return _ammo_map[_gun_order[_gun_idx]]
+
+## 装备当前枪：清旧模型，按 JSON 实例化 GLB（grip 对齐挂点、muzzle 定位）
+func _equip_current() -> void:
+	for c in gun.get_children():
+		c.queue_free()
+	var cfg := _cfg()
+	var packed: PackedScene = load(cfg["model"])
+	var wm: Node3D = packed.instantiate()
+	var sc: float = cfg["scale"]
+	wm.scale = Vector3.ONE * sc
+	var rd: Array = cfg["rot_deg"]
+	wm.rotation_degrees = Vector3(rd[0], rd[1], rd[2])
+	var grip: Array = cfg["grip"]
+	wm.position = -Vector3(grip[0], grip[1], grip[2]) * sc
+	gun.add_child(wm)
+	muzzle = Node3D.new()
+	var mz: Array = cfg["muzzle"]
+	muzzle.position = Vector3(mz[0], mz[1], mz[2])
+	wm.add_child(muzzle)
+	main_node.hud.set_combat_gun(cfg["name"], ammo(), int(cfg["mag_size"]))
+
+## 切换武器（数字键直选 / HUD 按钮循环）
+func switch_gun(idx: int) -> void:
+	if idx == _gun_idx or idx < 0 or idx >= _gun_order.size():
+		return
+	_gun_idx = idx
+	reload_t = 0.0
+	_equip_current()
+	main_node.sfx.play("reload", 1.3)
+	main_node.hud.toast(_cfg()["name"])
+
+func switch_gun_next() -> void:
+	switch_gun((_gun_idx + 1) % _gun_order.size())
+
 func _enter() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	cam.current = true
-	main_node.hud.set_combat_active(true, ammo, hp)
+	main_node.hud.set_combat_active(true, ammo(), hp)
+	_equip_current()
 
 func _exit() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	cam.current = false
-	main_node.hud.set_combat_active(false, ammo, hp)
+	_firing = false
+	main_node.hud.set_combat_active(false, ammo(), hp)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		aim_yaw -= event.relative.x * MOUSE_SENS
 		aim_pitch = clampf(aim_pitch - event.relative.y * MOUSE_SENS, -1.2, 0.35)
-	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		_try_fire()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		_firing = event.pressed
+		if event.pressed:
+			_try_fire()
+	elif event is InputEventKey and event.pressed and not event.echo:
+		# 数字键 1-4 直选武器
+		if event.keycode >= KEY_1 and event.keycode <= KEY_4:
+			switch_gun(int(event.keycode - KEY_1))
 
 func _physics_process(delta: float) -> void:
 	if main_node == null or main_node.game_over:
 		return
 	fire_cd = maxf(0.0, fire_cd - delta)
 	reload_t = maxf(0.0, reload_t - delta)
-	if reload_t == 0.0 and ammo == 0 and fire_cd == 0.0:
+	if reload_t == 0.0 and ammo() == 0 and fire_cd == 0.0:
 		_finish_reload()
+	# 全自动：按住左键持续开火
+	if _firing and bool(_cfg()["auto"]):
+		_try_fire()
 	# G/T 撤离由 main 统一处理（同时负责开关）；R：换弹
 	var rk := Input.is_physical_key_pressed(KEY_R)
-	if rk and not _r_down and ammo < MAG_SIZE and reload_t == 0.0:
-		reload_t = RELOAD_TIME
+	if rk and not _r_down and ammo() < int(_cfg()["mag_size"]) and reload_t == 0.0:
+		reload_t = float(_cfg()["reload_time"])
 		main_node.sfx.play("reload", 1.05)
 		main_node.hud.toast("换弹中……")
 	_r_down = rk
@@ -153,17 +212,19 @@ func _aim_and_camera(delta: float) -> void:
 func _try_fire() -> void:
 	if fire_cd > 0.0:
 		return
-	if ammo == 0:
+	var cfg := _cfg()
+	var mag := int(cfg["mag_size"])
+	if ammo() == 0:
 		if reload_t == 0.0:
-			reload_t = RELOAD_TIME
+			reload_t = float(cfg["reload_time"])
 			main_node.sfx.play("reload")
 			main_node.hud.toast("弹匣空了，换弹……")
 		return
 	if reload_t > 0.0:
 		return
-	ammo -= 1
-	fire_cd = FIRE_INTERVAL
-	_recoil = 1.0
+	_ammo_map[_gun_order[_gun_idx]] -= 1
+	fire_cd = float(cfg["fire_interval"])
+	_recoil = float(cfg["recoil"])
 	main_node.sfx.play("gunshot", 1.0, 0.05, 2.0)
 	# 射线命中：从屏幕准星（相机中心）发射
 	var from := cam.global_position
@@ -184,13 +245,14 @@ func _try_fire() -> void:
 	# 枪声惊动周围尸群
 	main_node.alert_gunshot(muzzle_ws)
 	main_node.spawn_muzzle_flash(muzzle_ws, from + dir * (hit.position.distance_to(from) if hit else RAY_DIST))
-	main_node.hud.set_combat_ammo(ammo, int(reload_t > 0.0))
+	main_node.hud.set_combat_ammo(ammo(), int(reload_t > 0.0))
 
 func _finish_reload() -> void:
-	if ammo == MAG_SIZE:
+	var mag := int(_cfg()["mag_size"])
+	if ammo() == mag:
 		return
-	ammo = MAG_SIZE
-	main_node.hud.set_combat_ammo(ammo, 0)
+	_ammo_map[_gun_order[_gun_idx]] = mag
+	main_node.hud.set_combat_ammo(ammo(), 0)
 
 func take_damage(amount: float) -> void:
 	hp = maxf(0.0, hp - amount)
