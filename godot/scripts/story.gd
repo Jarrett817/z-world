@@ -23,7 +23,7 @@ func _ready() -> void:
 	get_tree().create_timer(_intro_delay).timeout.connect(func() -> void: _open("intro"))
 
 func _process(delta: float) -> void:
-	if active or events.is_empty() or main.game_over:
+	if active or events.is_empty() or main.game_over or main.rv_walk_active:
 		return
 	# 里程碑事件：到里程且角色门控满足（错过后招到人仍可补触发）
 	for id in events:

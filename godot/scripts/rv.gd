@@ -40,12 +40,17 @@ func _physics_process(delta: float) -> void:
 		rotation.x = lerpf(rotation.x, slope, delta * 3.0)
 		rotation.z = lerpf(rotation.z, 0.0, delta * 4.0)
 		return
-	if parked or combat_in:
+	if parked or combat_in or main_node.rv_walk_active:
 		if parked:
 			speed_kmh = 0.0
-		else:
+		elif combat_in:
 			# 天窗射击：无驾驶输入，惯性滑行
 			speed_kmh = maxf(speed_kmh - DRAG * delta, 0.0)
+		elif speed_kmh > 1.0 and absf(position.x - main_node.road_x(position.z)) < main_node.ROAD_HALF + 3.0:
+			# 车内行走·队友代驾：定速巡航，公路上自动跟弯（同驾驶回正逻辑）
+			var d: float = 0.6
+			var bx: float = main_node.road_x(position.z + d) - main_node.road_x(position.z - d)
+			rotation.y = lerp_angle(rotation.y, atan2(bx, 2.0 * d), delta * 1.2)
 		velocity = -global_transform.basis.z * (speed_kmh * KMH_TO_UNITS)
 		move_and_slide()
 		position.y = main_node.ground_height(position.x, position.z) + main_node.RV_MODEL_FOOT

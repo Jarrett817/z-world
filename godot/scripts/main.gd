@@ -96,6 +96,8 @@ var _c_down := false
 var _fv_yaw := 0.0     # 车内自由视角：右键拖动环顾的偏航/俯仰偏移
 var _fv_pitch := 0.0
 var combat_active := false
+var rv_walk_active := false   # 车内行走中（驻车起身 / 队友代驾巡航）
+var _q_down := false
 var _zones: Array = []        # 景观段循环（data/terrain_zones.json）
 var _zones_total := 0.0
 var _wrecks: Array = []       # 撞飞后待落地冻结的障碍残骸
@@ -129,12 +131,15 @@ var banter_busy := false
 var _shot_at := -1.0  # --shot=路径 命令行截帧：启动后计时保存并退出
 var _shot_path := ""
 var _shot_t := 0.0
+var _shot_walk := false  # --shotrvwalk：截帧前先进车内行走
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--shot="):
 			_shot_path = a.trim_prefix("--shot=")
 			_shot_at = 3.0
+		elif a == "--shotrvwalk":
+			_shot_walk = true
 	_load_survivors()
 	_load_facilities()
 	_load_zones()
@@ -295,6 +300,17 @@ func _process(delta: float) -> void:
 				story.active = false
 				story_active = false
 				hud.hide_story()
+			if _shot_walk and not rv_walk_active:
+				# --shotrvwalk：先驻车再起身车内行走，稳定 1.5s 后截帧
+				_shot_walk = false
+				parked = true
+				rv.parked = true
+				rv.speed_kmh = 0.0
+				set_facilities_ui(false)
+				start_rv_walk()
+				_shot_at = 1.5
+				_shot_t = 0.0
+				return
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(_shot_path)
 			get_tree().quit()
@@ -308,9 +324,19 @@ func _process(delta: float) -> void:
 	if gk and not _g_down and not game_over and not story_active:
 		if combat_active:
 			end_combat()
+		elif rv_walk_active:
+			end_rv_walk()
 		elif parked:
 			start_combat(0)
 	_g_down = gk
+	# Q：车内行走（驻车起身 / 有队友时行驶中代驾巡航）；再按 Q 回驾驶座
+	var qk := Input.is_physical_key_pressed(KEY_Q)
+	if qk and not _q_down and not game_over and not story_active and not combat_active:
+		if rv_walk_active:
+			end_rv_walk()
+		else:
+			start_rv_walk()
+	_q_down = qk
 	# T：天窗射击（行驶中也可探身开火，身体固定车顶）
 	var tk := Input.is_physical_key_pressed(KEY_T)
 	if tk and not _t_down and not game_over and not story_active:
@@ -322,6 +348,9 @@ func _process(delta: float) -> void:
 	if combat_active:
 		_sync_player_to_rv(delta)
 		trauma = maxf(0.0, trauma - delta * 1.4)
+		return
+	if rv_walk_active:
+		# 车内行走：相机由玩家节点接管，显隐在 start/end 里一次性设好
 		return
 	var pressed := Input.is_physical_key_pressed(KEY_C)
 	if pressed and not _c_down:
@@ -1011,7 +1040,7 @@ func alert_gunshot(pos: Vector3) -> void:
 
 ## 玩家被啃咬（下车战斗时）：全局冷却，转发伤害给玩家
 func on_player_bitten() -> void:
-	if game_over or bite_cd > 0.0:
+	if game_over or bite_cd > 0.0 or rv_walk_active:
 		return
 	bite_cd = 1.2
 	add_trauma(0.2)
@@ -1027,7 +1056,7 @@ func on_player_bitten() -> void:
 # ---------- 下车 / 天窗战斗 ----------
 ## mode：0 下车（仅驻车），1 天窗探出（行驶中可用）
 func start_combat(m: int) -> void:
-	if combat_active or game_over or story_active:
+	if combat_active or rv_walk_active or game_over or story_active:
 		return
 	if m == 0 and not parked:
 		hud.toast("先按 F 驻车才能下车")
@@ -1094,6 +1123,66 @@ func end_combat() -> void:
 	if driver_figure != null:
 		driver_figure.visible = view_mode == 2
 	# 驻车状态下恢复设施面板（start_combat 时收起了）
+	if parked:
+		set_facilities_ui(true)
+
+# ---------- 车内行走 ----------
+## Q/「车内」按钮：驻车起身车内转；有队友时行驶中也可（首位队友挪到主驾代驾，定速巡航）
+func start_rv_walk() -> void:
+	if rv_walk_active or combat_active or game_over or story_active:
+		return
+	if not parked and crew_members.is_empty():
+		hud.toast("行驶中需要队友代驾才能起身走动（先招募幸存者）")
+		return
+	set_facilities_ui(false)
+	var p := CharacterBody3D.new()
+	p.set_script(PLAYER_SCRIPT)
+	p.setup(self, 2)   # Mode.RV_WALK
+	p.position = Vector3(0.0, -0.4, -1.2)   # 驾驶座旁起身点（rv 本地，地板顶 y=-0.4）
+	rv.add_child(p)
+	player_body = p
+	rv_walk_active = true
+	view_mode = 2
+	rv_model.visible = false
+	interior.visible = true
+	for i in crew_figures.size():
+		crew_figures[i].visible = i < crew_members.size()
+	if driver_figure != null:
+		driver_figure.visible = false   # 主角起身，驾驶位空出
+	if not parked:
+		# 队友代驾：首位队友（副驾坐姿）挪到主驾位
+		crew_figures[0].position = Vector3(-0.55, -0.4, -1.45)
+	p.aim_yaw = 0.0    # 面朝车头（车内 -Z）
+	p.aim_pitch = 0.0
+	p._enter()
+	if not p.fps:
+		p.toggle_fps(true)
+	hud.set_drive_buttons_visible(false)
+	hud.toast("车内行走：WASD 移动 · 鼠标环顾 · Q 回驾驶座")
+
+func end_rv_walk() -> void:
+	if not rv_walk_active:
+		return
+	var p := get_player_body()
+	if p != null:
+		p._exit()
+		p.queue_free()
+	player_body = null
+	rv_walk_active = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	cam.make_current()
+	if not parked and not crew_members.is_empty():
+		# 代驾结束：队友挪回副驾位
+		crew_figures[0].position = Vector3(0.55, -0.4, -1.45)
+	# 回驾驶座：恢复追尾视角
+	view_mode = 0
+	rv_model.visible = true
+	interior.visible = false
+	for f in crew_figures:
+		f.visible = false
+	if driver_figure != null:
+		driver_figure.visible = false
+	hud.set_drive_buttons_visible(not parked)
 	if parked:
 		set_facilities_ui(true)
 

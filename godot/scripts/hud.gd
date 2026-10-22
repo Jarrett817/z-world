@@ -59,6 +59,7 @@ var facilities_root: Panel
 var facilities_rows: VBoxContainer
 var facilities_title: Label
 var drive_buttons: Array[Button] = []
+var combat_fire_buttons: Array[Button] = []   # 车内行走时要藏起来的开火类按钮
 var _tab_down := false
 var _toast_tween: Tween
 
@@ -115,7 +116,7 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 视角 · F 驻车 · G 下车战斗 · T 天窗 · E 设施 · V 射击视角 · Tab 队伍", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 车内 · E 设施 · V 射击视角 · Tab 队伍", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	hint.offset_left = -860
 	hint.offset_right = -210
@@ -162,6 +163,7 @@ func build(rv_node: Node) -> void:
 	_touch_button(root, "驻车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -222, 78, 56), "park")
 	_touch_button(root, "天窗", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -284, 78, 56), "sunroof")
 	_touch_button(root, "下车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -284, 78, 56), "exitveh")
+	_touch_button(root, "车内", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -346, 78, 56), "rvwalk")
 	# 右上：队伍 / 设施（手游触屏替代 Tab/E 快捷键）
 	_touch_button(root, "队伍", Control.PRESET_TOP_RIGHT, Rect2(-196, 14, 88, 46), "crew")
 	_touch_button(root, "设施", Control.PRESET_TOP_RIGHT, Rect2(-100, 14, 88, 46), "fac")
@@ -326,13 +328,13 @@ func _build_combat(root: Control) -> void:
 	gun_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	combat_root.add_child(gun_label)
 	# 触屏战斗按钮组：开火（大）/ 跳跃 / 换弹 / 换枪 / 下蹲 / 上车撤离
-	_touch_button(combat_root, "开火", Control.PRESET_BOTTOM_RIGHT, Rect2(-170, -140, 146, 116), "fire")
-	_touch_button(combat_root, "跳跃", Control.PRESET_BOTTOM_RIGHT, Rect2(-170, -262, 146, 62), "jump")
-	_touch_button(combat_root, "换弹", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -204, 150, 54), "reload")
-	_touch_button(combat_root, "换枪", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -140, 150, 54), "swapgun")
-	_touch_button(combat_root, "下蹲", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -76, 150, 54), "crouch")
+	combat_fire_buttons.append(_touch_button(combat_root, "开火", Control.PRESET_BOTTOM_RIGHT, Rect2(-170, -140, 146, 116), "fire"))
+	combat_fire_buttons.append(_touch_button(combat_root, "跳跃", Control.PRESET_BOTTOM_RIGHT, Rect2(-170, -262, 146, 62), "jump"))
+	combat_fire_buttons.append(_touch_button(combat_root, "换弹", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -204, 150, 54), "reload"))
+	combat_fire_buttons.append(_touch_button(combat_root, "换枪", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -140, 150, 54), "swapgun"))
+	combat_fire_buttons.append(_touch_button(combat_root, "下蹲", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -76, 150, 54), "crouch"))
 	_touch_button(combat_root, "上车", Control.PRESET_TOP_RIGHT, Rect2(-170, 64, 146, 54), "exitcombat")
-	_touch_button(combat_root, "视角", Control.PRESET_TOP_RIGHT, Rect2(-170, 128, 146, 54), "fps")
+	combat_fire_buttons.append(_touch_button(combat_root, "视角", Control.PRESET_TOP_RIGHT, Rect2(-170, 128, 146, 54), "fps"))
 	# 左下：虚拟摇杆（手游移动）
 	var js := Joystick.new()
 	js.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
@@ -374,6 +376,14 @@ func set_combat_active(active: bool, ammo: int, hp: float) -> void:
 	if active:
 		set_combat_ammo(ammo, 0)
 		set_combat_hp(hp)
+
+## 车内行走：复用战斗 HUD 底板，但只留摇杆与「上车」撤离（无法开枪/跳跃/换枪）
+func set_rv_walk_active(v: bool) -> void:
+	combat_root.visible = v
+	for b in combat_fire_buttons:
+		b.visible = not v
+	ammo_label.visible = not v
+	gun_label.visible = not v
 
 ## 瞄准数据（相机已直接朝向，准星居中即可；保留接口）
 func set_combat_aim(_dir: Vector3, _pos: Vector3) -> void:
@@ -856,7 +866,16 @@ func _on_btn_down(action: String) -> void:
 				rv.main_node.get_player_body().toggle_fps()
 		"exitcombat":
 			if rv.main_node != null:
-				rv.main_node.end_combat()
+				if rv.main_node.rv_walk_active:
+					rv.main_node.end_rv_walk()
+				else:
+					rv.main_node.end_combat()
+		"rvwalk":
+			if rv.main_node != null:
+				if rv.main_node.rv_walk_active:
+					rv.main_node.end_rv_walk()
+				else:
+					rv.main_node.start_rv_walk()
 		"sunroof":
 			if rv.main_node != null:
 				if rv.main_node.combat_active:

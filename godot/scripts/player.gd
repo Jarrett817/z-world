@@ -16,7 +16,7 @@ const FPS_GUN_POS := Vector3(0.24, -0.22, 0.5)   # 第一人称视模型枪位�
 const FPS_EYE := 1.62        # 站立眼高
 const FPS_EYE_CROUCH := 1.05 # 下蹲眼高
 
-enum Mode { ON_FOOT, SUNROOF }
+enum Mode { ON_FOOT, SUNROOF, RV_WALK }
 
 var main_node: Node   # duck-typed：调用 main/hud 上动态解析的方法
 var mode: int = Mode.ON_FOOT
@@ -133,7 +133,10 @@ func _enter() -> void:
 	_crouching = false
 	_airborne = false
 	cam.current = true
-	main_node.hud.set_combat_active(true, ammo(), hp)
+	if mode == Mode.RV_WALK:
+		main_node.hud.set_rv_walk_active(true)
+	else:
+		main_node.hud.set_combat_active(true, ammo(), hp)
 	_equip_current()
 
 func _exit() -> void:
@@ -142,10 +145,15 @@ func _exit() -> void:
 	_firing = false
 	if fps:
 		toggle_fps()
-	main_node.hud.set_combat_active(false, ammo(), hp)
+	if mode == Mode.RV_WALK:
+		main_node.hud.set_rv_walk_active(false)
+	else:
+		main_node.hud.set_combat_active(false, ammo(), hp)
 
-## 第一/第三人称切换：FPS 隐藏身体，枪移到眼部挂点当视模型
-func toggle_fps() -> void:
+## 第一/第三人称切换：FPS 隐藏身体，枪移到眼部挂点当视模型（车内行走强制 FPS，禁切回；force 供进入时强制开）
+func toggle_fps(force := false) -> void:
+	if mode == Mode.RV_WALK and not force:
+		return
 	fps = not fps
 	if fps:
 		gun.reparent(fps_rig)
@@ -215,12 +223,41 @@ func _physics_process(delta: float) -> void:
 	if ck and not _c_down:
 		toggle_crouch()
 	_c_down = ck
-	if mode == Mode.ON_FOOT:
+	if mode == Mode.RV_WALK:
+		_move_rv(delta)
+	elif mode == Mode.ON_FOOT:
 		_move_foot(delta)
 	else:
 		velocity = Vector3.ZERO
 		move_and_slide()
 	_aim_and_camera(delta)
+
+## 车内行走：玩家挂在 rv 下，本地空间直接挪动（无物理）；地板顶 y=-0.4，车头 -Z
+func _move_rv(delta: float) -> void:
+	var input := Vector2.ZERO
+	if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP):
+		input.y -= 1.0
+	if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN):
+		input.y += 1.0
+	if Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_LEFT):
+		input.x -= 1.0
+	if Input.is_physical_key_pressed(KEY_D) or Input.is_physical_key_pressed(KEY_RIGHT):
+		input.x += 1.0
+	input += touch_move
+	var yaw_basis := Basis(Vector3.UP, aim_yaw)
+	var dir := yaw_basis * Vector3(input.x, 0, input.y)
+	if dir.length() > 0.01:
+		position += dir.normalized() * WALK_SPEED * 0.55 * delta
+	# 活动范围：仪表台后到尾门，两侧舱壁内
+	position.x = clampf(position.x, -1.0, 1.0)
+	position.z = clampf(position.z, -2.7, 4.3)
+	position.y = -0.4
+	var want := "aim"
+	if dir.length() > 0.01:
+		want = "walk"
+	if want != _cur_anim:
+		_cur_anim = want
+		_anim.play(want, 0.15)
 
 ## 跳跃（Space / HUD 跳跃按钮）：滞空期间禁用下蹲
 func jump() -> void:
@@ -291,6 +328,15 @@ func _move_foot(delta: float) -> void:
 func _aim_and_camera(delta: float) -> void:
 	# 身体随瞄准转身（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
 	model_root.rotation.y = aim_yaw + PI
+	if mode == Mode.RV_WALK:
+		# 车内：aim_yaw 是 rv 本地朝向，相机直接用本地变换（车转弯不甩视角）
+		var eye := Vector3(0, FPS_EYE, 0)
+		cam.transform = Transform3D(Basis(Vector3.UP, aim_yaw) * Basis(Vector3.RIGHT, aim_pitch), eye)
+		fps_rig.position = eye
+		fps_rig.rotation.y = aim_yaw + PI
+		_recoil = maxf(0.0, _recoil - delta * 6.0)
+		gun.rotation.x = -aim_pitch - _recoil * 0.22
+		return
 	var cam_basis := Basis(Vector3.UP, aim_yaw)
 	var right := cam_basis.x
 	var back := cam_basis.z   # 瞄准基准 -Z，+Z 即玩家身后
@@ -311,6 +357,10 @@ func _aim_and_camera(delta: float) -> void:
 	main_node.hud.set_combat_aim(look_dir, cam.global_position)
 
 func _try_fire() -> void:
+	if mode == Mode.RV_WALK:
+		main_node.hud.toast("车内无法开枪，Q 回驾驶座后下车作战")
+		fire_cd = 0.8
+		return
 	if fire_cd > 0.0:
 		return
 	var cfg := _cfg()
