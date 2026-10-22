@@ -19,7 +19,7 @@
 
 ## 铁律：成熟资产优先
 
-**写任何功能前，先查现成资产/库。禁止手写引擎或插件已能做的东西。**
+**写任何功能前，先查网上免费开源的现成资产/库。禁止手写引擎或插件已能做的东西。**
 
 - 3D 模型/动画优先用 `godot/assets/` 现有 GLB 与 `godot/assets/props/scene_models/`，不足再走资产管线
 - 角色/丧尸模型统一 GLB（VRM 需经 Blender 管线转换，见 `docs/art-pipeline.md`）
