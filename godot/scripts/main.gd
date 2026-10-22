@@ -685,7 +685,7 @@ func _build_interior() -> void:
 	# 舱内暖色小灯：夜间/雾天也能看清仪表台与舱内
 	var cab_light := OmniLight3D.new()
 	cab_light.light_color = Color(1.0, 0.82, 0.6)
-	cab_light.light_energy = 3.0
+	cab_light.light_energy = 1.5
 	cab_light.omni_range = 8.0
 	cab_light.position = Vector3(0, 1.85, 0.4)
 	interior.add_child(cab_light)
