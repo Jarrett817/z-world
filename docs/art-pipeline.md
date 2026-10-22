@@ -60,14 +60,17 @@ blender --background --addons vrm_addon --python run_pipeline.py -- <in.vrm> <ou
 2. 导入 `bpy.ops.import_scene.vrm(filepath=...)`，取名为 `Armature` 的对象；删除 VRM 弹簧物理的全部 EMPTY 辅助节点
 3. **Blender 4.4+ slotted Action**：新建动作走 `anim_data.action_blok`/layer/strip 新 API，旧的 `action = bpy.data.actions.new()` 直接赋值会报错
 4. **J_Bip 局部轴向（实测）**：上臂下放 左绕局部 -Z / 右绕 +Z（`q("z",-s*86)`，s=+1 左/-1 右）；上臂前摆、前臂屈肘、大腿前抬均绕局部 -X；姿态用四元数累乘拼在 pose_bone.rotation_quaternion
-5. **动画契约**：30fps；idle 32 帧 LOOP（呼吸：Hips/脊柱小角度正弦，手臂随动，Hips z 位移 0.006）；sit 是**两帧同姿态**静态循环——单帧会被 Godot 压成 0.001s，必须第 0、1 帧插相同关键帧给非零时长；sit 姿态：大腿 x=-88°、小腿 x=+92°、上臂贴身微前、Hips location z=-0.50
+5. **动画契约**：30fps；idle 32 帧 LOOP（呼吸：Hips/脊柱小角度正弦，手臂随动，Hips z 位移 0.006）；sit 是**两帧同姿态**静态循环——单帧会被 Godot 压成 0.001s，必须第 0、1 帧插相同关键帧给非零时长；sit 姿态见第 9 条（2026-10-22 世界空间重烘焙，推翻旧「Hips location z=-0.50」写法——那是骨骼局部空间，局部 -Z 实为世界后退，烘出高脚凳畸变）
 6. **NLA strip 帧范围必须错开**：多动作 `export_animation_mode="ACTIONS"` 导出时，strip 重叠会互相污染烘焙姿态；idle 占 0–32，sit 推到 40–41
 7. 导出：`bpy.ops.export_scene.gltf(export_format="GLB",export_apply=True,export_yup=True,export_animations=True,export_animation_mode="ACTIONS",export_image_quality=90)`
 8. Godot 侧 `.import` 确认 `embedded_image_handling=2`（材质内嵌）、`fps=30`；AnimationPlayer 动画库名 `""`，动画名即 idle/sit
+9. **摆姿一律用世界空间矩阵（2026-10-22 根因教训）**：骨骼局部轴朝向每根骨都不同，`pose_bone.location/rotation_*` 直接写必踩坑。正确做法：`m = arm.matrix_world @ pb.matrix` 取世界矩阵 → 世界空间改位置/旋转（`Matrix.LocRotScale` 重建）→ `pb.matrix = arm.matrix_world.inverted() @ m` 写回，每步 `bpy.context.view_layer.update()`。坐姿参数实测：髋 z=0.46（大腿 0.409 + 小腿 0.365，髋 rest 0.895）、大腿绕世界 X -90° 水平前伸、小腿 +90° 回竖直、上臂局部 Z 轴 86° 下放后绕世界 X 前 20°、前臂 55° 手搁大腿
+10. **导出前必须清场（2026-10-22 根因教训）**：Blender 默认场景的 Cube 会被一起烘进 GLB（三个角色 GLB 曾全部内嵌 2×2×2 可见立方体）；glTF 导入器还会合成 Icosphere 等副产物。烘焙/渲染脚本里统一删非蒙皮网格：`if o.type=='MESH' and not any(m.type=='ARMATURE' for m in o.modifiers): remove`——蒙皮白名单比按名字删安全（role2 狐尾、hero Other 等蒙皮件须保留）
 
 ### 4.2 截帧验收法
 
 - Godot headless（dummy 渲染器）**不能截图**，必须窗口模式跑 SceneTree runner：`godot --path godot -s res://tmp_shot.gd`
+- **窗口模式 `--script` 失灵（2026-10-22 未解，已绕开）**：窗口模式 `-s res://x.gd` 只打印 banner 立即 exit 0、`--verbose` 重定向日志全空。动画/姿态验收改用 **Blender Workbench 渲染**：STUDIO + OBJECT 着色、角色灰 0.7 + 绿地板 + 红参照坐垫盒（顶 z=0.40），540×720 侧视/前 3/4 视双机位，镜头对准 `cam.rotation_euler = (Vector(target)-Vector(pos)).to_track_quat('-Z','Y').to_euler()`；玩法验收仍走无头回归
 - 截图要在 `_process` 里延迟到第 50 帧以后（等 GLB 实例化/动画首帧/seek 生效），`root.get_texture().get_image().save_png(globalize_path(...))`
 - runner 里调 main.gd 自定义方法返回 Variant，`:=` 推断会报 Cannot infer type，须显式 `var x: float = main.road_x(z)`
 - 接地/尺寸用 AABB 实测：实例化后合并全部 MeshInstance3D 的 `global_transform * get_aabb()`，确认 min.y≈0、身高米数；正交顶视会被车顶（顶棚盒 y=2.2）遮挡，穿模检查用坐标严格核对而非顶视图

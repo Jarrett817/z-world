@@ -1,5 +1,25 @@
 # 开发日志
 
+## 2026-10-22 · n30 坐姿根因修复：世界空间重烘焙 + GLB 内嵌 Cube 清除
+
+### 本次完成
+
+- **坐姿根因**：旧烘焙脚本把 `pb(Hips).location = (0,0,-0.50)` 当世界竖直方向写，实际是骨骼局部空间——髋骨局部 -Z 对应世界「后退」，sit 被烘成「髋后移 0.49 + 上移」的高脚凳畸变（用户看到「头和身体反向」）
+- **世界空间摆姿法**：`arm.matrix_world @ pb.matrix` 取世界矩阵，`Matrix.LocRotScale` 重建后乘 `arm.matrix_world.inverted()` 写回 `pb.matrix`，每步 `view_layer.update()`；与骨骼局部轴向完全解耦。坐姿参数：髋 z=0.46、大腿绕世界 X -90° 水平、小腿 +90° 回竖直、上臂下放 86° 后微前 20°、前臂屈 55°（手搁大腿）
+- **GLB 内嵌垃圾节点**：三个角色 GLB 全部内嵌 2×2×2 默认 Cube（原 VRM 管线导出时未清 Blender 默认场景），Godot 节点树 dump 实锤 `vis=true` 真实可见；另有 Blender glTF 导入器合成 Icosphere 副产物。清理法：删非蒙皮网格（`o.type=='MESH' and not any(m.type=='ARMATURE' for m in o.modifiers)`），role2 狐尾/hero Other 等蒙皮件安全保留
+- role1/role2/hero 三 GLB 全部重烘焙：sit 髋高 0.46、无 Cube、anims=[idle, sit, T-Pose]；`--headless --import` 重导入；headless dump 节点树确认干净
+- **验收方式变更**：窗口模式 `--script` 失灵（banner 后立即 exit 0、--verbose 日志全空，未解），改用 Blender Workbench（OBJECT 着色）渲染验收——BEFORE/AFTER 对照确认躯干直立、大腿水平、小腿垂直、双手搁膝、臀部落座
+- 无头回归 EXIT=0 零新增错误；临时脚本已删
+
+### 待办
+
+- **角色动作/表情丰富化**（用户：「人物要有动作表情，不能僵尸一样」）：idle 仅 32 帧呼吸循环太静
+- 沈蔓立绘 shenman_normal.jpg + avatars/shen_man.jpg（需 ARK_API_KEY）
+- 窗口全链路实测（G/T 战斗、音乐切换、队友互动）
+- .gitignore `data/` 规则误伤 godot/data 改 `/data/`
+
+---
+
 ## 2026-10-21 · n29 战斗系统收尾 + 六首场景音乐 + 队友互动
 
 ### 本次完成

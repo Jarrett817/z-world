@@ -666,8 +666,8 @@ func _build_interior() -> void:
 	_interior_box(Vector3(2.6, 0.14, 0.16), Vector3(0, 2.03, -4.2), shell)
 	_interior_box(Vector3(0.34, 0.08, 0.09), Vector3(0, 1.94, -4.02), pad)
 	for sx in [-0.55, 0.55]:
-		_interior_box(Vector3(0.52, 0.16, 0.55), Vector3(sx, 0.17, -1.5), seat)
-		_interior_box(Vector3(0.52, 0.66, 0.14), Vector3(sx, 0.54, -1.16), seat)
+		_interior_box(Vector3(0.52, 0.16, 0.55), Vector3(sx, -0.08, -1.5), seat)
+		_interior_box(Vector3(0.52, 0.55, 0.14), Vector3(sx, 0.27, -1.16), seat)
 	# 生活舱：灶台（左）/ 货架（右）/ 餐桌 / 后铺
 	_interior_box(Vector3(0.55, 0.85, 2.4), Vector3(-1.0, 0.03, -0.1), shell)
 	_interior_box(Vector3(0.6, 0.05, 2.45), Vector3(-1.0, 0.47, -0.1), steel)
@@ -774,9 +774,9 @@ func _build_crew() -> void:
 	crew_font = SystemFont.new()
 	crew_font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "sans-serif"])
 	# [本地坐标, 朝向, 是否坐姿]；GLB 正面朝 +Z，副驾朝车头(-Z)故转 180°
-	# 地板顶面 y=-0.4：站姿脚底落地板；坐姿髋部下沉约 0.42，落坐垫顶(0.25)故 root y=-0.15
+	# 地板顶面 y=-0.4：所有站位 root 均落地板；坐姿髋部下沉约 0.44，落在坐垫顶(y=0.0)上
 	var stations := [
-		[Vector3(0.55, -0.15, -1.45), PI, true],         # 副驾（坐姿朝车头，首位队友）
+		[Vector3(0.55, -0.4, -1.45), PI, true],          # 副驾（坐姿朝车头，首位队友）
 		[Vector3(-0.55, -0.4, -0.1), -PI * 0.5, false],  # 灶台前，朝 -X
 		[Vector3(0.55, -0.4, 0.4), PI * 0.5, false],     # 货架前，朝 +X
 		[Vector3(-0.55, -0.4, 1.15), PI * 0.5, false],    # 餐桌靠车头侧，左，朝桌/右
