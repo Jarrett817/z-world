@@ -813,7 +813,7 @@ func _sync_crew() -> void:
 			var m: Dictionary = crew_members[i]
 			lb.text = "%s · %s" % [m.get("name", ""), m.get("skill", "")]
 			var anim_name := "sit" if f.get_meta("seated") else "idle"
-			var made := CharUtil.instantiate(String(m.get("id", "")), anim_name)
+			var made := CharUtil.instantiate(String(m.get("id", "")), anim_name, m.get("expression", {}))
 			var char: Node3D = made["node"]
 			char.name = "Char"
 			if old:
@@ -863,7 +863,10 @@ func _start_banter() -> void:
 	bubble.text = String(lines[randi() % lines.size()])
 	bubble.visible = true
 	banter_busy = true
-	# 听者转向说话者，说完转回原位
+	# 说话者嘴动 + 表情，听者转向说话者，说完转回原位
+	var la := fa.find_child("CharLively", true, false) as CharLively
+	if la != null:
+		la.talk(4.5)
 	var back := fb.rotation.y
 	var dir := fa.position - fb.position
 	fb.rotation.y = atan2(dir.x, dir.z)

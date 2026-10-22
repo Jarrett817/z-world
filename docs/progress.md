@@ -1,5 +1,23 @@
 # 开发日志
 
+## 2026-10-22 · n31 角色「活感」：表情系统 + 闲置动作变体
+
+### 本次完成
+
+- **表情系统零资产改动**：实锤三个角色 GLB 的 Face 网格各带 72 个 morph target（Fcl_ALL/BRW/EYE/MTH/HA + VRC 口型全套）——VRM 烘焙时表情基随 GLB 导出，Godot 侧纯代码驱动
+- **char_lively.gd（新组件）**：CharUtil.instantiate 自动挂载。周期眨眼（EYE_Close 正弦 0.12s，间隔 2.2~4.8s 随机）+ 常态微表情（survivors.json 五人各配 expression，林晚暖笑/沈蔓冷脸/糖糖俏皮等差异化）+ banter 说话嘴动（MTH_A 13Hz 张合 4.5s，随气泡）+ 闲置动作变体插播（6~12s 首播、之后 8~16s 随机、fade 0.3s 切变体、播完回基准）
+- **三个新动作烘焙进全部 GLB**（zw_idle_variants.py，世界空间摆姿法）：idle_look（72 帧张望：右转 30°→左转 25°→回正）、idle_stretch（84 帧伸懒腰：双臂上举过头→放下）、sit_talk（96 帧坐姿谈话：前臂手势 + 头倾/点头）；anims=[idle, idle_look, idle_stretch, sit, sit_talk, T-Pose]，坐姿髋高 0.46 与 72 morphs 均完好
+- **两个烘焙/验收坑实锤并沉淀**（art-pipeline §4.1 第 11/12 条）：①`keyframe_insert` 循环里调 `frame_set` 会冲掉刚摆好的姿势（三个动作一度全被烘成 f0 静态帧）；②渲染/诊断脚本 fps 必须在导入 GLB **之前**设 30（工厂默认 24，导入器按导入时的 fps 映射动画时间，事后改不重映射）——曾导致 f45 验收图实际采到 t=1.875s
+- Blender Workbench 渲染验收 4 关键帧通过（转头/双臂过头/坐姿手势/侧视姿态）；`--headless --import` 重导入 + 无头回归 EXIT=0
+
+### 待办
+
+- 沈蔓立绘 shenman_normal.jpg + avatars/shen_man.jpg（需 ARK_API_KEY）
+- 窗口全链路实测（G/T 战斗、音乐切换、队友互动、活感表现）
+- .gitignore `data/` 规则误伤 godot/data 改 `/data/`
+
+---
+
 ## 2026-10-22 · n30 坐姿根因修复：世界空间重烘焙 + GLB 内嵌 Cube 清除
 
 ### 本次完成

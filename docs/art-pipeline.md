@@ -66,6 +66,10 @@ blender --background --addons vrm_addon --python run_pipeline.py -- <in.vrm> <ou
 8. Godot 侧 `.import` 确认 `embedded_image_handling=2`（材质内嵌）、`fps=30`；AnimationPlayer 动画库名 `""`，动画名即 idle/sit
 9. **摆姿一律用世界空间矩阵（2026-10-22 根因教训）**：骨骼局部轴朝向每根骨都不同，`pose_bone.location/rotation_*` 直接写必踩坑。正确做法：`m = arm.matrix_world @ pb.matrix` 取世界矩阵 → 世界空间改位置/旋转（`Matrix.LocRotScale` 重建）→ `pb.matrix = arm.matrix_world.inverted() @ m` 写回，每步 `bpy.context.view_layer.update()`。坐姿参数实测：髋 z=0.46（大腿 0.409 + 小腿 0.365，髋 rest 0.895）、大腿绕世界 X -90° 水平前伸、小腿 +90° 回竖直、上臂局部 Z 轴 86° 下放后绕世界 X 前 20°、前臂 55° 手搁大腿
 10. **导出前必须清场（2026-10-22 根因教训）**：Blender 默认场景的 Cube 会被一起烘进 GLB（三个角色 GLB 曾全部内嵌 2×2×2 可见立方体）；glTF 导入器还会合成 Icosphere 等副产物。烘焙/渲染脚本里统一删非蒙皮网格：`if o.type=='MESH' and not any(m.type=='ARMATURE' for m in o.modifiers): remove`——蒙皮白名单比按名字删安全（role2 狐尾、hero Other 等蒙皮件须保留）
+11. **关键帧插入前禁止 frame_set（2026-10-22 教训）**：摆姿→`keyframe_insert(frame=f)` 的循环里若调 `scn.frame_set(f)`，会先用已有关键帧重估姿态、把刚摆好的姿势冲掉，从第二个关键帧起全部变成 f0 静态姿势。`keyframe_insert(frame=f)` 本身就按 f 落键，无需 frame_set
+12. **渲染/诊断脚本 fps 必须在导入前设为 30（2026-10-22 教训）**：glTF 导入器按**导入那一刻**的场景 fps 把动画秒数映射成帧；工厂默认 24 而烘焙按 30，导入后再改 fps 不会重映射——`frame_set(45)` 实际采到 t=1.875s 而非 t=1.5s，验收图全是错误时刻的姿势。顺序：`read_factory_settings` → `scene.render.fps = 30` → `import_scene.gltf`。Godot 侧不受影响（按秒读）
+13. **新动作从 idle.copy() 起步**：Blender 4.4+ slotted Action 新建 API 不稳；稳妥路线 = `idle.copy()` 改名 → 清空全部 fcurves（`layers→strips→channelbags→fcurves.remove`）保留 slot 结构 → `ad.action = act; ad.action_slot = act.slots[0]` → 摆姿 keyframe_insert
+14. **表情基零资产方案**：VRM 烘焙 GLB 的 Face 网格自带 72 个 morph target（Fcl_ALL/BRW/EYE/MTH/HA 全套 + VRC 口型），Godot 直接 `mi.find_blend_shape_by_name("Fcl_EYE_Close")` + `set_blend_shape_value` 驱动，无需任何资产改动（见 char_lively.gd）
 
 ### 4.2 截帧验收法
 

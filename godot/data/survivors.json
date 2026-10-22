@@ -10,6 +10,7 @@
     "med": 5,
     "driver": false,
     "avatar": "/assets/avatars/lin_wan.jpg",
+    "expression": {"Fcl_ALL_Joy": 0.14, "Fcl_MTH_Up": 0.18},
     "banter": [
       "手别抖。缝合的时候抖一下，他就得多疼一天。",
       "纱布只剩三卷了。省着点用，别拿它擦桌子。",
@@ -27,6 +28,7 @@
     "med": 0,
     "driver": true,
     "avatar": "/assets/avatars/shen_man.jpg",
+    "expression": {"Fcl_ALL_Joy": 0.05},
     "banter": [
       "前面三公里有座桥。我听见风声不对。",
       "别催。车跟人一样，急起来就散架。",
@@ -44,6 +46,7 @@
     "med": 3,
     "driver": false,
     "avatar": "/assets/avatars/d_ye_lan.jpg",
+    "expression": {"Fcl_ALL_Joy": 0.12, "Fcl_BRW_Joy": 0.10},
     "banter": [
       "镜头里死人见得多了，真轮到自己，还是会手抖。",
       "这段我记下来了。以后要是有人问，我们怎么活的。",
@@ -61,6 +64,7 @@
     "med": 1,
     "driver": false,
     "avatar": "/assets/avatars/c_black.jpg",
+    "expression": {"Fcl_ALL_Fun": 0.20, "Fcl_MTH_Up": 0.22},
     "banter": [
       "腰沉下去。你这样挥，两下就没劲了。",
       "站我后面。我先进去。",
@@ -78,6 +82,7 @@
     "med": 2,
     "driver": false,
     "avatar": "/assets/avatars/a_office.jpg",
+    "expression": {"Fcl_ALL_Joy": 0.18, "Fcl_MTH_Joy": 0.20},
     "banter": [
       "别把枪口对着人谈条件。那是威胁，不是谈判。",
       "三罐罐头换一桶油，他答应了。别问我怎么说的。",
