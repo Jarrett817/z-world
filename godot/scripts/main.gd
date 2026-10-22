@@ -3,6 +3,7 @@ extends Node3D
 ## 线性驾驶生存：无限公路、丧尸围攻、障碍撞击、物资收集、幸存者招募、昼夜循环。
 
 const RV_SCENE := preload("res://assets/rv/gs_001.glb")
+const RV_INTERIOR_SCENE := preload("res://assets/rv_interior.glb")
 const ZMB_SCENE := preload("res://assets/props/zmb_stand.glb")
 const ZMB_SCENE_G := preload("res://assets/props/zmb_stand_g.glb")
 const WCAR_SCENE := preload("res://assets/props/wcar.glb")
@@ -627,109 +628,12 @@ func _build_rv() -> void:
 	_build_crew()
 	add_child(rv)
 
-## 驾驶舱 + 生活舱共用的程序化内饰（仅车内/驾驶舱视角可见）
+## 驾驶舱 + 生活舱共用的精模内饰（仅车内/驾驶舱视角可见）
 func _build_interior() -> void:
-	interior = Node3D.new()
+	# 精模内饰 GLB（Blender 建模，rv 本地空间：地板顶 y=-0.4、车头 -Z）；队友站位兼容见 _build_crew
+	interior = RV_INTERIOR_SCENE.instantiate()
 	interior.name = "Interior"
 	rv.add_child(interior)
-	var shell := _mat(Color(0.18, 0.17, 0.15))
-	var pad := _mat(Color(0.26, 0.22, 0.19))
-	var seat := _mat(Color(0.32, 0.25, 0.2))
-	var wood := _mat(Color(0.4, 0.3, 0.2))
-	var steel := _mat(Color(0.33, 0.34, 0.36))
-	# 地板 / 顶棚 / 后墙
-	_interior_box(Vector3(2.7, 0.1, 7.4), Vector3(0, -0.45, -0.75), shell)
-	_interior_box(Vector3(2.7, 0.1, 7.4), Vector3(0, 2.2, -0.75), shell)
-	_interior_box(Vector3(2.62, 2.6, 0.1), Vector3(0, 0.95, 2.82), shell)
-	# 侧窗台（腰线以下）与 A 柱，保留侧窗视野
-	for sx in [-1.3, 1.3]:
-		_interior_box(Vector3(0.08, 1.1, 7.3), Vector3(sx, 0.3, -0.75), shell)
-		_interior_box(Vector3(0.12, 2.6, 0.14), Vector3(sx, 1.0, -4.15), shell)
-		# 温室上沿压条 + 纵向窗框，把开放式侧壁读作一排车窗
-		_interior_box(Vector3(0.09, 0.16, 7.3), Vector3(sx, 2.02, -0.75), shell)
-		for wz in [-3.3, -1.9, -0.5, 0.9, 2.3]:
-			_interior_box(Vector3(0.09, 1.17, 0.09), Vector3(sx, 1.44, wz), shell)
-	# 侧窗玻璃：低饱和灰蓝薄雾，让车厢有封闭感
-	var glass := StandardMaterial3D.new()
-	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	glass.albedo_color = Color(0.45, 0.55, 0.62, 0.16)
-	glass.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	glass.cull_mode = BaseMaterial3D.CULL_DISABLED
-	for sx in [-1.3, 1.3]:
-		var g := MeshInstance3D.new()
-		var q := QuadMesh.new()
-		q.size = Vector2(7.0, 1.06)
-		g.mesh = q
-		g.material_override = glass
-		g.position = Vector3(sx, 1.4, -0.75)
-		g.rotation.y = PI * 0.5
-		interior.add_child(g)
-	# 驾驶舱：仪表台 / 台面 / 挡风上沿 / 后视镜
-	_interior_box(Vector3(2.6, 0.55, 0.7), Vector3(0, 0.28, -3.72), shell)
-	_interior_box(Vector3(2.55, 0.06, 0.75), Vector3(0, 0.575, -3.7), pad)
-	_interior_box(Vector3(2.6, 0.14, 0.16), Vector3(0, 2.03, -4.2), shell)
-	_interior_box(Vector3(0.34, 0.08, 0.09), Vector3(0, 1.94, -4.02), pad)
-	for sx in [-0.55, 0.55]:
-		_interior_box(Vector3(0.52, 0.16, 0.55), Vector3(sx, -0.08, -1.5), seat)
-		_interior_box(Vector3(0.52, 0.55, 0.14), Vector3(sx, 0.27, -1.16), seat)
-	# 生活舱：灶台（左）/ 货架（右）/ 餐桌 / 后铺
-	_interior_box(Vector3(0.55, 0.85, 2.4), Vector3(-1.0, 0.03, -0.1), shell)
-	_interior_box(Vector3(0.6, 0.05, 2.45), Vector3(-1.0, 0.47, -0.1), steel)
-	_interior_box(Vector3(0.3, 0.16, 0.3), Vector3(-1.0, 0.57, -0.5), steel)
-	_interior_box(Vector3(0.3, 1.3, 1.6), Vector3(1.12, 0.25, 0.4), shell)
-	for sy in [-0.05, 0.4, 0.85]:
-		_interior_box(Vector3(0.34, 0.05, 1.5), Vector3(1.12, sy, 0.4), wood)
-	_interior_box(Vector3(0.7, 0.07, 0.6), Vector3(0.25, 0.32, 1.75), wood)
-	for lx in [0.05, 0.45]:
-		for lz in [1.53, 1.97]:
-			_interior_box(Vector3(0.06, 0.72, 0.06), Vector3(lx, -0.04, lz), shell)
-	_interior_box(Vector3(2.3, 0.45, 0.55), Vector3(0, 0.02, 2.5), shell)
-	_interior_box(Vector3(2.2, 0.12, 0.5), Vector3(0, 0.3, 2.5), pad)
-	# 方向盘：圆环 + 三辐 + 转向柱，竖直面朝驾驶者略向后倾
-	var wheel_pivot := Node3D.new()
-	wheel_pivot.position = Vector3(-0.55, 0.78, -3.2)
-	wheel_pivot.rotation.x = -PI * 0.5 + 0.28
-	interior.add_child(wheel_pivot)
-	var wheel := MeshInstance3D.new()
-	var tor := TorusMesh.new()
-	tor.inner_radius = 0.18
-	tor.outer_radius = 0.245
-	wheel.mesh = tor
-	wheel.material_override = pad
-	wheel_pivot.add_child(wheel)
-	for k in 3:
-		var spoke := MeshInstance3D.new()
-		var sm := BoxMesh.new()
-		sm.size = Vector3(0.035, 0.19, 0.025)
-		spoke.mesh = sm
-		spoke.material_override = pad
-		spoke.position = Vector3(0, 0.095, 0)
-		spoke.rotation.z = k * TAU / 3.0
-		wheel_pivot.add_child(spoke)
-	var hub := MeshInstance3D.new()
-	var hm2 := CylinderMesh.new()
-	hm2.top_radius = 0.06
-	hm2.bottom_radius = 0.06
-	hm2.height = 0.05
-	hub.mesh = hm2
-	hub.rotation.x = PI * 0.5
-	hub.material_override = steel
-	wheel_pivot.add_child(hub)
-	_interior_box(Vector3(0.06, 0.06, 0.6), Vector3(-0.55, 0.62, -2.95), steel)
-	# 仪表遮光罩 + 暖色仪表光条
-	_interior_box(Vector3(0.62, 0.16, 0.12), Vector3(-0.55, 0.7, -3.5), shell)
-	var gauge := MeshInstance3D.new()
-	var gm := BoxMesh.new()
-	gm.size = Vector3(0.34, 0.03, 0.02)
-	gauge.mesh = gm
-	var gmat := StandardMaterial3D.new()
-	gmat.albedo_color = Color(0.9, 0.55, 0.2)
-	gmat.emission_enabled = true
-	gmat.emission = Color(1.0, 0.55, 0.18)
-	gmat.emission_energy_multiplier = 1.0
-	gauge.material_override = gmat
-	gauge.position = Vector3(-0.55, 0.72, -3.43)
-	interior.add_child(gauge)
 	# 舱内暖色小灯：夜间/雾天也能看清仪表台与舱内
 	var cab_light := OmniLight3D.new()
 	cab_light.light_color = Color(1.0, 0.82, 0.6)
@@ -737,41 +641,6 @@ func _build_interior() -> void:
 	cab_light.omni_range = 8.0
 	cab_light.position = Vector3(0, 1.85, 0.4)
 	interior.add_child(cab_light)
-	# 生活舱杂物：灶台锅具 / 吊柜 / 货架货物 / 餐桌餐具 / 床铺卧具 / 窗帘
-	var cloth := _mat(Color(0.32, 0.18, 0.15))
-	var bedding := _mat(Color(0.3, 0.31, 0.3))
-	var crate_mat := _mat(Color(0.34, 0.26, 0.17))
-	var can_mat := _mat(Color(0.38, 0.39, 0.4))
-	var food_mat := _mat(Color(0.45, 0.34, 0.16))
-	# 灶台：汤锅 / 煎锅 / 水龙头 / 墙上吊柜
-	_interior_cyl(Vector3(-1.0, 0.6, -1.05), 0.16, 0.2, steel)
-	_interior_cyl(Vector3(-1.0, 0.72, -1.05), 0.15, 0.04, pad)
-	_interior_cyl(Vector3(-1.0, 0.52, 0.55), 0.19, 0.05, steel)
-	_interior_box(Vector3(0.05, 0.04, 0.22), Vector3(-0.98, 0.52, 0.78), steel)
-	_interior_cyl(Vector3(-0.88, 0.56, -0.18), 0.018, 0.14, steel)
-	_interior_box(Vector3(0.03, 0.03, 0.12), Vector3(-0.88, 0.62, -0.23), steel)
-	_interior_box(Vector3(0.28, 0.5, 1.8), Vector3(-1.16, 1.55, -0.1), wood)
-	# 货架三层货物：木箱 / 罐头 / 粮袋 / 瓶子
-	_interior_box(Vector3(0.26, 0.2, 0.34), Vector3(1.12, 0.12, -0.2), crate_mat)
-	_interior_box(Vector3(0.28, 0.24, 0.3), Vector3(1.12, 0.57, 0.35), crate_mat)
-	_interior_cyl(Vector3(1.05, 0.09, 0.55), 0.07, 0.16, can_mat)
-	_interior_cyl(Vector3(1.19, 0.09, 0.55), 0.07, 0.16, can_mat)
-	_interior_cyl(Vector3(1.06, 0.54, -0.1), 0.07, 0.16, can_mat)
-	_interior_box(Vector3(0.24, 0.2, 0.22), Vector3(1.12, 1.0, 0.0), food_mat)
-	_interior_cyl(Vector3(1.06, 0.99, 0.82), 0.035, 0.2, can_mat)
-	_interior_cyl(Vector3(1.15, 0.99, 0.85), 0.035, 0.2, can_mat)
-	# 餐桌：餐盘 / 水杯 / 酒瓶
-	_interior_cyl(Vector3(0.1, 0.37, 1.7), 0.12, 0.02, pad)
-	_interior_cyl(Vector3(0.42, 0.4, 1.62), 0.04, 0.09, steel)
-	_interior_cyl(Vector3(0.38, 0.46, 1.9), 0.035, 0.2, can_mat)
-	# 后铺：枕头 / 毯子 / 衣物卷
-	_interior_box(Vector3(0.55, 0.12, 0.3), Vector3(-0.7, 0.44, 2.28), bedding)
-	_interior_box(Vector3(1.7, 0.08, 0.9), Vector3(0.1, 0.42, 2.62), cloth)
-	var roll := _interior_cyl(Vector3(0.85, 0.48, 2.28), 0.09, 0.5, cloth)
-	roll.rotation.z = PI * 0.5
-	# 窗帘（弱化大片裸玻璃的生硬）
-	_interior_box(Vector3(0.03, 1.0, 0.5), Vector3(-1.27, 1.42, -0.4), cloth)
-	_interior_box(Vector3(0.03, 1.0, 0.5), Vector3(-1.27, 1.42, 2.5), cloth)
 
 ## 车内视角的队友：副驾坐姿、其余站姿，各自在灶台/货架/餐桌/后铺忙碌
 func _build_crew() -> void:
@@ -881,28 +750,6 @@ func _start_banter() -> void:
 		fb.rotation.y = back
 		banter_busy = false
 	)
-
-func _interior_box(size: Vector3, pos: Vector3, mat: Material) -> void:
-	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = size
-	mi.mesh = bm
-	mi.position = pos
-	mi.material_override = mat
-	interior.add_child(mi)
-
-## 内饰小圆柱（锅/罐/杯/瓶）：pos 为世界中心，radius/height 定尺寸，轴朝 Y
-func _interior_cyl(pos: Vector3, radius: float, height: float, mat: Material) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	var cm := CylinderMesh.new()
-	cm.top_radius = radius
-	cm.bottom_radius = radius
-	cm.height = height
-	mi.mesh = cm
-	mi.position = pos
-	mi.material_override = mat
-	interior.add_child(mi)
-	return mi
 
 func _build_camera() -> void:
 	cam = Camera3D.new()

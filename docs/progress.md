@@ -1,5 +1,23 @@
 # 开发日志
 
+## 2026-10-22 · n33 房车内饰精模 GLB 化
+
+### 本次完成
+
+- **程序化盒子内饰（144 行）整体替换为 Blender 精模 GLB**（assets/rv_interior.glb，约 60 物件）：壳体/驾驶舱/厨房/货架/餐桌/后铺/窗帘/方向盘组 1:1 还原原布局，新增头枕、盖钮、瓶颈等细节；`_build_interior` 只剩实例化 + cab_light 暖色小灯（夜间/雾天舱内可视），`_interior_box`/`_interior_cyl` helper 删除
+- **Godot↔Blender 坐标映射定式**：`G(x,y,z)=(x,-z,y)`、尺寸 `(sx,sy,sz)→scale(sx,sz,sy)`、rotation.x 直通；方向盘辐条局部系照抄原构造（spoke 共享中心、各转 120°）
+- **金属度返工一次**：转向柱 metallic=0.75 在天空环境反射下反出亮蓝，steel/canm 降到 0.25/0.2、rough 提到 0.55/0.5 修复（沉淀 art-pipeline §4.1 教训 17）
+- 兼容性零改动：节点名 "Interior"、rv 本地系（地板顶 y=-0.4）不变，队友五站位/view_mode 显隐/combat 隐藏全部直接兼容
+- 验收链：Blender Workbench 双机位目检 → Godot 窗口 harness C 键切 view_mode 1/2 截帧（驾驶舱：方向盘+发光仪表条+A柱+侧窗绿野；生活舱：钢台面+煎锅+吊柜+窗帘+货架）；harness 与建模脚本已删；无头回归 EXIT=0
+
+### 待办
+
+- 相机面冲房车时穿壳（无遮挡处理），后续加相机拉近/避障
+- 沈蔓立绘 shenman_normal.jpg + avatars/shen_man.jpg（需 ARK_API_KEY）
+- push 积压：e869390/35dc84e/61519d1/aa04889/51d6bf7（GitHub SNI 阻断，待 VPN）
+
+---
+
 ## 2026-10-22 · n32 下车玩家 GLB 精模化 + 战斗相机根因修复
 
 ### 本次完成

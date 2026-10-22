@@ -72,6 +72,7 @@ blender --background --addons vrm_addon --python run_pipeline.py -- <in.vrm> <ou
 14. **表情基零资产方案**：VRM 烘焙 GLB 的 Face 网格自带 72 个 morph target（Fcl_ALL/BRW/EYE/MTH/HA 全套 + VRC 口型），Godot 直接 `mi.find_blend_shape_by_name("Fcl_EYE_Close")` + `set_blend_shape_value` 驱动，无需任何资产改动（见 char_lively.gd）
 15. **NLA 污染根治（2026-10-22 教训，取代 stash 法）**：`stash()` 建的未静音 NLA 轨会在关键帧间隙 HOLD 外推、污染后续动作（aim 烘完 walk 全带端枪手）。对策 = 导入 GLB 后**立即删全部 NLA 轨**（`for tr in list(ad.nla_tracks): ad.nla_tracks.remove(tr)` + `ad.action=None`），新 action 一律**不 stash**——`ACTIONS` 导出模式不需要 NLA 轨。配合第 13 条 idle.copy 起步即可
 16. **替换 GLB 后必须重导入（2026-10-22 教训）**：覆盖 `godot/assets/` 下 GLB 后，Godot 运行时**不会自动重导入**，仍读 `.godot/imported` 旧缓存（症状：`Animation not found: "aim"` 连环空引用）。必须先跑一次 `Godot --headless --path godot --import` 再启动游戏
+17. **Godot 天空环境下金属材质偏蓝（2026-10-22 教训）**：metallic ≥0.7 的材质会镜面反射环境天空，在舱内第一视角反出突兀亮蓝（转向柱曾是视觉正中央一根亮蓝柱子）。**内饰金属件 metal ≤0.25、rough ≥0.5**（钢台面/罐头定版 0.25/0.55、0.2/0.5），靠浅灰基色而非金属度表达"金属感"；Blender Workbench 预览看不出来，必须 Godot 窗口截帧验收
 
 ### 4.2 截帧验收法
 
