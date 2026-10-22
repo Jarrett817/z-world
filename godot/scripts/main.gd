@@ -18,6 +18,7 @@ const PICKUP_SCRIPT := preload("res://scripts/pickup.gd")
 const SURVIVOR_SCRIPT := preload("res://scripts/survivor.gd")
 const STORY_SCRIPT := preload("res://scripts/story.gd")
 const PLAYER_SCRIPT := preload("res://scripts/player.gd")
+const MATE_SCRIPT := preload("res://scripts/mate.gd")
 
 const GROUND_Y := -1.56
 const KMH_FACTOR := 250.0   # 世界米 → 里程公里（1440 旧值，调快后一局实际驾驶 ~15 分钟走完序章的 680km 目标）
@@ -876,6 +877,8 @@ func _make_zombie_body() -> RigidBody3D:
 
 ## 玩家下车后的角色实体（战斗系统启用；在车内时为 null，丧尸追车）
 var player_body: Node3D = null
+## 下车协同作战的队友实体（仅 ground 下车模式生成，回车回收）
+var mates: Array = []
 
 func get_player_body() -> Node3D:
 	return player_body if is_instance_valid(player_body) else null
@@ -924,14 +927,24 @@ func start_combat(m: int) -> void:
 	combat_active = true
 	rv.combat_in = true
 	p.aim_yaw = rv.rotation.y
-	p.aim_pitch = 0.0
+	p.aim_pitch = -0.32
 	# 第三人称战斗：强制显示车壳、隐藏内饰与队友，退出时由视图模式恢复
 	rv_model.visible = true
 	interior.visible = false
 	for f in crew_figures:
 		f.visible = false
 	p._enter()
-	hud.toast("天窗射击：鼠标瞄准 · 左键开火 · G/T 返回" if m == 1 else "下车战斗：WASD 移动 · 鼠标瞄准 · 左键开火 · G 返回车内")
+	# 下车模式：全队队友下车协同作战（天窗模式身体探出车顶，队友留车内）
+	if m == 0:
+		for i in crew_members.size():
+			var mate := Node3D.new()
+			mate.set_script(MATE_SCRIPT)
+			mate.setup(crew_members[i].get("id", ""), i)
+			mate.position = p.position + Vector3(randf_range(-2.0, 2.0), 0.0, randf_range(-2.0, 2.0))
+			mate.position.y = ground_y(mate.position.z)
+			add_child(mate)
+			mates.append(mate)
+	hud.toast("天窗射击：鼠标瞄准 · 左键开火 · G/T 返回" if m == 1 else "下车战斗：WASD 移动 · 鼠标瞄准 · 左键开火 · 队友协同作战 · G 返回车内")
 
 func end_combat() -> void:
 	if not combat_active:
@@ -941,6 +954,10 @@ func end_combat() -> void:
 		p._exit()
 		p.queue_free()
 	player_body = null
+	for mate in mates:
+		if is_instance_valid(mate):
+			mate.queue_free()
+	mates.clear()
 	combat_active = false
 	rv.combat_in = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE

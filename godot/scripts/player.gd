@@ -17,7 +17,7 @@ enum Mode { ON_FOOT, SUNROOF }
 var main_node: Node   # duck-typed：调用 main/hud 上动态解析的方法
 var mode: int = Mode.ON_FOOT
 var aim_yaw := 0.0
-var aim_pitch := 0.0
+var aim_pitch := -0.32   # 高位俯视默认下压枪口，准星落在地面战场
 var fire_cd := 0.0
 var reload_t := 0.0
 var ammo := MAG_SIZE
@@ -77,7 +77,7 @@ func _exit() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		aim_yaw -= event.relative.x * MOUSE_SENS
-		aim_pitch = clampf(aim_pitch - event.relative.y * MOUSE_SENS, -1.1, 0.6)
+		aim_pitch = clampf(aim_pitch - event.relative.y * MOUSE_SENS, -1.2, 0.35)
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		_try_fire()
 
@@ -141,9 +141,10 @@ func _aim_and_camera(delta: float) -> void:
 	var cam_basis := Basis(Vector3.UP, aim_yaw)
 	var right := cam_basis.x
 	var back := cam_basis.z   # 瞄准基准 -Z，+Z 即玩家身后
-	cam.global_position = global_position + Vector3(0, 1.62, 0) + right * 0.55 + back * 3.2
+	# MOBA 式斜背后高位俯视：玩家居画面下方，准星指向远处战场，宏观感知敌我态势
+	cam.global_position = global_position + Vector3(0, 3.6, 0) + back * 4.5
 	var look_dir := (cam_basis * Vector3(0, 0, -1)).rotated(right, aim_pitch)
-	cam.look_at(cam.global_position + look_dir, Vector3.UP)
+	cam.look_at(cam.global_position + look_dir * 10.0, Vector3.UP)
 	_recoil = maxf(0.0, _recoil - delta * 6.0)
 	# 枪身随俯仰角指向瞄点，开火瞬间后坐上抬
 	gun.rotation.x = -aim_pitch - _recoil * 0.22
