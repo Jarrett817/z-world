@@ -32,9 +32,14 @@ func setup(main: Node3D) -> void:
 	speed = CHASE_SPEED_BASE + randf_range(-0.8, 1.4) * (1.0 + clampf(main.dist_km * 0.05, 0.0, 0.5))
 	mass = 70.0
 	linear_damp = 1.2
+	# 锁死物理旋转：否则胶囊体受地面/碰撞扭矩会整体乱转，朝向只由 AI 脚本控制
+	lock_rotation = true
+	angular_velocity = Vector3.ZERO
 	_remove_rig_controls(self)
 	_vary_materials(self)
 	anim = _find_anim_player(self)
+	if anim != null:
+		_trim_animations(anim)
 	state = St.WANDER if randf() < 0.7 else St.IDLE
 	state_t = randf_range(1.5, 5.0)
 	_pick_wander_target()
@@ -97,6 +102,69 @@ func _find_anim_player(node: Node) -> AnimationPlayer:
 		if r != null:
 			return r
 	return null
+
+## GLB 导出事故修复：动画按场景播放范围烘焙，前段是恒定姿势的冻结帧，
+## 真实动作只占末尾（Walk 5.83s 里仅最后 ~1.5s 在动），播起来像定格人偶滑行+周期性抽搐。
+## 运行时把每个动画裁到真实运动起点，静态缓存全实例共享。
+static var _trim_done := {}
+
+func _trim_animations(anim_player: AnimationPlayer) -> void:
+	var lib := anim_player.get_animation_library(&"")
+	if lib == null:
+		return
+	var key := lib.get_instance_id()
+	if _trim_done.has(key):
+		return
+	_trim_done[key] = true
+	for n in [WALK, ATTACK, DEATH, &"Idle"]:
+		if lib.has_animation(n):
+			var trimmed := _trim_frozen_prefix(lib.get_animation(n))
+			if trimmed != lib.get_animation(n):
+				lib.remove_animation(n)
+				lib.add_animation(n, trimmed)
+
+static func _trim_frozen_prefix(src: Animation) -> Animation:
+	# 真实运动起点：所有轨道中首个值偏离初始值的关键帧的最早时间
+	var t0 := -1.0
+	for ti in src.get_track_count():
+		var kc := src.track_get_key_count(ti)
+		if kc < 2:
+			continue
+		var v0 = src.track_get_key_value(ti, 0)
+		for k in range(1, kc):
+			if not _val_eq(src.track_get_key_value(ti, k), v0):
+				var t := src.track_get_key_time(ti, k)
+				if t0 < 0.0 or t < t0:
+					t0 = t
+				break
+	if t0 <= 0.05:
+		return src
+	var out := Animation.new()
+	out.length = src.length - t0
+	out.loop_mode = src.loop_mode
+	for ti in src.get_track_count():
+		var nti := out.add_track(src.track_get_type(ti))
+		out.track_set_path(nti, src.track_get_path(ti))
+		out.track_set_interpolation_type(nti, src.track_get_interpolation_type(ti))
+		var kc := src.track_get_key_count(ti)
+		if kc == 0:
+			continue
+		# 冻结前缀内轨道值恒等于初始值，新轨道起点直接放初始值
+		out.track_insert_key(nti, 0.0, src.track_get_key_value(ti, 0))
+		for k in range(1, kc):
+			var t := src.track_get_key_time(ti, k)
+			if t >= t0:
+				out.track_insert_key(nti, t - t0, src.track_get_key_value(ti, k))
+	return out
+
+static func _val_eq(a: Variant, b: Variant) -> bool:
+	if a is Quaternion and b is Quaternion:
+		return absf((a as Quaternion).dot(b as Quaternion)) > 0.99999
+	if a is Vector3 and b is Vector3:
+		return (a as Vector3).distance_squared_to(b as Vector3) < 1e-8
+	if a is float and b is float:
+		return absf(a - b) < 1e-5
+	return a == b
 
 func _physics_process(delta: float) -> void:
 	if main_node == null or rv == null:
