@@ -1,5 +1,23 @@
 # 开发日志
 
+## 2026-10-23 · n39 房车内部行走（937fc6f，push 待 VPN）
+
+### 本次完成（用户 12 项反馈中的第 10 项）
+
+- **Q 键 / HUD「车内」按钮**：驻车起身车内第一人称行走；有队友时行驶中也可起身（首位队友挪到主驾代驾，rv.gd 定速巡航 + 公路自动跟弯，回正逻辑复用）
+- **实现**：player.gd 新增 `Mode.RV_WALK`，玩家挂 rv 子节点在本地空间直接挪动（地板 y=-0.4，x±1.0 / z -2.7~4.3，无物理）；aim_yaw 保持 rv 本地、相机直接用本地变换——车转弯不甩视角；强制 FPS（toggle_fps 加 force 参数）
+- **限制**：车内无法开枪（toast 引导回驾驶座）、跳跃/下蹲自动禁用（既有 ON_FOOT 守卫）；剧情事件在行走中不触发（鼠标捕获态点不了选项）
+- **HUD**：复用 combat_root 但隐藏开火/跳跃/换弹/换枪/下蹲/视角按钮与弹药行，只留摇杆 + 「上车」撤离（新增 set_rv_walk_active；combat_fire_buttons 引用数组）
+- **验收**：`--shotrvwalk` 截帧钩子（先驻车再 start_rv_walk 稳定 1.5s 截图），zw_walk1.png 目检通过；无头回归 EXIT=0
+
+### 待办
+
+- VRoid 换装与超清模型（丝袜/裙子/御姐；VRM→Blender→GLB 管线或游戏内服装 mesh 切换）——P3
+- 画质提升（大公司手游质感）：玻璃幕墙反射、光影、后处理——P3
+- 署名页欠账：pxltiger、Colodical、TastyTony、5Nikitos5、SpatialNeglect、Vlasov Daniil（CC-BY）
+
+---
+
 ## 2026-10-23 · n38 地形碰撞架构重构 + P0 反馈六连修（92884ed）
 
 ### 本次完成（用户 12 项反馈中的 9 项，余：房车内部行走/VRoid 换装/画质）
