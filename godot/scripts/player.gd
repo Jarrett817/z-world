@@ -1,7 +1,7 @@
 extends CharacterBody3D
 ## 沈蔓下车战斗：第三人称肩后视角，鼠标瞄准，左键射击。
 ## 车顶天窗模式：身体固定在 RV 顶部，只能转身开火（行车中也能用）。
-## W/A/S/D 地面移动，Shift 奔跑，R 换弹，1-4 换枪，G 回到驾驶座结束模式。
+## W/A/S/D 地面移动，Shift 奔跑，Space 跳跃，C 下蹲，R 换弹，1-4 换枪，G 回到驾驶座结束模式。
 ## 武器数据驱动（res://data/guns.json）：模型/缩放/朝向/射速/弹匣/后坐全在 JSON。
 
 const WALK_SPEED := 4.2
@@ -9,6 +9,9 @@ const RUN_SPEED := 6.8
 const MOUSE_SENS := 0.0026
 const RAY_DIST := 90.0
 const GRAVITY := 18.0
+const JUMP_VEL := 7.2
+const CROUCH_MUL := 0.45
+const GUN_POS := Vector3(-0.12, 1.30, 0.33)   # 枪挂点基准（下蹲时随手下放）
 
 enum Mode { ON_FOOT, SUNROOF }
 
@@ -36,6 +39,10 @@ var _firing := false             # 左键按住（全自动连发用）
 var _r_down := false
 var _recoil := 0.0
 var touch_move := Vector2.ZERO   # HUD 虚拟摇杆输入（-1..1），与键盘并存
+var _airborne := false           # 跳跃滞空中（落地才恢复贴地）
+var _crouching := false
+var _space_down := false
+var _c_down := false
 
 func setup(main: Node, m: int) -> void:
 	main_node = main
@@ -54,8 +61,9 @@ func _ready() -> void:
 	var made := CharUtil.instantiate("hero", "aim", {}, false)
 	model_root = made["node"]
 	_anim = made["anim"]
-	for a in ["aim", "walk", "run"]:
+	for a in ["aim", "walk", "run", "crouch"]:
 		_anim.get_animation(a).loop_mode = Animation.LOOP_LINEAR
+	_anim.get_animation("jump").loop_mode = Animation.LOOP_NONE
 	add_child(model_root)
 	# 武器数据
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/guns.json"))
@@ -65,7 +73,7 @@ func _ready() -> void:
 		_ammo_map[id] = int(_guns[id]["mag_size"])
 	# 枪挂点：位置按 aim 动作双手实测对位；grip 点对齐到这里
 	gun = Node3D.new()
-	gun.position = Vector3(-0.12, 1.30, 0.33)
+	gun.position = GUN_POS
 	model_root.add_child(gun)
 	_equip_current()
 	cam = Camera3D.new()
@@ -115,6 +123,8 @@ func switch_gun_next() -> void:
 
 func _enter() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_crouching = false
+	_airborne = false
 	cam.current = true
 	main_node.hud.set_combat_active(true, ammo(), hp)
 	_equip_current()
@@ -172,12 +182,34 @@ func _physics_process(delta: float) -> void:
 	if rk and not _r_down:
 		reload()
 	_r_down = rk
+	var sk := Input.is_physical_key_pressed(KEY_SPACE)
+	if sk and not _space_down:
+		jump()
+	_space_down = sk
+	var ck := Input.is_physical_key_pressed(KEY_C)
+	if ck and not _c_down:
+		toggle_crouch()
+	_c_down = ck
 	if mode == Mode.ON_FOOT:
 		_move_foot(delta)
 	else:
 		velocity = Vector3.ZERO
 		move_and_slide()
 	_aim_and_camera(delta)
+
+## 跳跃（Space / HUD 跳跃按钮）：滞空期间禁用下蹲
+func jump() -> void:
+	if mode != Mode.ON_FOOT or _airborne:
+		return
+	_crouching = false
+	_airborne = true
+	velocity.y = JUMP_VEL
+
+## 下蹲切换（C / HUD 下蹲按钮）
+func toggle_crouch() -> void:
+	if mode != Mode.ON_FOOT or _airborne:
+		return
+	_crouching = not _crouching
 
 func _move_foot(delta: float) -> void:
 	var input := Vector2.ZERO
@@ -189,10 +221,12 @@ func _move_foot(delta: float) -> void:
 		input.x -= 1.0
 	if Input.is_physical_key_pressed(KEY_D) or Input.is_physical_key_pressed(KEY_RIGHT):
 		input.x += 1.0
-	# 触屏摇杆输入叠加，推满自动奔跑
+	# 触屏摇杆输入叠加，推满自动奔跑（下蹲时强制慢走）
 	input += touch_move
-	var sprinting := Input.is_physical_key_pressed(KEY_SHIFT) or touch_move.length() > 0.85
+	var sprinting := (Input.is_physical_key_pressed(KEY_SHIFT) or touch_move.length() > 0.85) and not _crouching
 	var spd := RUN_SPEED if sprinting else WALK_SPEED
+	if _crouching:
+		spd *= CROUCH_MUL
 	var yaw_basis := Basis(Vector3.UP, aim_yaw)
 	var dir := yaw_basis * Vector3(input.x, 0, input.y)
 	if dir.length() > 0.01:
@@ -201,15 +235,29 @@ func _move_foot(delta: float) -> void:
 	velocity.z = dir.z * spd
 	velocity.y -= GRAVITY * delta
 	move_and_slide()
-	# 贴地：跟随地形
-	position.y = main_node.ground_y(position.z)
-	velocity.y = 0.0
+	var ground: float = main_node.ground_y(position.z)
+	if _airborne:
+		# 滞空：仅下落段才检测落地（起跳帧 y 还在地面，直接判会瞬间落地）
+		if velocity.y <= 0.0 and position.y <= ground:
+			position.y = ground
+			velocity.y = 0.0
+			_airborne = false
+	else:
+		# 贴地：跟随地形
+		position.y = ground
+		velocity.y = 0.0
+	# 下蹲时手臂随骨骼链下沉，枪挂点同步下放
+	gun.position.y = lerpf(gun.position.y, 0.99 if _crouching else GUN_POS.y, delta * 10.0)
 	# 模型朝瞄准方向（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
 	model_root.rotation.y = aim_yaw + PI
-	# 动画：静止端枪戒备，走动/奔跑切换（变化才播，0.15s 融合）
+	# 动画优先级：跳跃 > 下蹲 > 走/跑 > 端枪戒备（变化才播，0.15s 融合）
 	var want := "aim"
 	if dir.length() > 0.01:
 		want = "run" if sprinting else "walk"
+	if _crouching:
+		want = "crouch"
+	if _airborne:
+		want = "jump"
 	if want != _cur_anim:
 		_cur_anim = want
 		_anim.play(want, 0.15)

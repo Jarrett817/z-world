@@ -308,27 +308,29 @@ func _build_combat(root: Control) -> void:
 	crosshair.offset_bottom = 8
 	crosshair.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	combat_root.add_child(crosshair)
-	# 右下：弹匣 + 枪名（在开火按钮上方）
+	# 右下：弹匣 + 枪名（左侧按钮列上方，避免与跳跃/下蹲按钮重叠）
 	ammo_label = _label("12/12", 30, ACCENT)
 	ammo_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	ammo_label.offset_left = -220
-	ammo_label.offset_right = -24
-	ammo_label.offset_top = -196
-	ammo_label.offset_bottom = -148
+	ammo_label.offset_left = -364
+	ammo_label.offset_right = -190
+	ammo_label.offset_top = -262
+	ammo_label.offset_bottom = -214
 	ammo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	combat_root.add_child(ammo_label)
 	gun_label = _label("", 16, TEXT_DIM)
 	gun_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	gun_label.offset_left = -220
-	gun_label.offset_right = -24
-	gun_label.offset_top = -226
-	gun_label.offset_bottom = -200
+	gun_label.offset_left = -364
+	gun_label.offset_right = -190
+	gun_label.offset_top = -292
+	gun_label.offset_bottom = -266
 	gun_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	combat_root.add_child(gun_label)
-	# 触屏战斗按钮组：开火（大）/ 换弹 / 换枪 / 上车撤离
+	# 触屏战斗按钮组：开火（大）/ 跳跃 / 换弹 / 换枪 / 下蹲 / 上车撤离
 	_touch_button(combat_root, "开火", Control.PRESET_BOTTOM_RIGHT, Rect2(-170, -140, 146, 116), "fire")
-	_touch_button(combat_root, "换弹", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -140, 150, 54), "reload")
-	_touch_button(combat_root, "换枪", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -76, 150, 54), "swapgun")
+	_touch_button(combat_root, "跳跃", Control.PRESET_BOTTOM_RIGHT, Rect2(-170, -262, 146, 62), "jump")
+	_touch_button(combat_root, "换弹", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -204, 150, 54), "reload")
+	_touch_button(combat_root, "换枪", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -140, 150, 54), "swapgun")
+	_touch_button(combat_root, "下蹲", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -76, 150, 54), "crouch")
 	_touch_button(combat_root, "上车", Control.PRESET_TOP_RIGHT, Rect2(-170, 64, 146, 54), "exitcombat")
 	# 左下：虚拟摇杆（手游移动）
 	var js := Joystick.new()
@@ -842,6 +844,12 @@ func _on_btn_down(action: String) -> void:
 		"reload":
 			if rv.main_node != null and rv.main_node.get_player_body() != null:
 				rv.main_node.get_player_body().reload()
+		"jump":
+			if rv.main_node != null and rv.main_node.get_player_body() != null:
+				rv.main_node.get_player_body().jump()
+		"crouch":
+			if rv.main_node != null and rv.main_node.get_player_body() != null:
+				rv.main_node.get_player_body().toggle_crouch()
 		"exitcombat":
 			if rv.main_node != null:
 				rv.main_node.end_combat()
