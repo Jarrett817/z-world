@@ -32,7 +32,7 @@
 - **贴图压缩**：Windows/S3TC 首次导入会自动生成 `.s3tc.ctex` 并改写 `.import`（VRAM compress/mode=2），这类自动改写与 glb 一起提交，避免干净环境首次运行卡顿
 - **源文件必须入库**：只允许 `.godot/imported` 缓存存在、`.import` 指向的 glb 本体缺失是事故（本次发现 `zmb_stand_g.glb` 就是此状态）。修复方式：补回本体，或删除引用改代码
 - **动画名契约**：VRM 人类角色统一 `idle`（LOOP_LINEAR）/ `sit`（静态坐姿循环）；丧尸沿用 `Walk` / `Attack` / `Death`。脚本经 `find_child("AnimationPlayer",true,false)` 按名取轨道，`has_animation` 守卫，换模型不改脚本
-- **实例 scale 契约**：丧尸当前实例 scale 0.058–0.072（源模型约 25m 高的历史遗留），新做的角色按真实米数建模后，在 spawn 处显式 scale=1.0，不再沿用怪比例
+- **实例 scale 契约**：丧尸为 Quaternius 真实米数模型（站立约 2m），spawn 处 `scale=randf_range(0.75, 0.9)` 保持体型差异；角色按真实米数建模后 spawn 处显式 scale=1.0。旧 Sketchfab 25m 怪比例（0.058–0.072）已随模型替换废弃
 - 碰撞不用 glb 内三角面：RigidBody/StaticBody 外挂 Capsule/Box 碰撞（现有 spawn 代码已是此模式，保留）
 
 ## 4. 角色方案：VRM 女性基底 + 程序化 idle/sit 烘焙
@@ -73,6 +73,8 @@ blender --background --addons vrm_addon --python run_pipeline.py -- <in.vrm> <ou
 15. **NLA 污染根治（2026-10-22 教训，取代 stash 法）**：`stash()` 建的未静音 NLA 轨会在关键帧间隙 HOLD 外推、污染后续动作（aim 烘完 walk 全带端枪手）。对策 = 导入 GLB 后**立即删全部 NLA 轨**（`for tr in list(ad.nla_tracks): ad.nla_tracks.remove(tr)` + `ad.action=None`），新 action 一律**不 stash**——`ACTIONS` 导出模式不需要 NLA 轨。配合第 13 条 idle.copy 起步即可
 16. **替换 GLB 后必须重导入（2026-10-22 教训）**：覆盖 `godot/assets/` 下 GLB 后，Godot 运行时**不会自动重导入**，仍读 `.godot/imported` 旧缓存（症状：`Animation not found: "aim"` 连环空引用）。必须先跑一次 `Godot --headless --path godot --import` 再启动游戏
 17. **Godot 天空环境下金属材质偏蓝（2026-10-22 教训）**：metallic ≥0.7 的材质会镜面反射环境天空，在舱内第一视角反出突兀亮蓝（转向柱曾是视觉正中央一根亮蓝柱子）。**内饰金属件 metal ≤0.25、rough ≥0.5**（钢台面/罐头定版 0.25/0.55、0.2/0.5），靠浅灰基色而非金属度表达"金属感"；Blender Workbench 预览看不出来，必须 Godot 窗口截帧验收
+18. **Quaternius 官网下载被墙时的镜像直链法（2026-10-22 教训）**：quaternius.com 的 Download 按钮实际指向 Google Drive 文件夹（本机 ERR_CONNECTION_TIMED_OUT）。fallback = poly.pizza 官方镜像：PowerShell `Invoke-WebRequest -UseBasicParsing` 抓模型页面 HTML，正则提取 `https://static.poly.pizza/<uuid>.glb` 直链直接下载（本机直连可达，无需浏览器）。同一作者多包混杂，按上传日期甄别包归属（Zombie Apocalypse Kit = 2024-03-17 上传，CC0；2021 年的 Animated Zombie 是 CC-BY 老物）
+19. **poly.pizza GLB 的 NLA 前缀动画导出法（2026-10-22 教训，两次翻车定版）**：poly.pizza 下的 GLB 导入 Blender 后动画 stash 在 NLA（16 轨），active action 带 `CharacterArmature|` 前缀。直接删前缀 action 会把 active 一并删掉、`ACTIONS` 模式导出丢全部动画（Godot 里无 AnimationPlayer）；只改裸名也匹配不上带前缀的轨名。定版做法：`short_name(n)=n.split("|")[-1]` **同步**重命名全部 action 与 NLA 轨名（`Idle_Attack`→`Attack` 契约一并完成）→ `arm.animation_data.action = None` → `export_animation_mode='NLA_TRACKS'` 导出
 
 ### 4.2 截帧验收法
 

@@ -862,7 +862,8 @@ func _spawn_zombie() -> void:
 		col.position.y = 0.7
 		body.add_child(col)
 		var model: Node3D = (ZMB_SCENE_G if randf() < 0.4 else ZMB_SCENE).instantiate()
-		model.scale = Vector3.ONE * randf_range(0.058, 0.072)
+	# Quaternius 模型按真实米数建模（站立约 2m），随机缩放保持体型差异
+		model.scale = Vector3.ONE * randf_range(0.75, 0.9)
 		body.add_child(model)
 		add_child(body)
 		body.setup(self)

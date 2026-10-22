@@ -1,5 +1,23 @@
 # 开发日志
 
+## 2026-10-22 · n34 丧尸换 Quaternius CC0 双模型修长手 + 立绘回收
+
+### 本次完成
+
+- **丧尸模型整体替换**：旧 Sketchfab Low Poly Zombie 确诊蒙皮/绑定事故（Walk 单手拖地细长），不修直接换 Quaternius Zombie Apocalypse Kit（CC0，2024-03）：绿瘦 zmb_stand.glb + 蓝胖 zmb_stand_g.glb 双变体，各 16 动画（Walk/Attack/Death 契约齐，Idle_Attack 重命名 Attack）
+- **下载链路**：官网 Google Drive 被墙 → poly.pizza 官方镜像 Invoke-WebRequest 抓 HTML 提取 static.poly.pizza 直链（沉淀 art-pipeline §4.1 教训 18）；Blender NLA 前缀动画导出两次翻车后定版 split("|") 同步改名 + NLA_TRACKS 模式（教训 19）
+- **zombie.gd 净删约 72 行**：`_remove_rig_controls`（旧模型 rig 圆环 workaround，会误删新 2m 模型）+ `_trim_animations` 系（旧模型动画冻结前缀事故运行时修复）全部删除，无 backwards-compatibility 包袱
+- **main.gd scale 改真实米数**：0.058–0.072 怪比例废弃，改 randf_range(0.75, 0.9)（站立约 2m，40% 概率出蓝胖变体）
+- **立绘回收**：c_black.jpg 从 git LFS 历史回滚用户原图（黑丝御姐），b_white 白丝金发图补沈蔓空缺 shen_man.jpg
+- 验收：Blender 渲染双模型无长手 → `--headless --import` 重导入 → Godot 动画列表 16 短名契约齐 → 窗口截帧三只全 Walk 贴地有影无 T-pose；无头回归 EXIT=0
+
+### 待办
+
+- 幸存者逃命跑向房车 + 自带武器 + 接入触发对话
+- 下车战斗 MOBA 式背后视角 / 车内自由视角 / 物理碰撞不消失 / 多地形路面
+
+---
+
 ## 2026-10-22 · n33 房车内饰精模 GLB 化
 
 ### 本次完成
