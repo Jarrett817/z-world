@@ -12,6 +12,9 @@ const GRAVITY := 18.0
 const JUMP_VEL := 7.2
 const CROUCH_MUL := 0.45
 const GUN_POS := Vector3(-0.12, 1.30, 0.33)   # 枪挂点基准（下蹲时随手下放）
+const FPS_GUN_POS := Vector3(0.24, -0.22, 0.5)   # 第一人称视模型枪位（眼部挂点本地，+Z 朝准星）
+const FPS_EYE := 1.62        # 站立眼高
+const FPS_EYE_CROUCH := 1.05 # 下蹲眼高
 
 enum Mode { ON_FOOT, SUNROOF }
 
@@ -38,6 +41,8 @@ var _firing := false             # 左键按住（全自动连发用）
 
 var _r_down := false
 var _recoil := 0.0
+var fps := false             # 第一人称视角（V / HUD 视角按钮）
+var fps_rig: Node3D          # 第一人称时的枪挂点（挂在自身，不随 model_root 隐藏）
 var touch_move := Vector2.ZERO   # HUD 虚拟摇杆输入（-1..1），与键盘并存
 var _airborne := false           # 跳跃滞空中（落地才恢复贴地）
 var _crouching := false
@@ -75,6 +80,8 @@ func _ready() -> void:
 	gun = Node3D.new()
 	gun.position = GUN_POS
 	model_root.add_child(gun)
+	fps_rig = Node3D.new()
+	add_child(fps_rig)
 	_equip_current()
 	cam = Camera3D.new()
 	cam.fov = 68.0
@@ -133,12 +140,28 @@ func _exit() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	cam.current = false
 	_firing = false
+	if fps:
+		toggle_fps()
 	main_node.hud.set_combat_active(false, ammo(), hp)
 
+## 第一/第三人称切换：FPS 隐藏身体，枪移到眼部挂点当视模型
+func toggle_fps() -> void:
+	fps = not fps
+	if fps:
+		gun.reparent(fps_rig)
+		gun.position = FPS_GUN_POS
+	else:
+		gun.reparent(model_root)
+		gun.position = GUN_POS
+	gun.rotation = Vector3.ZERO
+	model_root.visible = not fps
+	main_node.hud.toast("第一人称" if fps else "第三人称")
+
 func _unhandled_input(event: InputEvent) -> void:
+	var pitch_hi := 1.35 if fps else 0.35   # FPS 允许抬头看天
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		aim_yaw -= event.relative.x * MOUSE_SENS
-		aim_pitch = clampf(aim_pitch - event.relative.y * MOUSE_SENS, -1.2, 0.35)
+		aim_pitch = clampf(aim_pitch - event.relative.y * MOUSE_SENS, -1.35, pitch_hi)
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		_firing = event.pressed
 		if event.pressed:
@@ -146,11 +169,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventScreenDrag:
 		# 触屏右半屏拖动瞄准（摇杆区事件已被 HUD 消费，到不了这里）
 		aim_yaw -= event.relative.x * MOUSE_SENS * 1.6
-		aim_pitch = clampf(aim_pitch - event.relative.y * MOUSE_SENS * 1.6, -1.2, 0.35)
+		aim_pitch = clampf(aim_pitch - event.relative.y * MOUSE_SENS * 1.6, -1.35, pitch_hi)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		# 数字键 1-4 直选武器
 		if event.keycode >= KEY_1 and event.keycode <= KEY_4:
 			switch_gun(int(event.keycode - KEY_1))
+		elif event.keycode == KEY_V:
+			toggle_fps()
 
 ## HUD 开火按钮：按下开火（半自动单发、全自动按住连发），松开停火
 func press_fire() -> void:
@@ -235,7 +260,7 @@ func _move_foot(delta: float) -> void:
 	velocity.z = dir.z * spd
 	velocity.y -= GRAVITY * delta
 	move_and_slide()
-	var ground: float = main_node.ground_y(position.z)
+	var ground: float = main_node.ground_height(position.x, position.z)
 	if _airborne:
 		# 滞空：仅下落段才检测落地（起跳帧 y 还在地面，直接判会瞬间落地）
 		if velocity.y <= 0.0 and position.y <= ground:
@@ -246,8 +271,9 @@ func _move_foot(delta: float) -> void:
 		# 贴地：跟随地形
 		position.y = ground
 		velocity.y = 0.0
-	# 下蹲时手臂随骨骼链下沉，枪挂点同步下放
-	gun.position.y = lerpf(gun.position.y, 0.99 if _crouching else GUN_POS.y, delta * 10.0)
+	# 下蹲时手臂随骨骼链下沉，枪挂点同步下放（FPS 枪位由 _aim_and_camera 管理）
+	if not fps:
+		gun.position.y = lerpf(gun.position.y, 0.99 if _crouching else GUN_POS.y, delta * 10.0)
 	# 模型朝瞄准方向（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
 	model_root.rotation.y = aim_yaw + PI
 	# 动画优先级：跳跃 > 下蹲 > 走/跑 > 端枪戒备（变化才播，0.15s 融合）
@@ -268,8 +294,15 @@ func _aim_and_camera(delta: float) -> void:
 	var cam_basis := Basis(Vector3.UP, aim_yaw)
 	var right := cam_basis.x
 	var back := cam_basis.z   # 瞄准基准 -Z，+Z 即玩家身后
-	# MOBA 式斜背后高位俯视：玩家居画面下方，准星指向远处战场，宏观感知敌我态势
-	cam.global_position = global_position + Vector3(0, 3.6, 0) + back * 4.5
+	if fps:
+		# 第一人称：相机贴眼位，枪挂点随视线同步（下蹲降眼高）
+		var eye_h := FPS_EYE_CROUCH if _crouching else FPS_EYE
+		cam.global_position = global_position + Vector3(0, eye_h, 0) + back * 0.05
+		fps_rig.position = Vector3(0, eye_h, 0)
+		fps_rig.rotation.y = aim_yaw + PI
+	else:
+		# MOBA 式斜背后高位俯视：玩家居画面下方，准星指向远处战场，宏观感知敌我态势
+		cam.global_position = global_position + Vector3(0, 3.6, 0) + back * 4.5
 	var look_dir := (cam_basis * Vector3(0, 0, -1)).rotated(right, aim_pitch)
 	cam.look_at(cam.global_position + look_dir * 10.0, Vector3.UP)
 	_recoil = maxf(0.0, _recoil - delta * 6.0)
@@ -306,6 +339,9 @@ func _try_fire() -> void:
 	var target: Vector3 = hit["position"] if hit else aim_from + aim_dir * RAY_DIST
 	var muzzle_ws := muzzle.global_position
 	var dir := (target - muzzle_ws).normalized()
+	# 相机在身后：俯角大时目标点可能落在枪口后方，导致弹道反向，直接沿瞄准方向打
+	if dir.dot(aim_dir) < 0.5:
+		dir = aim_dir
 	main_node.spawn_bullet(muzzle_ws, dir, float(cfg["bullet_speed"]), exclude)
 	# 枪声惊动周围尸群
 	main_node.alert_gunshot(muzzle_ws)

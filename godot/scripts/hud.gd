@@ -115,10 +115,10 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 视角 · F 驻车 · G 下车战斗 · T 天窗射击 · E 设施 · Tab 队伍", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 视角 · F 驻车 · G 下车战斗 · T 天窗 · E 设施 · V 射击视角 · Tab 队伍", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	hint.offset_left = -720
-	hint.offset_right = -14
+	hint.offset_left = -860
+	hint.offset_right = -210
 	hint.offset_top = 14
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	root.add_child(hint)
@@ -332,6 +332,7 @@ func _build_combat(root: Control) -> void:
 	_touch_button(combat_root, "换枪", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -140, 150, 54), "swapgun")
 	_touch_button(combat_root, "下蹲", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -76, 150, 54), "crouch")
 	_touch_button(combat_root, "上车", Control.PRESET_TOP_RIGHT, Rect2(-170, 64, 146, 54), "exitcombat")
+	_touch_button(combat_root, "视角", Control.PRESET_TOP_RIGHT, Rect2(-170, 128, 146, 54), "fps")
 	# 左下：虚拟摇杆（手游移动）
 	var js := Joystick.new()
 	js.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
@@ -850,6 +851,9 @@ func _on_btn_down(action: String) -> void:
 		"crouch":
 			if rv.main_node != null and rv.main_node.get_player_body() != null:
 				rv.main_node.get_player_body().toggle_crouch()
+		"fps":
+			if rv.main_node != null and rv.main_node.get_player_body() != null:
+				rv.main_node.get_player_body().toggle_fps()
 		"exitcombat":
 			if rv.main_node != null:
 				rv.main_node.end_combat()

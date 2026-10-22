@@ -77,7 +77,7 @@ func _process(delta: float) -> void:
 		# 就位后面向玩家瞄准方向戒备
 		rotation.y = lerp_angle(rotation.y, _player.aim_yaw + PI, delta * 4.0)
 		_play("aim")
-	global_position.y = _main.ground_y(global_position.z)
+	global_position.y = _main.ground_height(global_position.x, global_position.z)
 
 ## 丧尸贴身啃咬钩子：应急反杀
 func on_bitten(z: Node3D) -> void:

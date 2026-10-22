@@ -68,6 +68,8 @@ func _open(id: String) -> void:
 	var ev: Dictionary = events[id]
 	active = true
 	main.story_active = true
+	# 战斗态鼠标被锁定，弹窗必须放出光标才能点选项
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	# JSON 外层 key 才是事件 id，注入副本传给 HUD
 	var evv: Dictionary = ev.duplicate()
 	evv["id"] = id
@@ -115,6 +117,8 @@ func choose(idx: int) -> void:
 	main.hud.hide_story()
 	active = false
 	main.story_active = false
+	# 战斗态恢复鼠标锁定（_enter 时 CAPTURED）
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if main.combat_active else Input.MOUSE_MODE_VISIBLE
 	main.set_facilities_ui(true)
 	main.hud.update_stats(main)
 	# 终局选项：驶入方舟（win）/ 叙事性死亡（lose）

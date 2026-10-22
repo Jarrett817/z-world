@@ -37,6 +37,7 @@ func _ready() -> void:
 	light.position.y = 0.7
 	add_child(light)
 	var area := Area3D.new()
+	area.collision_mask = 2  # 房车独占碰撞层2
 	var cs := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(3.4, 2.8, 3.4)

@@ -126,7 +126,15 @@ var sfx: Sfx
 var banter_t := 9.0
 var banter_busy := false
 
+var _shot_at := -1.0  # --shot=路径 命令行截帧：启动后计时保存并退出
+var _shot_path := ""
+var _shot_t := 0.0
+
 func _ready() -> void:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--shot="):
+			_shot_path = a.trim_prefix("--shot=")
+			_shot_at = 3.0
 	_load_survivors()
 	_load_facilities()
 	_load_zones()
@@ -178,7 +186,7 @@ func _physics_process(delta: float) -> void:
 		var w = _wrecks[i]
 		if not is_instance_valid(w):
 			_wrecks.remove_at(i)
-		elif w.global_position.y <= ground_y(w.global_position.z) + 0.35:
+		elif w.global_position.y <= ground_height(w.global_position.x, w.global_position.z) + 0.35:
 			w.freeze = true
 			_wrecks.remove_at(i)
 
@@ -279,6 +287,18 @@ func _zombies_hunting() -> bool:
 
 # ---------- 相机（追尾 / 驾驶舱 / 车内） ----------
 func _process(delta: float) -> void:
+	if _shot_at > 0.0:
+		_shot_t += delta
+		if _shot_t >= _shot_at:
+			_shot_at = -1.0
+			if story != null and story.active:
+				story.active = false
+				story_active = false
+				hud.hide_story()
+			await RenderingServer.frame_post_draw
+			get_viewport().get_texture().get_image().save_png(_shot_path)
+			get_tree().quit()
+			return
 	if rv == null:
 		return
 	_update_music()
@@ -636,12 +656,14 @@ func _recycle_world() -> void:
 		if p.global_position.z > rvz + 30.0:
 			var nz: float = p.global_position.z - 700.0
 			if p.has_meta("on_road"):
-				p.global_position = Vector3(road_x(nz) + randf_range(-5.5, 5.5), ground_y(nz) + 0.012, nz)
+				var nx := road_x(nz) + randf_range(-5.5, 5.5)
+				p.global_position = Vector3(nx, ground_height(nx, nz) + 0.012, nz)
 			else:
 				var side := 1.0 if randf() > 0.5 else -1.0
+				var nx: float = road_x(nz) + side * (ROAD_HALF + 3.0 + randf() * 26.0)
 				p.global_position = Vector3(
-					road_x(nz) + side * (ROAD_HALF + 3.0 + randf() * 26.0),
-					ground_y(nz) + float(p.get_meta("y_off", 0.0)),
+					nx,
+					ground_height(nx, nz) + float(p.get_meta("y_off", 0.0)),
 					nz)
 	props = props.filter(func(p): return is_instance_valid(p))
 
@@ -658,6 +680,9 @@ func _build_rv() -> void:
 	rv.add_child(col)
 	rv_model = RV_SCENE.instantiate()
 	rv_model.rotation.y = PI   # GLB 车头朝 +Z，翻转对齐行进方向 -Z
+	# 装甲裙边比车壳宽一圈且颜色不搭，斜上方看像穿模，直接隐藏
+	for n in rv_model.find_children("*skirt*", "Node3D", true, false):
+		n.visible = false
 	rv.add_child(rv_model)
 	rv.position = Vector3(0, GROUND_Y + RV_MODEL_FOOT, 0)
 	headlight = SpotLight3D.new()
@@ -1014,7 +1039,7 @@ func start_combat(m: int) -> void:
 	if m == 0:
 		# 左车门旁落地
 		p.position = rv.global_position + rv.global_transform.basis.x * 2.4 + Vector3(0, -RV_MODEL_FOOT, 0.0)
-		p.position.y = ground_y(p.position.z)
+		p.position.y = ground_height(p.position.x, p.position.z)
 	else:
 		# 车顶天窗：脚踩实测车壳顶面（to_global 含行驶俯仰，不再悬空）
 		p.position = rv.to_global(Vector3(0, RV_ROOF_Y, 0.2))
@@ -1040,7 +1065,7 @@ func start_combat(m: int) -> void:
 			mate.set_script(MATE_SCRIPT)
 			mate.setup(crew_members[i].get("id", ""), i)
 			mate.position = p.position + Vector3(randf_range(-2.0, 2.0), 0.0, randf_range(-2.0, 2.0))
-			mate.position.y = ground_y(mate.position.z)
+			mate.position.y = ground_height(mate.position.x, mate.position.z)
 			add_child(mate)
 			mates.append(mate)
 	hud.toast("天窗射击：鼠标瞄准 · 左键开火 · G/T 返回" if m == 1 else "下车战斗：WASD 移动 · 鼠标瞄准 · 左键开火 · 队友协同作战 · G 返回车内")
@@ -1112,7 +1137,7 @@ func spawn_bullet(from: Vector3, dir: Vector3, speed: float, exclude: Array) -> 
 	# 曳光杆：-Z 朝飞行方向，杆身拖在弹头后方
 	var trail := MeshInstance3D.new()
 	var bm := BoxMesh.new()
-	var trail_len := clampf(speed * 0.012, 2.0, 9.0)
+	var trail_len := clampf(speed * 0.0025, 0.7, 2.2)
 	bm.size = Vector3(0.03, 0.03, trail_len)
 	trail.mesh = bm
 	trail.material_override = _emis_mat(Color(1.0, 0.85, 0.5), 4.0)
@@ -1277,7 +1302,8 @@ func _spawn_obstacle(z: float) -> void:
 	var model := scene.instantiate()
 	model.scale = Vector3.ONE * scale_f
 	body.add_child(model)
-	body.position = Vector3(road_x(z) + x_off, ground_y(z), z)
+	var ox := road_x(z) + x_off
+	body.position = Vector3(ox, ground_height(ox, z), z)
 	body.rotation.y = randf_range(-0.25, 0.25) if not hard else 0.0
 	add_child(body)
 
@@ -1293,7 +1319,8 @@ func _spawn_pickup(z: float) -> void:
 		p.kind = "food"
 	else:
 		p.kind = "repair"
-	p.position = Vector3(road_x(z) + randf_range(-4.0, 4.0), ground_y(z), z)
+	var px := road_x(z) + randf_range(-4.0, 4.0)
+	p.position = Vector3(px, ground_height(px, z), z)
 	add_child(p)
 
 func _spawn_survivor(z: float) -> void:
@@ -1308,7 +1335,8 @@ func _spawn_survivor(z: float) -> void:
 	var side := 1.0 if randf() > 0.5 else -1.0
 	# 野地逃命者：从路外野地跑向路缘（survivor.gd 自管逃命/据枪）
 	var off := randf_range(ROAD_HALF + 2.5, ROAD_HALF + 9.0)
-	s.position = Vector3(road_x(z) + side * off, ground_y(z), z)
+	var sx := road_x(z) + side * off
+	s.position = Vector3(sx, ground_height(sx, z), z)
 	add_child(s)
 	# 身后追兵：外侧 8~14m 直接狂暴，锁幸存者为猎杀目标，制造追逃场面
 	for i in randi_range(1, 2):
@@ -1326,7 +1354,8 @@ func _spawn_lamp(z: float) -> void:
 	lamp_side = -lamp_side
 	var root := Node3D.new()
 	root.add_to_group("consumable")
-	root.position = Vector3(road_x(z) + lamp_side * (ROAD_HALF + 1.4), ground_y(z), z)
+	var lx0 := road_x(z) + lamp_side * (ROAD_HALF + 1.4)
+	root.position = Vector3(lx0, ground_height(lx0, z), z)
 	var dark := _mat(Color(0.16, 0.15, 0.14))
 	var pole := MeshInstance3D.new()
 	var pm := CylinderMesh.new()
@@ -1744,7 +1773,8 @@ func _spawn_ark_camp() -> void:
 		var row_i := i / 2
 		var tz := -24.0 - row_i * 9.0
 		var t := Node3D.new()
-		t.position = Vector3(-9.0 + col_i * 18.0, ground_y(gate_z + tz), tz)
+		var tx := -9.0 + col_i * 18.0
+		t.position = Vector3(tx, ground_height(tx, gate_z + tz), tz)
 		camp.add_child(t)
 		var tmat: StandardMaterial3D = canvas_olive if i % 2 == 0 else canvas_sand
 		var body := MeshInstance3D.new()
@@ -1780,7 +1810,7 @@ func _spawn_ark_camp() -> void:
 		bulb.mesh = SphereMesh.new()
 		bulb.mesh.radius = 0.22
 		bulb.mesh.height = 0.44
-		bulb.position = Vector3(lx, ground_y(gate_z + lz) + rng.randf_range(1.6, 3.2), lz)
+		bulb.position = Vector3(lx, ground_height(lx, gate_z + lz) + rng.randf_range(1.6, 3.2), lz)
 		bulb.material_override = warm_glow
 		camp.add_child(bulb)
 
@@ -1938,7 +1968,8 @@ func _spawn_ark_camp() -> void:
 	for i in range(5):
 		var side: float = -1.0 if i % 2 == 0 else 1.0
 		var w := _make_wreck(wreck_cols[i % wreck_cols.size()], rng, i)
-		w.position = Vector3(side * rng.randf_range(22.0, 34.0), ground_y(gate_z - 30.0 - i * 14.0), -30.0 - i * 14.0)
+		var wx := side * rng.randf_range(22.0, 34.0)
+		w.position = Vector3(wx, ground_height(wx, gate_z - 30.0 - i * 14.0), -30.0 - i * 14.0)
 		w.rotation.y = side * rng.randf_range(-0.3, 0.35)
 		camp.add_child(w)
 
@@ -2037,10 +2068,8 @@ func _make_wreck(col: Color, rng: RandomNumberGenerator, seed_i: int) -> Node3D:
 func _make_scenery(z: float) -> Node3D:
 	var root := Node3D.new()
 	var side := 1.0 if randf() > 0.5 else -1.0
-	root.position = Vector3(
-		road_x(z) + side * (ROAD_HALF + 3.0 + randf() * 26.0),
-		ground_y(z),
-		z)
+	var sx2 := road_x(z) + side * (ROAD_HALF + 3.0 + randf() * 26.0)
+	root.position = Vector3(sx2, ground_height(sx2, z), z)
 	var roll := randf()
 	if roll < 0.06:
 		# 枯树：树干 + 歪斜枯枝（少量点缀，提醒这是末世）
@@ -2053,6 +2082,7 @@ func _make_scenery(z: float) -> Node3D:
 		trunk.position.y = tm.height * 0.5
 		trunk.material_override = _mat(Color(0.16, 0.13, 0.1))
 		root.add_child(trunk)
+		_solid_box(root, Vector3(0.6, tm.height, 0.6), Vector3(0, tm.height * 0.5, 0))
 		for k in randi_range(2, 4):
 			var br := MeshInstance3D.new()
 			var bm := CylinderMesh.new()
@@ -2068,10 +2098,12 @@ func _make_scenery(z: float) -> Node3D:
 		# 阔叶绿树：树干 + 三团鲜绿叶冠，末世里草木照样疯长
 		var tree := _make_broadleaf()
 		root.add_child(tree)
+		_solid_box(root, Vector3(0.6, 5.5, 0.6), Vector3(0, 2.75, 0))
 	elif roll < 0.44:
 		# 常青松树：矮干 + 三层锥形树冠
 		var pine := _make_pine()
 		root.add_child(pine)
+		_solid_box(root, Vector3(0.5, 3.0, 0.5), Vector3(0, 1.5, 0))
 	elif roll < 0.56:
 		# 废弃电线杆
 		var pole := MeshInstance3D.new()
@@ -2083,6 +2115,7 @@ func _make_scenery(z: float) -> Node3D:
 		pole.position.y = pm.height * 0.5
 		pole.material_override = _mat(Color(0.25, 0.24, 0.22))
 		root.add_child(pole)
+		_solid_box(root, Vector3(0.35, pm.height, 0.35), Vector3(0, pm.height * 0.5, 0))
 		var cross := MeshInstance3D.new()
 		var cm := BoxMesh.new()
 		cm.size = Vector3(2.6, 0.14, 0.14)
@@ -2111,6 +2144,7 @@ func _make_scenery(z: float) -> Node3D:
 		else:
 			b.material_override = _mat(Color(0.3, 0.3, 0.31))
 		root.add_child(b)
+		_solid_box(root, bm.size, b.position)
 		# 楼顶破损女儿墙/天线，强化废墟感
 		if far and randf() < 0.5:
 			var antenna := MeshInstance3D.new()
@@ -2123,6 +2157,8 @@ func _make_scenery(z: float) -> Node3D:
 			antenna.material_override = _mat(Color(0.25, 0.25, 0.26))
 			root.add_child(antenna)
 		root.position.x = road_x(z) + side * (randf_range(105.0, 190.0) if far else randf_range(45.0, 90.0))
+		# x 移出远处后按新位置的地形高度重算 y，否则楼悬浮/埋地
+		root.position.y = ground_height(root.position.x, z)
 	elif roll < 0.82:
 		# 路边广告牌：双腿 + 锈蚀面板
 		for px in [-1.1, 1.1]:
@@ -2133,6 +2169,7 @@ func _make_scenery(z: float) -> Node3D:
 			leg.position = Vector3(px, 1.6, 0)
 			leg.material_override = _mat(Color(0.2, 0.19, 0.17))
 			root.add_child(leg)
+			_solid_box(root, Vector3(0.2, 3.2, 0.2), Vector3(px, 1.6, 0))
 		var panel := MeshInstance3D.new()
 		var plm := BoxMesh.new()
 		plm.size = Vector3(3.4, 1.9, 0.12)
@@ -2256,6 +2293,17 @@ func _mat(col: Color) -> StandardMaterial3D:
 	m.roughness = 1.0
 	return m
 
+## 给景物加实心碰撞（layer 1 默认层：房车/玩家/丧尸都会撞上），随 consumable 一并回收
+func _solid_box(parent: Node3D, size: Vector3, pos: Vector3) -> void:
+	var body := StaticBody3D.new()
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	cs.shape = box
+	cs.position = pos
+	body.add_child(cs)
+	parent.add_child(body)
+
 ## 自发光材质（营灯/篝火）
 func _emis_mat(col: Color, energy: float) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -2278,6 +2326,23 @@ func _bend_weight(z: float) -> float:
 
 func ground_y(z: float) -> float:
 	return GROUND_Y + _elev_at(z) + sin(z * 0.06) * 0.08 + sin(z * 0.13 + 2.1) * 0.05 + sin(z * 0.031 + 5.0) * 0.04
+
+## 统一地面高度(x,z)：角色/车辆/道具贴地与碰撞高度图共用的唯一基准
+## 路面 d≤7 → ground_y；路肩 d≤21 → -0.05；野地 → -0.3+side_elev；21~25 缓坡过渡（车上下路肩不卡）
+func ground_height(x: float, z: float) -> float:
+	return ground_height_c(x, z, ground_y(z), road_x(z), zone_at(z))
+
+## 行缓存版：批量采样（碰撞高度图重建）时传入预算的 gy/rx/zone
+func ground_height_c(x: float, z: float, gy: float, rx: float, zone: String) -> float:
+	var d := absf(x - rx)
+	if d <= ROAD_HALF:
+		return gy
+	if d <= 21.0:
+		return gy - 0.05
+	var field := gy - 0.3 + side_elev(z, d, zone)
+	if d < 25.0:
+		return lerpf(gy - 0.05, field, smoothstep(0.0, 1.0, (d - 21.0) / 4.0))
+	return field
 
 # ---------- 岔路/路口（确定性生成，护栏缺口与地形条带共用） ----------
 const JUNCTION_EVERY := 170.0   # 岔路间距基准（米）
@@ -2357,10 +2422,12 @@ func _elev_at(z: float) -> float:
 		acc += len
 	return 0.0
 
-## 公路走廊外地势：山段隆起、湖海段下沉成床、丘陵缓坡
-func side_elev(z: float, dist: float) -> float:
+## 公路走廊外地势：山段隆起、湖海段下沉成床、丘陵缓坡（zone 可预传，批量采样免重复查段）
+func side_elev(z: float, dist: float, zone := "") -> float:
 	var d := maxf(dist - 24.0, 0.0)
-	match zone_at(z):
+	if zone.is_empty():
+		zone = zone_at(z)
+	match zone:
 		"mountain":
 			return d * 0.55 + sin(z * 0.02 + dist * 0.05) * d * 0.12
 		"hills":
@@ -2408,8 +2475,15 @@ func _place_scenery(scene: PackedScene, x: float, z: float, target_h: float) -> 
 		var s := target_h / aabb.size.y
 		node.scale = Vector3.ONE * s
 		node.position.y = -aabb.position.y * s
-	node.position = Vector3(x, ground_y(z) + node.position.y, z)
+	node.position = Vector3(x, ground_height(x, z) + node.position.y, z)
 	node.rotation.y = randf() * TAU
+	if scene == BUILDING_SCENE or scene == JUNK_SCENE:
+		# 楼/集装箱：整体实心（本地坐标，随 node.scale 自动缩放）
+		_solid_box(node, aabb.size, aabb.get_center())
+	elif scene == TREE_SCENE:
+		# 树：只挡树干，树冠可穿
+		var trunk_w := maxf(0.35, aabb.size.x * 0.08)
+		_solid_box(node, Vector3(trunk_w, aabb.size.y, trunk_w), Vector3(aabb.get_center().x, aabb.get_center().y, aabb.get_center().z))
 	node.add_to_group("consumable")
 	add_child(node)
 
@@ -2438,7 +2512,8 @@ func _spawn_rock(x: float, z: float) -> void:
 	mesh.size = Vector3(s * randf_range(1.0, 1.8), s, s * randf_range(1.0, 1.8))
 	rock.mesh = mesh
 	rock.material_override = _mat(Color(0.52, 0.55, 0.56))
-	rock.position = Vector3(x, ground_y(z) + mesh.size.y * 0.3, z)
+	rock.position = Vector3(x, ground_height(x, z) + mesh.size.y * 0.3, z)
 	rock.rotation.y = randf() * TAU
+	_solid_box(rock, mesh.size * 0.85, Vector3.ZERO)
 	rock.add_to_group("consumable")
 	add_child(rock)

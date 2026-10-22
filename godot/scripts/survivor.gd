@@ -69,6 +69,7 @@ func _ready() -> void:
 	add_child(light)
 
 	var area := Area3D.new()
+	area.collision_mask = 2  # 房车独占碰撞层2
 	var cs := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(4.0, 3.0, 4.0)
@@ -133,7 +134,7 @@ func _move_toward(target: Vector3, delta: float) -> void:
 	else:
 		position.x = target.x
 		position.z = target.z
-	position.y = _main.ground_y(position.z)
+	position.y = _main.ground_height(position.x, position.z)
 
 func _face(target: Vector3, delta: float) -> void:
 	var to := target - global_position

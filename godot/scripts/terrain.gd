@@ -13,20 +13,51 @@ const RAIL_SEG := 4.0
 
 var _main: Node3D
 var _mats: Array[StandardMaterial3D] = []
+var _col_shape: CollisionShape3D
+
+# 碰撞高度图：x ∈ ±400m 步长 2.5，z 覆盖条带前后各留余量（与视觉地面同一高度函数）
+const COL_HALF_X := 400.0
+const COL_STEP := 2.5
+const COL_BACK := 40.0    # 条带起点向后（+Z）覆盖
+const COL_FWD := 900.0    # 向前（-Z）覆盖
 
 func _ready() -> void:
-	# 一次性平面碰撞（车与丧尸共用，rebuild 不重建）
+	# 静态碰撞体常驻，shape 随 rebuild 换新（真实地形高度，丧尸/车/人贴地）
 	var col := StaticBody3D.new()
-	var shape := WorldBoundaryShape3D.new()
-	shape.plane = Plane(Vector3.UP, GROUND_Y)
-	var cs := CollisionShape3D.new()
-	cs.shape = shape
-	col.add_child(cs)
+	_col_shape = CollisionShape3D.new()
+	col.add_child(_col_shape)
 	add_child(col)
 
 func rebuild(start_z: float) -> void:
 	_main = get_parent()
 	mesh = _make_mesh(start_z)
+	_rebuild_collision(start_z)
+
+## 碰撞高度图：行缓存 gy/rx/zone，逐点取 ground_height_c，与视觉地面严格一致
+func _rebuild_collision(start_z: float) -> void:
+	var w := int(COL_HALF_X * 2.0 / COL_STEP) + 1
+	var d := int((COL_BACK + COL_FWD) / COL_STEP) + 1
+	var map := PackedFloat32Array()
+	map.resize(w * d)
+	var z0 := start_z + COL_BACK   # 高度图 +Z 端的世界 z
+	for zi in d:
+		# 高度图行沿 +Z 递增：第 zi 行世界 z = z0 - (d-1-zi)*STEP
+		var z := z0 - (d - 1 - zi) * COL_STEP
+		var gy: float = _main.ground_y(z)
+		var rx: float = _main.road_x(z)
+		var zone: String = _main.zone_at(z)
+		var base := zi * w
+		for xi in w:
+			var x := -COL_HALF_X + xi * COL_STEP
+			map[base + xi] = _main.ground_height_c(x, z, gy, rx, zone)
+	var hm := HeightMapShape3D.new()
+	hm.map_width = w
+	hm.map_depth = d
+	hm.map_data = map
+	_col_shape.shape = hm
+	# 高度图以自身原点为中心：x 跨 ±400（格距由 scale 扩到 2.5m），z 居中到条带中段
+	_col_shape.scale = Vector3(COL_STEP, 1.0, COL_STEP)
+	_col_shape.position = Vector3(0.0, 0.0, z0 - (d - 1) * COL_STEP * 0.5)
 
 func _make_mesh(start_z: float) -> ArrayMesh:
 	var am := ArrayMesh.new()
