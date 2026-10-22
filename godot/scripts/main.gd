@@ -671,6 +671,9 @@ func _build_interior() -> void:
 	# 精模内饰 GLB（Blender 建模，rv 本地空间：地板顶 y=-0.4、车头 -Z）；队友站位兼容见 _build_crew
 	interior = RV_INTERIOR_SCENE.instantiate()
 	interior.name = "Interior"
+	# GLB 里 steer_col 生成的 StaticBody 与房车碰撞盒重叠会把车头顶走：内饰纯装饰，剥掉物理体
+	for n in interior.find_children("*", "CollisionObject3D", true, false):
+		n.free()  # 未入树，立即删除避免延迟一帧的推挤
 	rv.add_child(interior)
 	# 舱内暖色小灯：夜间/雾天也能看清仪表台与舱内
 	var cab_light := OmniLight3D.new()
