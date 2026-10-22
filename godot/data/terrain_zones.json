@@ -1,0 +1,14 @@
+{
+	"zones": [
+		{ "type": "plain",    "elev": 0.0,  "len": 460.0 },
+		{ "type": "forest",   "elev": 3.0,  "len": 420.0 },
+		{ "type": "hills",    "elev": 10.0, "len": 420.0 },
+		{ "type": "mountain", "elev": 26.0, "len": 720.0 },
+		{ "type": "hills",    "elev": 12.0, "len": 380.0 },
+		{ "type": "lake",     "elev": 1.0,  "len": 420.0 },
+		{ "type": "plain",    "elev": 0.5,  "len": 400.0 },
+		{ "type": "city",     "elev": 2.0,  "len": 420.0 },
+		{ "type": "coast",    "elev": 3.5,  "len": 520.0 },
+		{ "type": "forest",   "elev": 2.0,  "len": 380.0 }
+	]
+}

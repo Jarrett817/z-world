@@ -20,13 +20,15 @@ func _ready() -> void:
 	main_node = get_parent()
 
 func _physics_process(delta: float) -> void:
+	# 坡度姿态：前后 5m 地面高差算俯仰（车头朝 -Z，前方更高即上坡抬车头）
+	var slope := atan2(main_node.ground_y(position.z - 2.5) - main_node.ground_y(position.z + 2.5), 5.0)
 	# 剧情对话期间：世界冻结，强制刹停并贴地（忽略一切驾驶输入）
 	if main_node.story_active:
 		speed_kmh = maxf(speed_kmh - BRAKE * delta, 0.0)
 		velocity = -global_transform.basis.z * (speed_kmh * KMH_TO_UNITS)
 		move_and_slide()
 		position.y = main_node.ground_y(position.z) + main_node.RV_MODEL_FOOT
-		rotation.x = lerpf(rotation.x, 0.0, delta * 3.0)
+		rotation.x = lerpf(rotation.x, slope, delta * 3.0)
 		rotation.z = lerpf(rotation.z, 0.0, delta * 4.0)
 		return
 	if parked or combat_in:
@@ -38,7 +40,7 @@ func _physics_process(delta: float) -> void:
 		velocity = -global_transform.basis.z * (speed_kmh * KMH_TO_UNITS)
 		move_and_slide()
 		position.y = main_node.ground_y(position.z) + main_node.RV_MODEL_FOOT
-		rotation.x = lerpf(rotation.x, 0.0, delta * 3.0)
+		rotation.x = lerpf(rotation.x, slope, delta * 3.0)
 		rotation.z = lerpf(rotation.z, 0.0, delta * 4.0)
 		return
 	var gas := touch_gas or Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP)
@@ -72,9 +74,9 @@ func _physics_process(delta: float) -> void:
 	# 贴地：直接跟随地形高度函数，避免起伏穿模
 	position.y = main_node.ground_y(position.z) + main_node.RV_MODEL_FOOT
 
-	# 姿态小动效：加速前倾 + 转向侧倾
+	# 姿态小动效：加速前倾 + 转向侧倾（叠加地形坡度）
 	var pitch := -0.05 if (gas and not engine_dead) else 0.0
-	rotation.x = lerpf(rotation.x, pitch, delta * 3.0)
+	rotation.x = lerpf(rotation.x, pitch + slope, delta * 3.0)
 	rotation.z = lerpf(rotation.z, steer_in * 0.035 * (speed_kmh / main_node.MAX_KMH), delta * 4.0)
 
 func _key_steer() -> float:

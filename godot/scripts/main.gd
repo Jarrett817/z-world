@@ -19,6 +19,9 @@ const SURVIVOR_SCRIPT := preload("res://scripts/survivor.gd")
 const STORY_SCRIPT := preload("res://scripts/story.gd")
 const PLAYER_SCRIPT := preload("res://scripts/player.gd")
 const MATE_SCRIPT := preload("res://scripts/mate.gd")
+const BUILDING_SCENE := preload("res://assets/props/scene_models/building/scene.gltf")
+const TREE_SCENE := preload("res://assets/props/scene_models/tree/scene.gltf")
+const JUNK_SCENE := preload("res://assets/props/scene_models/container/scene.gltf")
 
 const GROUND_Y := -1.56
 const KMH_FACTOR := 250.0   # 世界米 → 里程公里（1440 旧值，调快后一局实际驾驶 ~15 分钟走完序章的 680km 目标）
@@ -91,6 +94,10 @@ var _c_down := false
 var _fv_yaw := 0.0     # 车内自由视角：右键拖动环顾的偏航/俯仰偏移
 var _fv_pitch := 0.0
 var combat_active := false
+var _zones: Array = []        # 景观段循环（data/terrain_zones.json）
+var _zones_total := 0.0
+var _wrecks: Array = []       # 撞飞后待落地冻结的障碍残骸
+var scenery_z := -20.0
 var _g_down := false
 var _t_down := false
 var parked := false
@@ -119,6 +126,7 @@ var banter_busy := false
 func _ready() -> void:
 	_load_survivors()
 	_load_facilities()
+	_load_zones()
 	_build_sky()
 	_build_terrain()
 	_build_rv()
@@ -160,6 +168,14 @@ func _physics_process(delta: float) -> void:
 		_spawn_ark_camp()
 	hit_cd = maxf(0.0, hit_cd - delta)
 	bite_cd = maxf(0.0, bite_cd - delta)
+	# 撞飞的残骸落到当地地面后冻结留作路障（平面碰撞只有最低海拔，高海拔段会沉穿）
+	for i in range(_wrecks.size() - 1, -1, -1):
+		var w = _wrecks[i]
+		if not is_instance_valid(w):
+			_wrecks.remove_at(i)
+		elif w.global_position.y <= ground_y(w.global_position.z) + 0.35:
+			w.freeze = true
+			_wrecks.remove_at(i)
 
 func _load_survivors() -> void:
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/survivors.json"))
@@ -172,6 +188,13 @@ func _load_facilities() -> void:
 		facilities_data = parsed
 		for f in parsed.get("facilities", []):
 			facility_levels[f.get("id", "")] = 0
+
+func _load_zones() -> void:
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/terrain_zones.json"))
+	if parsed is Dictionary:
+		_zones = parsed.get("zones", [])
+		for zn in _zones:
+			_zones_total += float(zn.get("len", 400.0))
 
 ## 储物架等级决定燃料上限
 func fuel_cap() -> float:
@@ -1066,6 +1089,12 @@ func _update_frontier() -> void:
 			break
 		_spawn_lamp(lamp_z)
 		lamp_z -= 55.0
+	while scenery_z > rvz - VIEW_AHEAD:
+		if scenery_z < safe_z:
+			scenery_z = safe_z - 1.0
+			break
+		_spawn_scenery(scenery_z)
+		scenery_z -= 12.0
 	# 清理身后
 	for s in get_children():
 		if s.is_in_group("consumable") and s.global_position.z > rvz + 40.0:
@@ -1232,6 +1261,7 @@ func on_obstacle_hit(hard: bool, speed_kmh: float, obstacle: Node3D = null) -> v
 			var dir := -rv.global_transform.basis.z
 			obstacle.apply_central_impulse((dir * (4.0 + speed_kmh * 0.06) + Vector3(0.0, 2.2, 0.0)) * obstacle.mass)
 			obstacle.apply_torque_impulse(Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * 3.0 * obstacle.mass)
+			_wrecks.append(obstacle)
 	hud.update_stats(self)
 
 func on_zombie_run_over() -> void:
@@ -2119,4 +2149,135 @@ func road_x(z: float) -> float:
 	return sin(z * 0.035) * 3.5 + sin(z * 0.1 + 1.5) * 1.6
 
 func ground_y(z: float) -> float:
-	return GROUND_Y + sin(z * 0.06) * 0.08 + sin(z * 0.13 + 2.1) * 0.05 + sin(z * 0.031 + 5.0) * 0.04
+	return GROUND_Y + _elev_at(z) + sin(z * 0.06) * 0.08 + sin(z * 0.13 + 2.1) * 0.05 + sin(z * 0.031 + 5.0) * 0.04
+
+## 定位路段所属景观带（向 -Z 前进，zones 循环）
+func zone_at(z: float) -> String:
+	if _zones.is_empty():
+		return "plain"
+	var zz := fposmod(-z, _zones_total)
+	var acc := 0.0
+	for zn in _zones:
+		acc += float(zn.get("len", 400.0))
+		if zz < acc:
+			return String(zn.get("type", "plain"))
+	return "plain"
+
+## 当前景观段的强度权重（段中心 1.0，首尾各 90m 淡入淡出）——供水面宽度等地物渐变
+func zone_weight(z: float) -> float:
+	if _zones.is_empty():
+		return 0.0
+	var zz := fposmod(-z, _zones_total)
+	var acc := 0.0
+	for zn in _zones:
+		var len: float = float(zn.get("len", 400.0))
+		var off := zz - acc
+		if off < len:
+			return minf(smoothstep(0.0, 1.0, off / 90.0), smoothstep(0.0, 1.0, (len - off) / 90.0))
+		acc += len
+	return 0.0
+
+## 路段海拔：段内取段值，段首平滑过渡（坡度随高差放缓）
+func _elev_at(z: float) -> float:
+	if _zones.is_empty():
+		return 0.0
+	var zz := fposmod(-z, _zones_total)
+	var acc := 0.0
+	var prev_e: float = float(_zones.back().get("elev", 0.0))
+	for zn in _zones:
+		var e: float = float(zn.get("elev", 0.0))
+		var len: float = float(zn.get("len", 400.0))
+		var off := zz - acc
+		if off < len:
+			var trans := maxf(90.0, absf(e - prev_e) * 6.0)
+			var t := smoothstep(0.0, 1.0, clampf(off / trans, 0.0, 1.0))
+			return lerpf(prev_e, e, t)
+		prev_e = e
+		acc += len
+	return 0.0
+
+## 公路走廊外地势：山段隆起、湖海段下沉成床、丘陵缓坡
+func side_elev(z: float, dist: float) -> float:
+	var d := maxf(dist - 24.0, 0.0)
+	match zone_at(z):
+		"mountain":
+			return d * 0.55 + sin(z * 0.02 + dist * 0.05) * d * 0.12
+		"hills":
+			return d * 0.18
+		"lake", "coast":
+			return -minf(d * 0.35, 2.5)
+		_:
+			return sin(z * 0.05 + dist * 0.11) * minf(d * 0.05, 1.2)
+
+# ---------- 景观段景物生成 ----------
+func _side() -> float:
+	return 1.0 if randf() < 0.5 else -1.0
+
+## 按景观段在公路两侧持续生成景物（consumable 组，过后即焚）
+func _spawn_scenery(z: float) -> void:
+	var zone := zone_at(z)
+	var rx: float = road_x(z)
+	var tree_p := 0.1
+	var tree_n := 1
+	match zone:
+		"city":
+			if randf() < 0.55:
+				_place_scenery(BUILDING_SCENE, rx + _side() * randf_range(16.0, 30.0), z, randf_range(9.0, 16.0))
+			if randf() < 0.25:
+				_place_scenery(JUNK_SCENE, rx + _side() * randf_range(9.5, 13.0), z + randf_range(-5.0, 5.0), randf_range(2.4, 3.0))
+			tree_p = 0.06
+		"forest":
+			tree_p = 0.9
+			tree_n = 3
+		"mountain":
+			tree_p = 0.4
+			if randf() < 0.3:
+				_spawn_rock(rx + _side() * randf_range(12.0, 45.0), z + randf_range(-6.0, 6.0))
+		"hills", "lake", "coast":
+			tree_p = 0.22
+	for i in range(tree_n):
+		if randf() < tree_p:
+			_place_scenery(TREE_SCENE, rx + _side() * randf_range(10.0, 65.0), z + randf_range(-6.0, 6.0), randf_range(7.0, 13.0))
+
+## 实例化景物：按 AABB 缩放到目标高度、脚底落地（外部资产尺寸不可控）
+func _place_scenery(scene: PackedScene, x: float, z: float, target_h: float) -> void:
+	var node: Node3D = scene.instantiate()
+	var aabb := _merged_aabb(node)
+	if aabb.size.y > 0.01:
+		var s := target_h / aabb.size.y
+		node.scale = Vector3.ONE * s
+		node.position.y = -aabb.position.y * s
+	node.position = Vector3(x, ground_y(z) + node.position.y, z)
+	node.rotation.y = randf() * TAU
+	node.add_to_group("consumable")
+	add_child(node)
+
+## 递归合并子树 AABB 到 node 本地空间
+func _merged_aabb(node: Node, xform := Transform3D.IDENTITY) -> AABB:
+	var aabb := AABB()
+	var first := true
+	if node is MeshInstance3D:
+		aabb = xform * node.get_aabb()
+		first = false
+	for c in node.get_children():
+		if c is Node3D:
+			var ca := _merged_aabb(c, xform * (c as Node3D).transform)
+			if first:
+				aabb = ca
+				first = false
+			else:
+				aabb = aabb.merge(ca)
+	return aabb
+
+## 山段灰岩（半埋更自然）
+func _spawn_rock(x: float, z: float) -> void:
+	var rock := MeshInstance3D.new()
+	var mesh := BoxMesh.new()
+	var s := randf_range(1.2, 3.2)
+	mesh.size = Vector3(s * randf_range(1.0, 1.8), s, s * randf_range(1.0, 1.8))
+	rock.mesh = mesh
+	rock.material_override = _mat(Color(0.52, 0.55, 0.56))
+	rock.position = Vector3(x, ground_y(z) + mesh.size.y * 0.3, z)
+	rock.rotation.y = randf() * TAU
+	rock.add_to_group("consumable")
+	add_child(rock)

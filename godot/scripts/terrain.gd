@@ -30,8 +30,9 @@ func rebuild(start_z: float) -> void:
 
 func _make_mesh(start_z: float) -> ArrayMesh:
 	var am := ArrayMesh.new()
-	# 0 超宽大地（远景地面，消除两侧露天空的空洞感）
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -600.0, 600.0, -0.3, false, 8))
+	# 0 超宽大地（含 24m 走廊平坦过渡断点；按景观段做山坡隆起/海床下沉）
+	var gxs := PackedFloat32Array([-600.0, -380.0, -220.0, -130.0, -80.0, -50.0, -34.0, -20.0, 20.0, 34.0, 50.0, 80.0, 130.0, 220.0, 380.0, 600.0])
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, 0.0, 0.0, -0.3, false, 1, gxs))
 	# 1/2 两侧路肩土带
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -ROAD_HALF - 16.0, -ROAD_HALF, -0.05, false, 2))
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, ROAD_HALF, ROAD_HALF + 16.0, -0.05, false, 2))
@@ -89,12 +90,15 @@ func _make_mesh(start_z: float) -> ArrayMesh:
 
 ## 生成一条沿路弯曲的条带（x0/x1 为相对路中心的横向范围，nx 为横向细分数）
 ## 顶点叠加确定性多频噪声色，做出柏油/泥地旧化斑驳，避免纯色塑料感
-func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool, nx := 1) -> Array:
+## xs 非空时改用给定 x 断点（大地带用），顶点叠加 side_elev 地势（山坡/海床）
+func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool, nx := 1, xs := PackedFloat32Array()) -> Array:
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
 	var indices := PackedInt32Array()
 	var steps := int(SPAN / SEG_LEN)
+	var use_xs := xs.size() >= 2
+	var enx := xs.size() - 1 if use_xs else nx
 	for i in steps:
 		if dashed and fmod(i * SEG_LEN, DASH_PERIOD) > DASH_LEN:
 			continue
@@ -105,23 +109,23 @@ func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool, nx 
 		var ya: float = _main.ground_y(za) + y_off
 		var yb: float = _main.ground_y(zb) + y_off
 		var row_a: int = verts.size()
-		for j in nx + 1:
-			var t := float(j) / nx
-			var xx: float = lerpf(x0, x1, t)
-			verts.append(Vector3(cxa + xx, ya, za))
+		for j in enx + 1:
+			var xx: float = xs[j] if use_xs else lerpf(x0, x1, float(j) / nx)
+			var sy: float = _main.side_elev(za, absf(xx)) if use_xs else 0.0
+			verts.append(Vector3(cxa + xx, ya + sy, za))
 			normals.append(Vector3.UP)
 			colors.append(_mottle(cxa + xx, za))
-		for j in nx + 1:
-			var t := float(j) / nx
-			var xx: float = lerpf(x0, x1, t)
-			verts.append(Vector3(cxb + xx, yb, zb))
+		for j in enx + 1:
+			var xx: float = xs[j] if use_xs else lerpf(x0, x1, float(j) / nx)
+			var sy: float = _main.side_elev(zb, absf(xx)) if use_xs else 0.0
+			verts.append(Vector3(cxb + xx, yb + sy, zb))
 			normals.append(Vector3.UP)
 			colors.append(_mottle(cxb + xx, zb))
-		for j in nx:
+		for j in enx:
 			var a := row_a + j
 			var b := row_a + j + 1
-			var c := row_a + (nx + 1) + j + 1
-			var d := row_a + (nx + 1) + j
+			var c := row_a + (enx + 1) + j + 1
+			var d := row_a + (enx + 1) + j
 			indices.append(a); indices.append(c); indices.append(b)
 			indices.append(a); indices.append(d); indices.append(c)
 	var arr := []
@@ -141,6 +145,7 @@ func _mottle(x: float, z: float) -> Color:
 	return Color(v * (1.0 + dry * 0.05), v, v * (1.0 - dry * 0.07))
 
 ## 路边河湖：沿 z 的确定性包络让水面一段段出现/消失，宽度平滑收缩到零
+## 按景观段增强：海岸段右侧常在大海、湖泊段两侧大湖，宽度随段权重渐变
 func _water(start_z: float, side: float) -> Array:
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -158,13 +163,25 @@ func _water(start_z: float, side: float) -> Array:
 		var env: float = clampf(sin(phase) * 2.2 - 0.55, 0.0, 1.0)
 		var center := side * 150.0
 		var half := 30.0 * env
+		var sink := 0.22 * env
+		var zw: float = _main.zone_weight(zz)
+		match _main.zone_at(zz):
+			"coast":
+				if side > 0.0:
+					center = 150.0
+					half = maxf(half, 120.0 * zw)
+					sink = maxf(sink, 1.5 * zw)
+			"lake":
+				center = side * 95.0
+				half = maxf(half, 55.0 * zw)
+				sink = maxf(sink, 0.8 * zw)
 		var row: int = verts.size()
 		var row_idx := PackedInt32Array()
 		for j in nx + 1:
 			var t := float(j) / nx
-			# 岸边与地面齐平、中心下沉的碟形；env→0 时整条与地面齐平即隐形
+			# 岸边与地面齐平、中心下沉的碟形；half→0 时整条与地面齐平即隐形
 			var xx: float = center + lerpf(-half, half, t)
-			var y := gy - sin(t * PI) * 0.22 * env
+			var y := gy - sin(t * PI) * sink
 			verts.append(Vector3(cx + xx, y, zz))
 			normals.append(Vector3.UP)
 			colors.append(Color(1, 1, 1))
