@@ -70,6 +70,8 @@ blender --background --addons vrm_addon --python run_pipeline.py -- <in.vrm> <ou
 12. **渲染/诊断脚本 fps 必须在导入前设为 30（2026-10-22 教训）**：glTF 导入器按**导入那一刻**的场景 fps 把动画秒数映射成帧；工厂默认 24 而烘焙按 30，导入后再改 fps 不会重映射——`frame_set(45)` 实际采到 t=1.875s 而非 t=1.5s，验收图全是错误时刻的姿势。顺序：`read_factory_settings` → `scene.render.fps = 30` → `import_scene.gltf`。Godot 侧不受影响（按秒读）
 13. **新动作从 idle.copy() 起步**：Blender 4.4+ slotted Action 新建 API 不稳；稳妥路线 = `idle.copy()` 改名 → 清空全部 fcurves（`layers→strips→channelbags→fcurves.remove`）保留 slot 结构 → `ad.action = act; ad.action_slot = act.slots[0]` → 摆姿 keyframe_insert
 14. **表情基零资产方案**：VRM 烘焙 GLB 的 Face 网格自带 72 个 morph target（Fcl_ALL/BRW/EYE/MTH/HA 全套 + VRC 口型），Godot 直接 `mi.find_blend_shape_by_name("Fcl_EYE_Close")` + `set_blend_shape_value` 驱动，无需任何资产改动（见 char_lively.gd）
+15. **NLA 污染根治（2026-10-22 教训，取代 stash 法）**：`stash()` 建的未静音 NLA 轨会在关键帧间隙 HOLD 外推、污染后续动作（aim 烘完 walk 全带端枪手）。对策 = 导入 GLB 后**立即删全部 NLA 轨**（`for tr in list(ad.nla_tracks): ad.nla_tracks.remove(tr)` + `ad.action=None`），新 action 一律**不 stash**——`ACTIONS` 导出模式不需要 NLA 轨。配合第 13 条 idle.copy 起步即可
+16. **替换 GLB 后必须重导入（2026-10-22 教训）**：覆盖 `godot/assets/` 下 GLB 后，Godot 运行时**不会自动重导入**，仍读 `.godot/imported` 旧缓存（症状：`Animation not found: "aim"` 连环空引用）。必须先跑一次 `Godot --headless --path godot --import` 再启动游戏
 
 ### 4.2 截帧验收法
 

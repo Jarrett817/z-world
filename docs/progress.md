@@ -1,5 +1,24 @@
 # 开发日志
 
+## 2026-10-22 · n32 下车玩家 GLB 精模化 + 战斗相机根因修复
+
+### 本次完成
+
+- **hero.glb 新增 aim/walk/run 三动作**（Blender 烘焙 v2，9 actions 全）：aim 端枪戒备（双手同深度紧凑持枪，世界空间迭代器 4 轮定版 O 组参数）、walk 24f/run 16f 循环（步态+髋起伏+躯干扭转，长裙随腿 flare）；EVAL 数值 + Workbench 渲染双验收
+- **player.gd 精模化**：程序化小人换 `CharUtil.instantiate("hero","aim",{},false)`（lively=false 防闲置插播覆盖战斗动画）；静止 aim、走动 walk、Shift run，0.15s 融合切换；程序化步枪按 Blender 实测双手坐标对位（gun local (-0.12,1.30,0.33)）
+- **战斗相机根因修复**：`_aim_and_camera` 的 `back` 误取 `-cam_basis.z`（瞄准前方），相机架在玩家面前 3.2m 还朝前看——玩家永远不在画面里；改 `+Z` 即玩家身后，肩后视角恢复
+- **NLA 污染根治**（art-pipeline §4.1 教训 15，取代 stash 法）+ **替换 GLB 必须 `--headless --import`**（教训 16，运行时读旧缓存导致 Animation not found）
+- 窗口 e2e harness 截帧验收：aim 端枪背影、walk/run 步态均入镜正常；harness 与临时脚本已删；无头回归 EXIT=0
+
+### 待办
+
+- 相机面冲房车时穿壳（无遮挡处理），后续加相机拉近/避障
+- 沈蔓立绘 shenman_normal.jpg + avatars/shen_man.jpg（需 ARK_API_KEY）
+- 内饰精模替换程序化盒子（进行中）
+- push 积压：e869390/35dc84e/61519d1/aa04889（GitHub SNI 阻断，待 VPN）
+
+---
+
 ## 2026-10-22 · n31 角色「活感」：表情系统 + 闲置动作变体
 
 ### 本次完成

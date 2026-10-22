@@ -26,6 +26,8 @@ var model_root: Node3D
 var muzzle: Node3D
 var gun: Node3D
 var cam: Camera3D
+var _anim: AnimationPlayer
+var _cur_anim := ""
 
 var _r_down := false
 var _recoil := 0.0
@@ -43,13 +45,16 @@ func _ready() -> void:
 	col.shape = cap
 	col.position.y = 0.75
 	add_child(col)
-	# 主角 VRM（脚底 y=0，真实米数 scale=1）
-	var made := CharUtil.instantiate("hero", "idle")
+	# 主角 GLB（脚底 y=0，真实米数 scale=1）；战斗态自管 aim/walk/run，关掉活感插播
+	var made := CharUtil.instantiate("hero", "aim", {}, false)
 	model_root = made["node"]
+	_anim = made["anim"]
+	for a in ["aim", "walk", "run"]:
+		_anim.get_animation(a).loop_mode = Animation.LOOP_LINEAR
 	add_child(model_root)
-	# 程序化步枪：枪托/机匣/枪管 + 枪口节点
+	# 程序化步枪：枪托/机匣/枪管 + 枪口节点；位置按 aim 动作双手实测对位
 	gun = _build_gun()
-	gun.position = Vector3(0.28, 1.15, 0.28)
+	gun.position = Vector3(-0.12, 1.30, 0.33)
 	model_root.add_child(gun)
 	muzzle = Node3D.new()
 	muzzle.position = Vector3(0, 0.04, 0.72)
@@ -165,13 +170,20 @@ func _move_foot(delta: float) -> void:
 	velocity.y = 0.0
 	# 模型朝瞄准方向（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
 	model_root.rotation.y = aim_yaw + PI
+	# 动画：静止端枪戒备，走动/奔跑切换（变化才播，0.15s 融合）
+	var want := "aim"
+	if dir.length() > 0.01:
+		want = "run" if sprinting else "walk"
+	if want != _cur_anim:
+		_cur_anim = want
+		_anim.play(want, 0.15)
 
 func _aim_and_camera(delta: float) -> void:
 	# 身体随瞄准转身（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
 	model_root.rotation.y = aim_yaw + PI
 	var cam_basis := Basis(Vector3.UP, aim_yaw)
 	var right := cam_basis.x
-	var back := -cam_basis.z
+	var back := cam_basis.z   # 瞄准基准 -Z，+Z 即玩家身后
 	cam.global_position = global_position + Vector3(0, 1.62, 0) + right * 0.55 + back * 3.2
 	var look_dir := (cam_basis * Vector3(0, 0, -1)).rotated(right, aim_pitch)
 	cam.look_at(cam.global_position + look_dir, Vector3.UP)
