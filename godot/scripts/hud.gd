@@ -430,6 +430,10 @@ func show_story(ev: Dictionary) -> void:
 	_shown = 0
 	_type_t = 0.0
 	story_text.text = ""
+	# 剧情面板会盖住驾驶按钮吞掉 button_up：清零触摸输入，防止油门/转向卡死
+	rv.touch_gas = false
+	rv.touch_brake = false
+	rv.touch_steer = 0.0
 	story_speaker.text = String(ev.get("speaker", ""))
 	for c in story_options.get_children():
 		c.queue_free()
@@ -492,6 +496,10 @@ func set_facilities_visible(v: bool) -> void:
 func set_drive_buttons_visible(v: bool) -> void:
 	for b in drive_buttons:
 		b.visible = v
+	if not v:
+		rv.touch_gas = false
+		rv.touch_brake = false
+		rv.touch_steer = 0.0
 
 func refresh_facilities() -> void:
 	if facilities_root.visible:
