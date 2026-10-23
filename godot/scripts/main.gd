@@ -438,15 +438,22 @@ func _process(delta: float) -> void:
 func add_trauma(amount: float) -> void:
 	trauma = minf(1.0, trauma + amount)
 
-## 车内自由视角：按住右键拖动环顾（不捕获鼠标，左键仍可点设施 UI）
+## 车内自由视角：PC 按住右键拖动 / 手机单指拖动环顾（不捕获鼠标，左键仍可点设施 UI）
 func _unhandled_input(event: InputEvent) -> void:
-	if view_mode == 2 and event is InputEventMouseMotion \
-			and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+	if view_mode != 2 or rv_walk_active:
+		return
+	if event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
 		_fv_yaw -= event.relative.x * 0.0032
 		_fv_pitch = clampf(_fv_pitch - event.relative.y * 0.0032, -0.9, 0.75)
+	elif event is InputEventScreenDrag:
+		_fv_yaw -= event.relative.x * 0.005
+		_fv_pitch = clampf(_fv_pitch - event.relative.y * 0.005, -0.9, 0.75)
 
 ## 驻车休整：全员检修，消耗食物，时间快进；再按 F 出发
 func _toggle_park() -> void:
+	if rv_walk_active:
+		hud.toast("先回驾驶座再驻车/出发")
+		return
 	if not parked:
 		if rv.speed_kmh > 6.0:
 			hud.toast("车速降到 6 km/h 以下才能驻车")
@@ -458,7 +465,10 @@ func _toggle_park() -> void:
 		_starving = false
 		hud.set_drive_buttons_visible(false)
 		set_facilities_ui(true)
-		hud.toast("驻车休整 · E 设施操作 · 右键拖动环顾舱内 · F 出发")
+		if DisplayServer.is_touchscreen_available():
+			hud.toast("驻车休整 · 拖动屏幕环顾舱内 · 右上设施键操作 · 驻车键出发")
+		else:
+			hud.toast("驻车休整 · E 设施操作 · 右键拖动环顾舱内 · F 出发")
 	else:
 		parked = false
 		rv.parked = false
@@ -1201,7 +1211,10 @@ func start_rv_walk() -> void:
 	if not p.fps:
 		p.toggle_fps(true)
 	hud.set_drive_buttons_visible(false)
-	hud.toast("车内行走：WASD 移动 · 鼠标环顾 · Q 回驾驶座")
+	if DisplayServer.is_touchscreen_available():
+		hud.toast("车内行走：左下摇杆移动 · 拖动屏幕环顾 · 车内键回驾驶座")
+	else:
+		hud.toast("车内行走：WASD 移动 · 鼠标环顾 · Q 回驾驶座")
 
 func end_rv_walk() -> void:
 	if not rv_walk_active:
@@ -1217,8 +1230,8 @@ func end_rv_walk() -> void:
 	if not parked and not crew_members.is_empty():
 		# 代驾结束：队友挪回副驾位
 		crew_figures[0].position = Vector3(0.55, -0.4, -1.45)
-	# 回驾驶座：恢复追尾视角
-	view_mode = 0
+	# 回驾驶座：驻车回车内视角，行驶回追尾视角
+	view_mode = 2 if parked else 0
 	rv_model.visible = true
 	interior.visible = false
 	for f in crew_figures:

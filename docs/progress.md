@@ -1,5 +1,16 @@
 # 开发日志
 
+## 2026-10-23 · n49 手机端驻车体验修复
+
+- 闪回根因：`end_rv_walk` 回座强制 `view_mode = 0`（车外追尾），驻车状态相机瞬切。改为 `2 if parked else 0`
+- 状态错乱：车内行走中可按「驻车」直接出发。`_toggle_park` 入口加 `rv_walk_active` 守卫（先回驾驶座）
+- 手机环顾：驻车座位自由视角原来只认右键拖动，补 `InputEventScreenDrag` 分支（灵敏度 0.005，对齐 player.gd 触屏手感）；行走环顾 player.gd 已有 ScreenDrag，无需补
+- 面板收不起来：标题写死「E 收起」手机无入口。标题行改 HBox + 显式「收起」按钮（复用 `_facility_button` 样式），标题去掉 PC 键位提示
+- 驻车/车内行走 toast 按 `DisplayServer.is_touchscreen_available()` 分平台文案
+- 无头回归 EXIT=0 且无 SCRIPT ERROR
+
+---
+
 ## 2026-10-23 · n48 路边程序化：里程路牌 + 电线杆
 
 - 里程路牌：每 50km 路右高立柱绿底白字高速指示牌（钢柱 + 白背板 + 绿面板 + Label3D「方舟 N km」），剩余里程按方舟实际位置实时换算，呼应 680km 主线

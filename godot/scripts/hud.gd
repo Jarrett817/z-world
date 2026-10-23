@@ -225,8 +225,18 @@ func build(rv_node: Node) -> void:
 	fac_vbox.add_theme_constant_override("separation", 8)
 	fac_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	fac_margin.add_child(fac_vbox)
+	# 标题行：标题 + 显式收起按钮（手机端无 E 键，必须有点击入口）
+	var fac_title_row := HBoxContainer.new()
+	fac_title_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fac_vbox.add_child(fac_title_row)
 	facilities_title = _label("", 18, ACCENT, Vector2.ZERO)
-	fac_vbox.add_child(facilities_title)
+	facilities_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	facilities_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	fac_title_row.add_child(facilities_title)
+	var fac_close := _facility_button("收起", true)
+	fac_close.pressed.connect(func() -> void: rv.main_node.sfx.play("ui_click", 1.0, 0.04, -6.0))
+	fac_close.pressed.connect(func() -> void: rv.main_node.set_facilities_ui(false))
+	fac_title_row.add_child(fac_close)
 	facilities_rows = VBoxContainer.new()
 	facilities_rows.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	facilities_rows.add_theme_constant_override("separation", 6)
@@ -690,7 +700,7 @@ func _refresh_facilities() -> void:
 	for c in facilities_rows.get_children():
 		c.queue_free()
 	var main: Node = rv.main_node
-	facilities_title.text = "房车设施 · 零件 %d · E 收起" % int(main.parts)
+	facilities_title.text = "房车设施 · 零件 %d" % int(main.parts)
 	for f in main.facilities_data.get("facilities", []):
 		var id := String(f.get("id", ""))
 		var lv := int(main.facility_levels.get(id, 0))
