@@ -140,6 +140,7 @@ var _shot_path := ""
 var _shot_t := 0.0
 var _shot_walk := false  # --shotrvwalk：截帧前先进车内行走
 var _shot_combat := false  # --shotcombat：截帧前先进下车战斗
+var _shot_fps := false     # --fps：配合 --shotcombat 切第一人称截帧
 var _shot_credits := false  # --shotcredits：截帧前先打开署名面板
 var _jump_km := 0.0         # --jump=KM：直达指定里程（配合 --shot 截帧验收）
 var _dump := false          # --dump：截帧时刻打印房车周边节点并退出（验收定位异常物）
@@ -153,6 +154,8 @@ func _ready() -> void:
 			_shot_walk = true
 		elif a == "--shotcombat":
 			_shot_combat = true
+		elif a == "--fps":
+			_shot_fps = true
 		elif a == "--shotcredits":
 			_shot_credits = true
 		elif a.begins_with("--jump="):
@@ -372,6 +375,8 @@ func _process(delta: float) -> void:
 				rv.speed_kmh = 0.0
 				set_facilities_ui(false)
 				start_combat(0)
+				if _shot_fps:
+					get_player_body().toggle_fps()
 				_shot_at = 1.5
 				_shot_t = 0.0
 				return

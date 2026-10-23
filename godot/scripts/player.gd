@@ -12,7 +12,6 @@ const GRAVITY := 18.0
 const JUMP_VEL := 7.2
 const CROUCH_MUL := 0.45
 const GUN_POS := Vector3(-0.12, 1.30, 0.33)   # 枪挂点基准（下蹲时随手下放）
-const FPS_GUN_POS := Vector3(-0.24, -0.22, 0.5)  # 第一人称视模型枪位（眼部挂点本地，+Z 朝准星；fps_rig 转 180° 故 x 取负=画面右侧）
 const FPS_EYE := 1.62        # 站立眼高
 const FPS_EYE_CROUCH := 1.05 # 下蹲眼高
 
@@ -42,7 +41,8 @@ var _firing := false             # 左键按住（全自动连发用）
 var _r_down := false
 var _recoil := 0.0
 var fps := false             # 第一人称视角（V / HUD 视角按钮）
-var fps_rig: Node3D          # 第一人称时的枪挂点（挂在自身，不随 model_root 隐藏）
+var _skel: Skeleton3D        # hero 骨架（FPS 时缩 Head 骨隐头）
+var _head_bone := -1
 var touch_move := Vector2.ZERO   # HUD 虚拟摇杆输入（-1..1），与键盘并存
 var _airborne := false           # 跳跃滞空中（落地才恢复贴地）
 var _crouching := false
@@ -80,8 +80,12 @@ func _ready() -> void:
 	gun = Node3D.new()
 	gun.position = GUN_POS
 	model_root.add_child(gun)
-	fps_rig = Node3D.new()
-	add_child(fps_rig)
+	# FPS 全身：记录 Head 骨，第一人称时缩零隐藏头/发（身体与持枪手臂保持可见）
+	var skels := model_root.find_children("*", "Skeleton3D", true, false)
+	if not skels.is_empty():
+		_skel = skels[0]
+		_head_bone = _skel.find_bone("J_Bip_C_Head")
+		_skel.pose_updated.connect(_on_pose_updated)
 	_equip_current()
 	cam = Camera3D.new()
 	cam.fov = 68.0
@@ -150,20 +154,19 @@ func _exit() -> void:
 	else:
 		main_node.hud.set_combat_active(false, ammo(), hp)
 
-## 第一/第三人称切换：FPS 隐藏身体，枪移到眼部挂点当视模型（车内行走强制 FPS，禁切回；force 供进入时强制开）
+## 第一/第三人称切换：FPS 全身可见，仅 Head 骨缩零隐头/发防挡视线（车内行走强制 FPS，禁切回；force 供进入时强制开）
 func toggle_fps(force := false) -> void:
 	if mode == Mode.RV_WALK and not force:
 		return
 	fps = not fps
-	if fps:
-		gun.reparent(fps_rig)
-		gun.position = FPS_GUN_POS
-	else:
-		gun.reparent(model_root)
-		gun.position = GUN_POS
-	gun.rotation = Vector3.ZERO
-	model_root.visible = not fps
+	if not fps and _head_bone >= 0:
+		_skel.set_bone_pose_scale(_head_bone, Vector3.ONE)
 	main_node.hud.toast("第一人称" if fps else "第三人称")
+
+## FPS 期间每帧把 Head 骨缩零（动画每帧重写 pose，须在 pose_updated 后覆盖）
+func _on_pose_updated() -> void:
+	if fps and _head_bone >= 0:
+		_skel.set_bone_pose_scale(_head_bone, Vector3.ZERO)
 
 func _unhandled_input(event: InputEvent) -> void:
 	var pitch_hi := 1.35 if fps else 0.35   # FPS 允许抬头看天
@@ -248,9 +251,9 @@ func _move_rv(delta: float) -> void:
 	var dir := yaw_basis * Vector3(input.x, 0, input.y)
 	if dir.length() > 0.01:
 		position += dir.normalized() * WALK_SPEED * 0.55 * delta
-	# 活动范围：仪表台后到尾门，两侧舱壁内
+	# 活动范围：仪表台后到尾壁前（内饰实测尾壁 z=3.07），两侧舱壁内
 	position.x = clampf(position.x, -1.0, 1.0)
-	position.z = clampf(position.z, -2.7, 4.3)
+	position.z = clampf(position.z, -2.7, 2.6)
 	position.y = -0.4
 	var want := "aim"
 	if dir.length() > 0.01:
@@ -308,9 +311,8 @@ func _move_foot(delta: float) -> void:
 		# 贴地：跟随地形
 		position.y = ground
 		velocity.y = 0.0
-	# 下蹲时手臂随骨骼链下沉，枪挂点同步下放（FPS 枪位由 _aim_and_camera 管理）
-	if not fps:
-		gun.position.y = lerpf(gun.position.y, 0.99 if _crouching else GUN_POS.y, delta * 10.0)
+	# 下蹲时手臂随骨骼链下沉，枪挂点同步下放
+	gun.position.y = lerpf(gun.position.y, 0.99 if _crouching else GUN_POS.y, delta * 10.0)
 	# 模型朝瞄准方向（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
 	model_root.rotation.y = aim_yaw + PI
 	# 动画优先级：跳跃 > 下蹲 > 走/跑 > 端枪戒备（变化才播，0.15s 融合）
@@ -332,8 +334,6 @@ func _aim_and_camera(delta: float) -> void:
 		# 车内：aim_yaw 是 rv 本地朝向，相机直接用本地变换（车转弯不甩视角）
 		var eye := Vector3(0, FPS_EYE, 0)
 		cam.transform = Transform3D(Basis(Vector3.UP, aim_yaw) * Basis(Vector3.RIGHT, aim_pitch), eye)
-		fps_rig.position = eye
-		fps_rig.rotation.y = aim_yaw + PI
 		_recoil = maxf(0.0, _recoil - delta * 6.0)
 		gun.rotation.x = -aim_pitch - _recoil * 0.22
 		return
@@ -341,11 +341,9 @@ func _aim_and_camera(delta: float) -> void:
 	var right := cam_basis.x
 	var back := cam_basis.z   # 瞄准基准 -Z，+Z 即玩家身后
 	if fps:
-		# 第一人称：相机贴眼位，枪挂点随视线同步（下蹲降眼高）
+		# 第一人称：相机贴眼位（下蹲降眼高），全身可见仅头骨缩零
 		var eye_h := FPS_EYE_CROUCH if _crouching else FPS_EYE
 		cam.global_position = global_position + Vector3(0, eye_h, 0) + back * 0.05
-		fps_rig.position = Vector3(0, eye_h, 0)
-		fps_rig.rotation.y = aim_yaw + PI
 	else:
 		# MOBA 式斜背后高位俯视：玩家居画面下方，准星指向远处战场，宏观感知敌我态势
 		cam.global_position = global_position + Vector3(0, 3.6, 0) + back * 4.5
