@@ -105,6 +105,9 @@ var scenery_z := -20.0
 var sign_z := -50.0 * KMH_FACTOR   # 里程碑路牌：首块在 50km 处
 var pole_z := -40.0                # 电线杆生成前沿
 var _pole_prev: Array = []         # 上一根电线杆两侧挂线点（世界坐标）
+var _world_seed := 1               # 确定性世界种子（data/world.json）
+var _places: Array = []            # 沿途地点（km 升序，data/world.json）
+var _place_idx := 0                # 下一个待生成地点
 var _g_down := false
 var _t_down := false
 var parked := false
@@ -138,6 +141,8 @@ var _shot_t := 0.0
 var _shot_walk := false  # --shotrvwalk：截帧前先进车内行走
 var _shot_combat := false  # --shotcombat：截帧前先进下车战斗
 var _shot_credits := false  # --shotcredits：截帧前先打开署名面板
+var _jump_km := 0.0         # --jump=KM：直达指定里程（配合 --shot 截帧验收）
+var _dump := false          # --dump：截帧时刻打印房车周边节点并退出（验收定位异常物）
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
@@ -150,9 +155,15 @@ func _ready() -> void:
 			_shot_combat = true
 		elif a == "--shotcredits":
 			_shot_credits = true
+		elif a.begins_with("--jump="):
+			_jump_km = float(a.trim_prefix("--jump="))
+		elif a == "--dump":
+			_dump = true
+			_shot_at = 3.0
 	_load_survivors()
 	_load_facilities()
 	_load_zones()
+	_load_world()
 	_load_credits()
 	_build_sky()
 	_build_terrain()
@@ -174,6 +185,22 @@ func _ready() -> void:
 	hud.story_node = story
 	last_z = rv.global_position.z
 	terrain_front = rv.global_position.z + 100.0
+	# --jump 直达：同步里程与房车位置，跳过已走过的生成游标，避免一帧补刷全程
+	if _jump_km > 0.0:
+		var rvz0 := rv.global_position.z
+		rv.global_position.z = rvz0 - (_jump_km - dist_km) * KMH_FACTOR
+		dist_km = _jump_km
+		last_z = rv.global_position.z
+		terrain_front = rv.global_position.z + 100.0
+		obs_z = rv.global_position.z - 30.0
+		pick_z = rv.global_position.z - 20.0
+		surv_z = rv.global_position.z - 180.0
+		lamp_z = rv.global_position.z - 30.0
+		scenery_z = rv.global_position.z - 20.0
+		pole_z = rv.global_position.z - 40.0
+		_pole_prev.clear()
+		while _place_idx < _places.size() and float(_places[_place_idx].get("km", 0.0)) <= _jump_km:
+			_place_idx += 1
 
 func _physics_process(delta: float) -> void:
 	_update_time(delta)
@@ -229,6 +256,12 @@ func _load_zones() -> void:
 		_zones = parsed.get("zones", [])
 		for zn in _zones:
 			_zones_total += float(zn.get("len", 400.0))
+
+func _load_world() -> void:
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/world.json"))
+	if parsed is Dictionary:
+		_world_seed = int(parsed.get("world_seed", 1))
+		_places = parsed.get("places", [])
 
 ## 储物架等级决定燃料上限
 func fuel_cap() -> float:
@@ -312,6 +345,10 @@ func _process(delta: float) -> void:
 		_shot_t += delta
 		if _shot_t >= _shot_at:
 			_shot_at = -1.0
+			if _dump:
+				_dump_nodes()
+				get_tree().quit()
+				return
 			if story != null and story.active:
 				story.active = false
 				story_active = false
@@ -739,7 +776,9 @@ func _recycle_world() -> void:
 				p.global_position = Vector3(nx, ground_height(nx, nz) + 0.012, nz)
 			else:
 				var side := 1.0 if randf() > 0.5 else -1.0
-				var nx: float = road_x(nz) + side * (ROAD_HALF + 3.0 + randf() * 26.0)
+				# 按生成时记录的横向距离带重放：高楼永远 105m 外，不会被回收贴到路边
+				var band: Vector2 = p.get_meta("x_band", Vector2(ROAD_HALF + 3.0, ROAD_HALF + 29.0))
+				var nx: float = road_x(nz) + side * randf_range(band.x, band.y)
 				p.global_position = Vector3(
 					nx,
 					ground_height(nx, nz) + float(p.get_meta("y_off", 0.0)),
@@ -1370,30 +1409,35 @@ func _update_frontier() -> void:
 		if obs_z < safe_z:
 			obs_z = safe_z - 1.0
 			break
+		_wseed(obs_z, 1)
 		_spawn_obstacle(obs_z)
 		obs_z -= randf_range(32.0, 68.0)
 	while pick_z > rvz - VIEW_AHEAD:
 		if pick_z < safe_z:
 			pick_z = safe_z - 1.0
 			break
+		_wseed(pick_z, 2)
 		_spawn_pickup(pick_z)
 		pick_z -= randf_range(30.0, 70.0)
 	while surv_z > rvz - VIEW_AHEAD:
 		if surv_z < safe_z:
 			surv_z = safe_z - 1.0
 			break
+		_wseed(surv_z, 3)
 		_spawn_survivor(surv_z)
 		surv_z -= randf_range(250.0, 450.0)
 	while lamp_z > rvz - VIEW_AHEAD:
 		if lamp_z < safe_z:
 			lamp_z = safe_z - 1.0
 			break
+		_wseed(lamp_z, 4)
 		_spawn_lamp(lamp_z)
 		lamp_z -= 55.0
 	while scenery_z > rvz - VIEW_AHEAD:
 		if scenery_z < safe_z:
 			scenery_z = safe_z - 1.0
 			break
+		_wseed(scenery_z, 5)
 		_spawn_scenery(scenery_z)
 		scenery_z -= 12.0
 	while sign_z > rvz - VIEW_AHEAD:
@@ -1407,12 +1451,258 @@ func _update_frontier() -> void:
 			pole_z = safe_z - 1.0
 			_pole_prev.clear()
 			break
+		_wseed(pole_z, 7)
 		_spawn_pole(pole_z)
 		pole_z -= 48.0
+	# 沿途聚落：按 data/world.json 固定里程生成
+	while _place_idx < _places.size():
+		var p: Dictionary = _places[_place_idx]
+		var pz: float = rvz - (float(p.get("km", 0.0)) - dist_km) * KMH_FACTOR
+		if pz <= rvz - VIEW_AHEAD:
+			break
+		_spawn_place(p, pz)
+		_place_idx += 1
 	# 清理身后
 	for s in get_children():
 		if s.is_in_group("consumable") and s.global_position.z > rvz + 40.0:
 			s.queue_free()
+
+## 按世界坐标派生种子：同一路段无论何时经过，生成结果完全一致（与调用顺序无关）
+func _wseed(z: float, salt: int) -> void:
+	seed(_world_seed + int(z * 16.0) + salt * 7919)
+
+## --dump 调试：打印房车周边节点（name/位置），headless 跑 --jump=KM --dump 定位异常物
+func _dump_nodes() -> void:
+	# 只列 main 直接子节点（生成物都挂在 main 下），避免递归遍历 GLB 子树卡死
+	var rp: Vector3 = rv.global_position
+	for n in get_children():
+		var n3 := n as Node3D
+		if n3 == null:
+			continue
+		if n3 == terrain:
+			# 地形逐 surface 打 AABB（全局），定位异常高几何
+			for si in terrain.mesh.get_surface_count():
+				var vs: PackedVector3Array = terrain.mesh.surface_get_arrays(si)[Mesh.ARRAY_VERTEX]
+				var mn := Vector3(INF, INF, INF)
+				var mx := Vector3(-INF, -INF, -INF)
+				for v in vs:
+					mn = mn.min(v)
+					mx = mx.max(v)
+				printt("TERR surf", si, "size", (mx - mn).round(), "min", mn.round(), "max", mx.round())
+			continue
+		var gp: Vector3 = n3.global_position
+		if absf(gp.x - rp.x) < 800.0 and absf(gp.z - rp.z) < 900.0:
+			var wa: AABB = n3.global_transform * _merged_aabb(n3)
+			if wa.size.y > 8.0:
+				var src: String = n3.scene_file_path
+				var kids: Array = n3.get_children()
+				var k0: String = "(leaf)"
+				if not kids.is_empty():
+					k0 = "%s/%s" % [(kids[0] as Node).name, (kids[0] as Node).get_class()]
+				printt("TALL", n3.name, n3.get_class(), "pos", gp.round(), "size", wa.size.round(), "top_y", snappedf(wa.position.y + wa.size.y, 0.1), "src", src, "k0", k0, "grp", n3.get_groups())
+				# 打印子树各部件的网格与局部坐标，识别生成器结构
+				if wa.size.y > 30.0:
+					for c in n3.get_children():
+						var mi := c as MeshInstance3D
+						if mi != null and mi.mesh != null:
+							printt("  PART", mi.name, mi.mesh.get_class(), "lpos", mi.position.round(), "maabb", mi.get_aabb().size.round())
+
+## 前方最近的 n 个地点：[[名字, 剩余 km], …]，HUD 旅程条用
+func next_places(n: int) -> Array:
+	var out: Array = []
+	for p in _places:
+		var remain: float = float(p.get("km", 0.0)) - dist_km
+		if remain > -0.2:
+			out.append([String(p.get("name", "")), maxf(remain, 0.0)])
+			if out.size() >= n:
+				break
+	return out
+
+## 沿途聚落（data/world.json）：按类型生成 + 路口立高速名牌
+func _spawn_place(p: Dictionary, z: float) -> void:
+	_wseed(z, 8)
+	match String(p.get("type", "")):
+		"town":
+			# 楼群沿镇区两侧均匀排开：宽体废墟楼放远些不压路，集装箱可贴近
+			var n := 4 + randi() % 3
+			for i in range(n):
+				var sd := 1.0 if i % 2 == 0 else -1.0
+				var bz: float = z - 75.0 + i * (150.0 / n) + randf_range(-8.0, 8.0)
+				_place_scenery(BUILDING_SCENE, road_x(bz) + sd * randf_range(38.0, 55.0), bz, randf_range(9.0, 16.0))
+			for i in range(2):
+				var jz: float = z + randf_range(-60.0, 60.0)
+				_place_scenery(JUNK_SCENE, road_x(jz) + _side() * randf_range(24.0, 28.0), jz, randf_range(2.4, 3.2))
+		"gas":
+			_gas_station(z)
+		"camp":
+			_camp(z)
+		"landmark":
+			_landmark_rock(z)
+	_place_sign(String(p.get("name", "")), z)
+
+## 加油站：雨棚 + 双油泵 + 价格立牌（路右 27m 外，不挡路肩）
+func _gas_station(z: float) -> void:
+	var root := Node3D.new()
+	root.add_to_group("consumable")
+	var bx: float = road_x(z) + ROAD_HALF + 20.0
+	root.position = Vector3(bx, ground_height(bx, z), z)
+	var roof := MeshInstance3D.new()
+	var rm := BoxMesh.new()
+	rm.size = Vector3(13.0, 0.35, 8.0)
+	roof.mesh = rm
+	roof.position.y = 5.4
+	roof.material_override = _mat(Color(0.88, 0.88, 0.85))
+	root.add_child(roof)
+	for dx in [-5.0, 5.0]:
+		for dz in [-3.0, 3.0]:
+			var post := MeshInstance3D.new()
+			var pm := CylinderMesh.new()
+			pm.top_radius = 0.12
+			pm.bottom_radius = 0.14
+			pm.height = 5.4
+			post.mesh = pm
+			post.position = Vector3(dx, 2.7, dz)
+			post.material_override = _mat(Color(0.75, 0.76, 0.74))
+			root.add_child(post)
+	for dx in [-2.2, 2.2]:
+		var pump := MeshInstance3D.new()
+		var km := BoxMesh.new()
+		km.size = Vector3(0.8, 1.5, 0.55)
+		pump.mesh = km
+		pump.position = Vector3(dx, 0.75, 0.0)
+		pump.material_override = _mat(Color(0.72, 0.16, 0.12))
+		root.add_child(pump)
+		_solid_box(pump, km.size, Vector3.ZERO)
+	# 价格立牌：白柱红顶
+	var tp := MeshInstance3D.new()
+	var tm := BoxMesh.new()
+	tm.size = Vector3(0.7, 4.6, 0.4)
+	tp.mesh = tm
+	tp.position = Vector3(-7.6, 2.3, 3.2)
+	tp.material_override = _mat(Color(0.9, 0.9, 0.86))
+	root.add_child(tp)
+	var th := MeshInstance3D.new()
+	var hm := BoxMesh.new()
+	hm.size = Vector3(0.9, 0.8, 0.5)
+	th.mesh = hm
+	th.position = Vector3(-7.6, 4.9, 3.2)
+	th.material_override = _emis_mat(Color(0.85, 0.12, 0.1), 1.2)
+	root.add_child(th)
+	add_child(root)
+
+## 营地：三顶斜顶帐篷 + 石圈篝火（路左 25m 外）
+func _camp(z: float) -> void:
+	var root := Node3D.new()
+	root.add_to_group("consumable")
+	var bx: float = road_x(z) - (ROAD_HALF + 18.0)
+	root.position = Vector3(bx, ground_height(bx, z), z)
+	var canvas := _mat(Color(0.55, 0.5, 0.38))
+	for i in range(3):
+		var tent := Node3D.new()
+		tent.position = Vector3(randf_range(-6.0, 6.0), 0.0, randf_range(-6.0, 6.0))
+		tent.rotation.y = randf() * TAU
+		for s in [-1.0, 1.0]:
+			var sheet := MeshInstance3D.new()
+			var sm := BoxMesh.new()
+			sm.size = Vector3(3.3, 0.06, 4.4)
+			sheet.mesh = sm
+			sheet.position = Vector3(s * 1.14, 1.14, 0.0)
+			sheet.rotation.z = -s * PI * 0.25
+			sheet.material_override = canvas
+			tent.add_child(sheet)
+		root.add_child(tent)
+	for i in range(7):
+		var a := TAU * i / 7.0
+		var st := MeshInstance3D.new()
+		var sm2 := BoxMesh.new()
+		sm2.size = Vector3(0.28, 0.2, 0.24)
+		st.mesh = sm2
+		st.position = Vector3(cos(a) * 0.55, 0.1, sin(a) * 0.55)
+		st.rotation.y = a
+		st.material_override = _mat(Color(0.4, 0.4, 0.42))
+		root.add_child(st)
+	var ember := MeshInstance3D.new()
+	var em := BoxMesh.new()
+	em.size = Vector3(0.5, 0.16, 0.5)
+	ember.mesh = em
+	ember.position.y = 0.08
+	ember.material_override = _emis_mat(Color(1.0, 0.45, 0.12), 2.0)
+	root.add_child(ember)
+	var fire := OmniLight3D.new()
+	fire.light_color = Color(1.0, 0.55, 0.25)
+	fire.light_energy = 1.2
+	fire.omni_range = 7.0
+	fire.position.y = 0.8
+	root.add_child(fire)
+	add_child(root)
+
+## 地标：鹰嘴岩式巨型岩柱（路左远眺，微倾更像风蚀）
+func _landmark_rock(z: float) -> void:
+	# 风蚀岩柱：基座 + 中层错叠 + 向路挑出的"喙"
+	var bx: float = road_x(z) - randf_range(40.0, 52.0)
+	var gy: float = ground_height(bx, z)
+	var rock := Node3D.new()
+	rock.position = Vector3(bx, gy, z)
+	rock.rotation.y = randf() * TAU
+	add_child(rock)
+	rock.add_to_group("consumable")
+	var layers := [
+		[Vector3(randf_range(8.0, 10.0), 12.0, randf_range(7.0, 8.5)), Vector3(0, 6, 0), 0.0],
+		[Vector3(randf_range(5.5, 6.5), 9.0, randf_range(5.0, 6.0)), Vector3(randf_range(-1.5, -0.8), 15.5, randf_range(-0.5, 0.5)), randf_range(-0.05, 0.05)],
+		[Vector3(randf_range(4.5, 5.5), 4.0, randf_range(3.5, 4.5)), Vector3(randf_range(2.0, 3.2), 21.5, randf_range(-0.5, 0.5)), randf_range(0.04, 0.09)],
+	]
+	for L in layers:
+		var bm := BoxMesh.new()
+		bm.size = L[0]
+		var mi := MeshInstance3D.new()
+		mi.mesh = bm
+		mi.material_override = _mat(Color(0.56, 0.5, 0.42).darkened(randf() * 0.12))
+		mi.position = L[1]
+		mi.rotation.z = L[2]
+		rock.add_child(mi)
+	_solid_box(rock, Vector3(9, 23, 8), Vector3(0, 11.5, 0))
+
+## 高速地名名牌：绿底白字双立柱，立在聚落旁路右（样式对齐里程碑）
+func _place_sign(pname: String, z: float) -> void:
+	var root := Node3D.new()
+	root.add_to_group("consumable")
+	var mx := road_x(z) + ROAD_HALF + 4.2
+	root.position = Vector3(mx, ground_height(mx, z), z)
+	var bw: float = 0.62 * pname.length() + 0.8
+	for dx in [-bw * 0.38, bw * 0.38]:
+		var post := MeshInstance3D.new()
+		var pm := CylinderMesh.new()
+		pm.top_radius = 0.09
+		pm.bottom_radius = 0.11
+		pm.height = 5.2
+		post.mesh = pm
+		post.position = Vector3(dx, 2.6, 0.0)
+		post.material_override = _mat(Color(0.42, 0.44, 0.45))
+		root.add_child(post)
+	var back := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(bw, 1.9, 0.07)
+	back.mesh = bm
+	back.position.y = 6.0
+	back.material_override = _mat(Color(0.92, 0.93, 0.9))
+	root.add_child(back)
+	var face := MeshInstance3D.new()
+	var fm := BoxMesh.new()
+	fm.size = Vector3(bw - 0.16, 1.74, 0.03)
+	face.mesh = fm
+	face.position = Vector3(0.0, 6.0, 0.05)
+	face.material_override = _mat(Color(0.02, 0.38, 0.2))
+	root.add_child(face)
+	var lb := Label3D.new()
+	lb.text = pname
+	lb.font_size = 96
+	lb.pixel_size = 0.0048
+	lb.outline_size = 10
+	lb.outline_modulate = Color(0.02, 0.2, 0.1)
+	lb.modulate = Color(0.95, 0.97, 0.95)
+	lb.position = Vector3(0.0, 6.0, 0.08)
+	root.add_child(lb)
+	add_child(root)
 
 func _spawn_obstacle(z: float) -> void:
 	var roll := randf()
@@ -1763,6 +2053,8 @@ func _next_crew_member() -> Dictionary:
 
 # ---------- 初始景物 ----------
 func _spawn_initial_scenery() -> void:
+	# 出生区景物也走确定性：同一世界种子下布局固定
+	_wseed(0.0, 9)
 	for i in range(100):
 		var zz := -650.0 + randf() * 710.0
 		props.append(_make_scenery(zz))
@@ -2336,8 +2628,10 @@ func _make_scenery(z: float) -> Node3D:
 	var root := Node3D.new()
 	var side := 1.0 if randf() > 0.5 else -1.0
 	# 路肩（车可开）到 21m：带碰撞/实心景物一律放 22m 外，杜绝贴路穿车
+	# x_band：横向距离带写入 meta，世界回收按带重放（否则高楼会被回收贴到路边）
 	var sx2 := road_x(z) + side * (ROAD_HALF + 15.0 + randf() * 22.0)
 	root.position = Vector3(sx2, ground_height(sx2, z), z)
+	root.set_meta("x_band", Vector2(ROAD_HALF + 15.0, ROAD_HALF + 37.0))
 	var roll := randf()
 	if roll < 0.06:
 		# 枯树：树干 + 歪斜枯枝（少量点缀，提醒这是末世）
@@ -2425,6 +2719,7 @@ func _make_scenery(z: float) -> Node3D:
 			antenna.material_override = _mat(Color(0.25, 0.25, 0.26))
 			root.add_child(antenna)
 		root.position.x = road_x(z) + side * (randf_range(105.0, 190.0) if far else randf_range(45.0, 90.0))
+		root.set_meta("x_band", Vector2(105.0, 190.0) if far else Vector2(45.0, 90.0))
 		# x 移出远处后按新位置的地形高度重算 y，否则楼悬浮/埋地
 		root.position.y = ground_height(root.position.x, z)
 	elif roll < 0.82:
@@ -2447,6 +2742,7 @@ func _make_scenery(z: float) -> Node3D:
 		panel.material_override = _mat(Color(0.36, 0.3, 0.24))
 		root.add_child(panel)
 		root.position.x = road_x(z) + side * randf_range(ROAD_HALF + 15.0, ROAD_HALF + 21.0)
+		root.set_meta("x_band", Vector2(ROAD_HALF + 15.0, ROAD_HALF + 21.0))
 	elif roll < 0.90:
 		# 茂盛灌木：两团鲜绿球丛，部分顶端点缀花色
 		var shrub_col := Color(0.17, 0.34, 0.13).lerp(Color(0.3, 0.42, 0.16), randf())

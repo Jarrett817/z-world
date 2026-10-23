@@ -380,8 +380,9 @@ func _ridge(start_z: float, side_x: float, width: float = 200.0, h_scale: float 
 		var zz: float = start_z - i * SEG_LEN
 		var cx: float = _main.road_x(zz)
 		var gy: float = _main.ground_y(zz)
-		var h: float = (24.0 + sin(zz * 0.0041 + side_x) * 16.0
-			+ sin(zz * 0.0013 + 3.0) * 26.0 + sin(zz * 0.011) * 5.0) * h_scale
+		# 峰高压低：原最高 71m 会顶出屏幕上缘、被雾洗成"巨墙"；压低后波浪脊线入画才读得出山形
+		var h: float = (9.0 + sin(zz * 0.0041 + side_x) * 6.0
+			+ sin(zz * 0.0013 + 3.0) * 9.5 + sin(zz * 0.011) * 2.0) * h_scale
 		var xa: float = cx + x0
 		var xb: float = cx + x1
 		verts.append(Vector3(xa, gy - 3.0, zz)); normals.append(face_n)

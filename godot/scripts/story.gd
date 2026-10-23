@@ -19,6 +19,10 @@ func setup(node: Node) -> void:
 		events = parsed
 
 func _ready() -> void:
+	# --nostory：截帧验收等调试场景不弹任何剧情
+	if OS.get_cmdline_user_args().has("--nostory"):
+		set_process(false)
+		return
 	# 开局序章：给玩家两秒看清场景后电台亮起
 	get_tree().create_timer(_intro_delay).timeout.connect(func() -> void: _open("intro"))
 

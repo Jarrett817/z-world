@@ -45,6 +45,7 @@ var speed_label: Label
 var res_label: Label
 var info_label: Label
 var weather_label: Label
+var journey_label: Label
 var dur_fill: ColorRect
 var fuel_fill: ColorRect
 var toast_label: Label
@@ -135,6 +136,15 @@ func build(rv_node: Node) -> void:
 	weather_label.offset_top = 38
 	weather_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	root.add_child(weather_label)
+
+	# 顶部旅程条：前方地点 + 距离（在操作提示下一行，避免重叠）
+	journey_label = _label("", 15, TEXT_DIM)
+	journey_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	journey_label.offset_left = -400
+	journey_label.offset_right = 400
+	journey_label.offset_top = 38
+	journey_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	root.add_child(journey_label)
 
 	# 车速表
 	speed_label = _label("0 km/h", 40, TEXT_MAIN)
@@ -836,6 +846,10 @@ func update_stats(main: Node3D) -> void:
 	var h := int(main.hour)
 	var m := int((main.hour - h) * 60.0)
 	info_label.text = "里程 %.1f km · 第 %d 天 %02d:%02d%s" % [main.dist_km, main.day, h, m, " · 驻车中" if main.parked else ""]
+	var legs := PackedStringArray()
+	for pl in main.next_places(3):
+		legs.append("%s %.0fkm" % [pl[0], pl[1]])
+	journey_label.text = " → ".join(legs)
 
 func set_weather(w: String) -> void:
 	weather_label.text = "天气 " + {"clear": "晴", "rain": "雨", "fog": "雾"}.get(w, "晴")

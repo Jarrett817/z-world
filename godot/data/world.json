@@ -1,0 +1,16 @@
+{
+	"world_seed": 20261023,
+	"places": [
+		{ "name": "七里铺加油站", "km": 12.0,  "type": "gas" },
+		{ "name": "枫桥镇",       "km": 30.0,  "type": "town" },
+		{ "name": "断桥营地",     "km": 55.0,  "type": "camp" },
+		{ "name": "望江服务区",   "km": 90.0,  "type": "gas" },
+		{ "name": "榆树湾镇",     "km": 130.0, "type": "town" },
+		{ "name": "鹰嘴岩",       "km": 180.0, "type": "landmark" },
+		{ "name": "湖心岛营地",   "km": 240.0, "type": "camp" },
+		{ "name": "铁矿镇",       "km": 320.0, "type": "town" },
+		{ "name": "青石垭口加油站", "km": 420.0, "type": "gas" },
+		{ "name": "白沙镇",       "km": 520.0, "type": "town" },
+		{ "name": "最后营地",     "km": 600.0, "type": "camp" }
+	]
+}
