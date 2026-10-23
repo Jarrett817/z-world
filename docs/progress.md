@@ -1,5 +1,13 @@
 # 开发日志
 
+## 2026-10-23 · n55 剧情事件池扩充：93 → 106（ab6658c）
+
+- 量化缺口：mile 空窗 165→250（85km）/ 280→340（60km）/ 530→600（70km）；random 池 33 个×均 95s 长旅程后段耗尽
+- 填 3 个 mile 空窗：mile_200 鹰嘴岩山道校车（粉笔太阳）、mile_310 铁轨道口货运列车（「进镇请走支路」锈牌联动岔路）、mile_555 方舟整点广播信号变清晰
+- random 池 +10：旧地图红圈岔路超市 / 「有 房」霓虹旅馆 / 路肩新土坟 / 萤火虫河谷 / 橘猫（唐棠「教练」）/ 修桥团伙买路粮（叶澜谈判）/ 侧翻货车矿泉水 / 末世主持人问答 / 岔路尽头水塔侦察 / 后视镜尾随车队——town_detour 与 water_tower 直接联动新岔路玩法
+- 文风对齐现有：「N 公里+场景特写+诗意细节」、roll 60/40、fx 仅 dur/fuel/food/morale ±1~14
+- 验收：JSON parse OK（106 事件），无头 EXIT=0 零 SCRIPT ERROR / Parse Error
+
 ## 2026-10-23 · n54 岔路进城 + 镇内探索（6821e55 + d6f8aa9）
 
 - 岔路系统：_place_junction 按地点 km 哈希确定性出参，junctions_in/junction_gap 查询时合并聚落岔路——terrain 渲染支路、护栏断口零改动生效（解决 terrain 提前 840m 生成 vs _spawn_place 260m 才触发的时序矛盾）；--jump 后补 terrain.rebuild 修车悬空
