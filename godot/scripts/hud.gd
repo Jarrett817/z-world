@@ -58,6 +58,8 @@ var crew_visible := false
 var facilities_root: Panel
 var facilities_rows: VBoxContainer
 var facilities_title: Label
+var credits_root: Panel
+var credits_rows: VBoxContainer
 var drive_buttons: Array[Button] = []
 var drive_misc_buttons: Array[Button] = []   # 视角/驻车/天窗/下车/车内（战斗时连同驾驶键一起收起）
 var combat_fire_buttons: Array[Button] = []   # 车内行走时要藏起来的开火类按钮
@@ -119,8 +121,8 @@ func build(rv_node: Node) -> void:
 	# 右上操作提示
 	var hint := _label("W/A/S/D 驾驶 · C 视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 车内 · E 设施 · V 射击视角 · Tab 队伍", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	hint.offset_left = -860
-	hint.offset_right = -210
+	hint.offset_left = -958
+	hint.offset_right = -308
 	hint.offset_top = 14
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	root.add_child(hint)
@@ -165,7 +167,8 @@ func build(rv_node: Node) -> void:
 	drive_misc_buttons.append(_touch_button(root, "天窗", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -284, 78, 56), "sunroof"))
 	drive_misc_buttons.append(_touch_button(root, "下车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -284, 78, 56), "exitveh"))
 	drive_misc_buttons.append(_touch_button(root, "车内", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -346, 78, 56), "rvwalk"))
-	# 右上：队伍 / 设施（手游触屏替代 Tab/E 快捷键）
+	# 右上：署名 / 队伍 / 设施（手游触屏替代 Tab/E 快捷键）
+	_touch_button(root, "署名", Control.PRESET_TOP_RIGHT, Rect2(-292, 14, 88, 46), "credits")
 	_touch_button(root, "队伍", Control.PRESET_TOP_RIGHT, Rect2(-196, 14, 88, 46), "crew")
 	_touch_button(root, "设施", Control.PRESET_TOP_RIGHT, Rect2(-100, 14, 88, 46), "fac")
 
@@ -229,6 +232,51 @@ func build(rv_node: Node) -> void:
 	facilities_rows.add_theme_constant_override("separation", 6)
 	facilities_rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	fac_vbox.add_child(facilities_rows)
+
+	# 素材署名面板（居中，右上「署名」按钮开关）
+	credits_root = Panel.new()
+	credits_root.set_anchors_preset(Control.PRESET_CENTER)
+	credits_root.offset_left = -320
+	credits_root.offset_top = -290
+	credits_root.offset_right = 320
+	credits_root.offset_bottom = 290
+	credits_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	var crsb := StyleBoxFlat.new()
+	crsb.bg_color = Color(0.105, 0.085, 0.07, 0.97)
+	crsb.set_border_width_all(2)
+	crsb.border_color = Color(0.91, 0.53, 0.18, 0.75)
+	crsb.set_corner_radius_all(12)
+	credits_root.add_theme_stylebox_override("panel", crsb)
+	credits_root.visible = false
+	root.add_child(credits_root)
+	var cr_margin := MarginContainer.new()
+	cr_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cr_margin.add_theme_constant_override("margin_left", 20)
+	cr_margin.add_theme_constant_override("margin_right", 20)
+	cr_margin.add_theme_constant_override("margin_top", 14)
+	cr_margin.add_theme_constant_override("margin_bottom", 14)
+	credits_root.add_child(cr_margin)
+	var cr_vbox := VBoxContainer.new()
+	cr_vbox.add_theme_constant_override("separation", 8)
+	cr_margin.add_child(cr_vbox)
+	var cr_title := _label("素材署名", 20, ACCENT, Vector2.ZERO)
+	cr_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cr_vbox.add_child(cr_title)
+	var cr_scroll := ScrollContainer.new()
+	cr_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	cr_vbox.add_child(cr_scroll)
+	credits_rows = VBoxContainer.new()
+	credits_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	credits_rows.add_theme_constant_override("separation", 5)
+	cr_scroll.add_child(credits_rows)
+	var cr_close := Button.new()
+	cr_close.text = "关闭"
+	cr_close.custom_minimum_size = Vector2(160, 44)
+	cr_close.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	cr_close.add_theme_font_size_override("font_size", 20)
+	cr_close.pressed.connect(func() -> void: set_credits_visible(false))
+	cr_close.pressed.connect(func() -> void: rv.main_node.sfx.play("ui_click", 1.1, 0.05, -8.0))
+	cr_vbox.add_child(cr_close)
 
 	# 结算遮罩（隐藏）
 	over_root = ColorRect.new()
@@ -585,6 +633,40 @@ func _show_options() -> void:
 func hide_story() -> void:
 	story_root.visible = false
 
+# ---------- 素材署名面板 ----------
+func set_credits_visible(v: bool) -> void:
+	credits_root.visible = v
+	if v:
+		_refresh_credits()
+
+func _refresh_credits() -> void:
+	for c in credits_rows.get_children():
+		c.queue_free()
+	var data: Dictionary = rv.main_node.credits_data
+	_credit_header("CC-BY 许可素材（依许可要求署名）")
+	for it in data.get("cc_by", []):
+		_credit_line("· %s\n  %s · %s" % [it.get("asset", ""), it.get("author", ""), it.get("license", "")])
+	var pend: Array = data.get("pending", [])
+	if not pend.is_empty():
+		_credit_header("来源信息待补")
+		for it in pend:
+			_credit_line("· %s\n  %s" % [it.get("asset", ""), it.get("note", "")])
+	_credit_header("CC0 公共领域素材（致谢）")
+	for it in data.get("cc0", []):
+		_credit_line("· %s\n  %s" % [it.get("asset", ""), it.get("author", "")])
+
+func _credit_header(text: String) -> void:
+	var l := _label(text, 17, ACCENT, Vector2.ZERO)
+	l.custom_minimum_size.y = 30
+	l.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	credits_rows.add_child(l)
+
+func _credit_line(text: String) -> void:
+	var l := _label(text, 15, TEXT_MAIN, Vector2.ZERO)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size.x = 560
+	credits_rows.add_child(l)
+
 # ---------- 房车设施面板 ----------
 func set_facilities_visible(v: bool) -> void:
 	facilities_root.visible = v
@@ -897,6 +979,8 @@ func _on_btn_down(action: String) -> void:
 		"crew":
 			crew_visible = not crew_visible
 			crew_panel.visible = crew_visible
+		"credits":
+			set_credits_visible(not credits_root.visible)
 		"fac":
 			if rv.main_node != null and rv.main_node.parked:
 				rv.main_node.set_facilities_ui(not rv.main_node.facilities_visible)

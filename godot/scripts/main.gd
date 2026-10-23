@@ -109,6 +109,7 @@ var _f_down := false
 var _e_down := false
 var facilities_visible := false
 var facilities_data := {}
+var credits_data := {}
 var facility_levels := {}   # 设施 id → 当前等级（0 起）
 var _starving := false
 var _low_morale_warned := false
@@ -133,6 +134,7 @@ var _shot_path := ""
 var _shot_t := 0.0
 var _shot_walk := false  # --shotrvwalk：截帧前先进车内行走
 var _shot_combat := false  # --shotcombat：截帧前先进下车战斗
+var _shot_credits := false  # --shotcredits：截帧前先打开署名面板
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
@@ -143,9 +145,12 @@ func _ready() -> void:
 			_shot_walk = true
 		elif a == "--shotcombat":
 			_shot_combat = true
+		elif a == "--shotcredits":
+			_shot_credits = true
 	_load_survivors()
 	_load_facilities()
 	_load_zones()
+	_load_credits()
 	_build_sky()
 	_build_terrain()
 	_build_rv()
@@ -209,6 +214,11 @@ func _load_facilities() -> void:
 		facilities_data = parsed
 		for f in parsed.get("facilities", []):
 			facility_levels[f.get("id", "")] = 0
+
+func _load_credits() -> void:
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/credits.json"))
+	if parsed is Dictionary:
+		credits_data = parsed
 
 func _load_zones() -> void:
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/terrain_zones.json"))
@@ -322,6 +332,13 @@ func _process(delta: float) -> void:
 				rv.speed_kmh = 0.0
 				set_facilities_ui(false)
 				start_combat(0)
+				_shot_at = 1.5
+				_shot_t = 0.0
+				return
+			if _shot_credits:
+				# --shotcredits：打开署名面板，稳定 1.5s 后截帧
+				_shot_credits = false
+				hud.set_credits_visible(true)
 				_shot_at = 1.5
 				_shot_t = 0.0
 				return

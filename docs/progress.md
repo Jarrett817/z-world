@@ -1,5 +1,23 @@
 # 开发日志
 
+## 2026-10-23 · n43 游戏内署名页（CC-BY 署名 + CC0 致谢）
+
+### 本次完成
+
+- **数据**：`godot/data/credits.json` 新建——7 项 CC-BY + 1 项来源待补 + 7 项 CC0，文案走数据文件不硬编码
+- **界面**：HUD 右上新增「署名」按钮（hint 提示行右移避让），署名面板 640×580 居中 + ScrollContainer，仿设施面板样式；数据驱动渲染三段
+- **署名清单实锤**（GLB 元数据 extras + Sketchfab API + docs 三方交叉）：Lionsharp Studios（房车）、pxltiger（丧尸，**勘误：CC-BY 4.0 非 docs 旧载 3.0**）、jeandiz（M4）、dan741vlasov（AKM）、5Nikitos5（Glock）、TastyTony（沙鹰）、Colodical（丧尸音效 CC-BY 3.0）
+- **来源待补披露**：废弃轿车/废弃卡车/路障套装/军用路障四件 Sketchfab CC-BY，作者在工程迁移中遗失（GLB 经 Blender 重导出元数据被抹、git LFS 初版即压缩版、Sketchfab API 检索未命中），面板内如实披露「核实后补署」
+- **踩坑**：`OS.get_cmdline_user_args()` 只取 `--` 分隔符之后参数，截帧命令漏 `--` 导致引擎 banner 后静默退出（EXIT=0 假成功）
+- 截帧目检通过：面板渲染/换行/滚动/按钮避让全正常
+
+### 待办
+
+- 四件套作者继续考据，或直接替换为 CC0 资产以清 pending 段
+- role1/2 重定向、VRoid 换装、画质提升
+
+---
+
 ## 2026-10-23 · n42 玩法链路自动化连贯性测试
 
 ### 本次完成（用户要求「玩法链路连贯性要测啊」）

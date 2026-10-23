@@ -1,0 +1,23 @@
+{
+	"cc_by": [
+		{ "asset": "房车模型「GMC Motorhome reimagined」（装甲改装）", "author": "Lionsharp Studios (lionsharp)", "license": "CC-BY 4.0" },
+		{ "asset": "丧尸模型「Zombie」", "author": "pxltiger", "license": "CC-BY 4.0" },
+		{ "asset": "步枪模型「AR-15 style rifle」（M4）", "author": "Mateusz Woliński (jeandiz)", "license": "CC-BY 4.0" },
+		{ "asset": "步枪模型「AKM | Free Lowpoly」", "author": "Vlasov Daniil (dan741vlasov)", "license": "CC-BY 4.0" },
+		{ "asset": "手枪模型「Glock-17」", "author": "5Nikitos5", "license": "CC-BY 4.0" },
+		{ "asset": "手枪模型「Low-Poly Desert Eagle」", "author": "TastyTony", "license": "CC-BY 4.0" },
+		{ "asset": "丧尸音效「ZombiePackSFX 3」", "author": "Colodical", "license": "CC-BY 3.0" }
+	],
+	"pending": [
+		{ "asset": "废弃轿车 / 废弃卡车 / 路障套装 / 军用路障", "note": "Sketchfab CC-BY 素材，作者信息在工程迁移中遗失，核实后补署" }
+	],
+	"cc0": [
+		{ "asset": "丧尸模型「Zombie Apocalypse Kit」与人物动画库 UAL", "author": "Quaternius" },
+		{ "asset": "引擎循环音", "author": "domasx2" },
+		{ "asset": "界面点击音", "author": "Kenney" },
+		{ "asset": "剧情纸张音", "author": "Luckius" },
+		{ "asset": "换弹音", "author": "BMacZero" },
+		{ "asset": "拾取音", "author": "WobbleBoxx" },
+		{ "asset": "枪声 / 碾压音「Various Sound Effects」", "author": "OpenGameArt 社区" }
+	]
+}
