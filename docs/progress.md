@@ -1,5 +1,23 @@
 # 开发日志
 
+## 2026-10-23 · n41 音效全换真实录音（ce41340 + c96be22）
+
+### 本次完成（用户反馈「一开车就有滴滴滴的噪音」）
+
+- **盘点实锤**：assets/sfx/ 全部 10 个 wav 均为早期程序化合成音；engine.wav 是正弦波 0.86s 短循环——滴滴滴噪音源
+- **engine.wav**：换 OpenGameArt domasx2 赛车引擎循环（CC0），61Hz 低沉基频，归一化 0.92 + 首尾 8ms 交叉淡化消循环咔哒（ce41340）
+- **其余 9 个一并替换**（c96be22）：gunshot←Various Sound Effects snd_gunshot1（CC0 Spring，96kHz 转 44.1k）；reload←BMacZero clipload1（CC0）；ui_click←Kenney click1（CC0）；pickup←WobbleBoxx Coin01.aif（CC0，包络 -35dB 截断 2.55s→0.82s）；story_open←Luckius Paper Sound 1（CC0）；run_over←Various Sound Effects snd_splathit（CC0）；zombie_bite/die/growl←ZombiePackSFX 3（**CC-BY 3.0，署名 Colodical**）
+- **统一规格**：44.1kHz 单声道 s16，峰值归一化 0.92（ffmpeg 预压 0.45 防立体声混音削波，Python 再归一）；sfx.gd 零改动（文件名不变）
+- **验收**：无头回归 EXIT=0（Start-Process -Wait 取 ExitCode；`$LASTEXITCODE` 在该调用方式下偶发为空，注意）
+
+### 待办
+
+- 署名页欠账新增：Colodical（ZombiePackSFX 3 已实际使用）；其余同 n40
+- role1/role2.glb 队友同管线重定向；VRoid 换装；画质提升——P3
+- （可选）CharLively 插播池扩充：UAL 还有 Idle_Talking_Loop/Interact 可重定向为新闲置变体
+
+---
+
 ## 2026-10-23 · n40 动捕重定向：动画去僵硬（8b7ed76）
 
 ### 本次完成（用户反馈「代码写的动画太僵硬」）
