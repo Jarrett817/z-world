@@ -33,6 +33,30 @@
 	  "max_level": 3,
 	  "upgrade": { "label": "加装油桶架", "parts": [5, 8] },
 	  "fuel_cap": [100, 120, 140]
+	},
+	{
+	  "id": "planter",
+	  "name": "种植箱",
+	  "desc": "种点速生菜，驻车就能收",
+	  "max_level": 3,
+	  "upgrade": { "label": "加装滴灌", "parts": [5, 7] },
+	  "action": {
+		"label": "收获蔬菜",
+		"hours": 3,
+		"fx_food": [4, 7, 10]
+	  }
+	},
+	{
+	  "id": "salvage",
+	  "name": "拆解台",
+	  "desc": "把废铁拆成能用的零件",
+	  "max_level": 2,
+	  "upgrade": { "label": "加装切割锯", "parts": [4] },
+	  "action": {
+		"label": "拆解废件",
+		"hours": 2,
+		"fx_parts": [2, 3]
+	  }
 	}
   ]
 }

@@ -208,7 +208,7 @@ func build(rv_node: Node) -> void:
 	facilities_root.anchor_bottom = 1.0
 	facilities_root.offset_left = -306
 	facilities_root.offset_right = 306
-	facilities_root.offset_top = -312
+	facilities_root.offset_top = -372
 	facilities_root.offset_bottom = -28
 	facilities_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	var fsb := StyleBoxFlat.new()

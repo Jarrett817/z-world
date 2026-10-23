@@ -561,6 +561,14 @@ func facility_action(id: String) -> void:
 		var reps: Array = act["fx_dur"]
 		durability = minf(100.0, durability + float(reps[lv]))
 		hud.toast("深度检修完成，车况 +%d" % int(reps[lv]))
+	if act.has("fx_food"):
+		var crops: Array = act["fx_food"]
+		food += float(crops[lv])
+		hud.toast("收获了一箱速生菜，食物 +%d" % int(crops[lv]))
+	if act.has("fx_parts"):
+		var scraps: Array = act["fx_parts"]
+		parts += float(scraps[lv])
+		hud.toast("拆出能用的零件，零件 +%d" % int(scraps[lv]))
 	hud.update_stats(self)
 	hud.refresh_facilities()
 
