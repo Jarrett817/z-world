@@ -234,7 +234,6 @@ func build(rv_node: Node) -> void:
 	facilities_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	fac_title_row.add_child(facilities_title)
 	var fac_close := _facility_button("收起", true)
-	fac_close.pressed.connect(func() -> void: rv.main_node.sfx.play("ui_click", 1.0, 0.04, -6.0))
 	fac_close.pressed.connect(func() -> void: rv.main_node.set_facilities_ui(false))
 	fac_title_row.add_child(fac_close)
 	facilities_rows = VBoxContainer.new()
@@ -285,7 +284,6 @@ func build(rv_node: Node) -> void:
 	cr_close.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	cr_close.add_theme_font_size_override("font_size", 20)
 	cr_close.pressed.connect(func() -> void: set_credits_visible(false))
-	cr_close.pressed.connect(func() -> void: rv.main_node.sfx.play("ui_click", 1.1, 0.05, -8.0))
 	cr_vbox.add_child(cr_close)
 
 	# 结算遮罩（隐藏）
@@ -636,7 +634,6 @@ func _show_options() -> void:
 		b.add_theme_stylebox_override("normal", sbn)
 		b.add_theme_stylebox_override("hover", sbn)
 		b.add_theme_color_override("font_color", TEXT_MAIN if usable else TEXT_DIM)
-		b.pressed.connect(func() -> void: rv.main_node.sfx.play("ui_click", 1.0, 0.04, -6.0))
 		b.pressed.connect(story_node.choose.bind(i))
 		story_options.add_child(b)
 
@@ -740,7 +737,6 @@ func _refresh_facilities() -> void:
 			var can: bool = main.food >= float(act.get("food", 0)) and main.parts >= float(act.get("parts", 0))
 			var b := _facility_button(String(act.get("label", "使用")), can)
 			b.custom_minimum_size = Vector2(104, 0)
-			b.pressed.connect(func() -> void: rv.main_node.sfx.play("ui_click", 0.95, 0.04, -6.0))
 			b.pressed.connect(main.facility_action.bind(id))
 			top.add_child(b)
 		if lv < max_lv - 1:
@@ -748,7 +744,6 @@ func _refresh_facilities() -> void:
 			var cost := int(costs[lv])
 			var ub := _facility_button("%s ·%d件" % [String(f.get("upgrade", {}).get("label", "升级")), cost], main.parts >= cost)
 			ub.custom_minimum_size = Vector2(118, 0)
-			ub.pressed.connect(func() -> void: rv.main_node.sfx.play("ui_click", 1.05, 0.04, -6.0))
 			ub.pressed.connect(main.facility_upgrade.bind(id))
 			top.add_child(ub)
 		else:
@@ -930,7 +925,6 @@ func _touch_button(parent: Control, text: String, preset: int, rect: Rect2, acti
 	b.add_theme_font_size_override("font_size", 22)
 	b.add_theme_color_override("font_color", TEXT_MAIN)
 	b.button_down.connect(_on_btn_down.bind(action))
-	b.button_down.connect(func() -> void: rv.main_node.sfx.play("ui_click", 1.1, 0.05, -8.0))
 	b.button_up.connect(_on_btn_up.bind(action))
 	parent.add_child(b)
 	return b
@@ -974,7 +968,10 @@ func _on_btn_down(action: String) -> void:
 		"rvwalk":
 			if rv.main_node != null:
 				if rv.main_node.rv_walk_active:
-					rv.main_node.end_rv_walk()
+					if rv.main_node.parked:
+						toast("驻车休整中 · 按驻车键出发")
+					else:
+						rv.main_node.end_rv_walk()
 				else:
 					rv.main_node.start_rv_walk()
 		"sunroof":

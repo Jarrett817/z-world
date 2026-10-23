@@ -363,11 +363,14 @@ func _process(delta: float) -> void:
 		elif parked:
 			start_combat(0)
 	_g_down = gk
-	# Q：车内行走（驻车起身 / 有队友时行驶中代驾巡航）；再按 Q 回驾驶座
+	# Q：车内行走（驻车起身 / 有队友时行驶中代驾巡航）；驻车行走中 Q 仅提示出发方式
 	var qk := Input.is_physical_key_pressed(KEY_Q)
 	if qk and not _q_down and not game_over and not story_active and not combat_active:
 		if rv_walk_active:
-			end_rv_walk()
+			if parked:
+				hud.toast("驻车休整中 · 按驻车键出发")
+			else:
+				end_rv_walk()
 		else:
 			start_rv_walk()
 	_q_down = qk
@@ -383,6 +386,15 @@ func _process(delta: float) -> void:
 		_sync_player_to_rv(delta)
 		trauma = maxf(0.0, trauma - delta * 1.4)
 		return
+	# 驻车（F）与设施（E）：车内行走时也必须响应（驻车键=出发），故在行走提前 return 之前读
+	var f := Input.is_physical_key_pressed(KEY_F)
+	if f and not _f_down and not game_over:
+		_toggle_park()
+	_f_down = f
+	var e := Input.is_physical_key_pressed(KEY_E)
+	if e and not _e_down and parked and not game_over:
+		set_facilities_ui(not facilities_visible)
+	_e_down = e
 	if rv_walk_active:
 		# 车内行走：相机由玩家节点接管，显隐在 start/end 里一次性设好
 		return
@@ -392,16 +404,6 @@ func _process(delta: float) -> void:
 		_fv_yaw = 0.0
 		_fv_pitch = 0.0
 	_c_down = pressed
-	# 驻车休整（F 开关）
-	var f := Input.is_physical_key_pressed(KEY_F)
-	if f and not _f_down and not game_over:
-		_toggle_park()
-	_f_down = f
-	# 驻车时 E 开关房车设施面板
-	var e := Input.is_physical_key_pressed(KEY_E)
-	if e and not _e_down and parked and not game_over:
-		set_facilities_ui(not facilities_visible)
-	_e_down = e
 	# 追尾视角只看 GLB 车壳；车内/驾驶舱视角隐藏车壳、显示程序化内饰与队友
 	rv_model.visible = view_mode == 0
 	interior.visible = view_mode != 0
@@ -449,11 +451,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		_fv_yaw -= event.relative.x * 0.005
 		_fv_pitch = clampf(_fv_pitch - event.relative.y * 0.005, -0.9, 0.75)
 
-## 驻车休整：全员检修，消耗食物，时间快进；再按 F 出发
+## 驻车休整：全员检修，消耗食物，时间快进；主角即起身车内自由活动；再按 F 出发
 func _toggle_park() -> void:
 	if rv_walk_active:
-		hud.toast("先回驾驶座再驻车/出发")
-		return
+		if not parked:
+			hud.toast("代驾巡航中：先按车内键回驾驶座再驻车")
+			return
+		end_rv_walk()   # 行走中按驻车键 = 出发：回驾驶座直接开车
 	if not parked:
 		if rv.speed_kmh > 6.0:
 			hud.toast("车速降到 6 km/h 以下才能驻车")
@@ -461,14 +465,8 @@ func _toggle_park() -> void:
 		parked = true
 		rv.parked = true
 		rv.speed_kmh = 0.0
-		view_mode = 2
 		_starving = false
-		hud.set_drive_buttons_visible(false)
-		set_facilities_ui(true)
-		if DisplayServer.is_touchscreen_available():
-			hud.toast("驻车休整 · 拖动屏幕环顾舱内 · 右上设施键操作 · 驻车键出发")
-		else:
-			hud.toast("驻车休整 · E 设施操作 · 右键拖动环顾舱内 · F 出发")
+		start_rv_walk()   # 主角起身，驾驶位空出（起身 toast 含走动/设施/出发提示）
 	else:
 		parked = false
 		rv.parked = false
@@ -795,6 +793,11 @@ func _build_interior() -> void:
 	cab_light.omni_range = 8.0
 	cab_light.position = Vector3(0, 1.85, 0.4)
 	interior.add_child(cab_light)
+	# 内饰 GLB 座椅建模位置距方向盘约 1.7m（建模缺陷）：双排座椅整体前移 1.27m 贴向仪表台（坐垫中心 -1.5 → -2.77）
+	for sn in ["seat_c0", "seat_c1", "seat_b0", "seat_b1", "headrest0", "headrest1"]:
+		var seat_mesh: Node3D = interior.find_child(sn, true, false)
+		if seat_mesh != null:
+			seat_mesh.position.z -= 1.27
 
 ## 车内视角的队友：副驾坐姿、其余站姿，各自在灶台/货架/餐桌/后铺忙碌
 func _build_crew() -> void:
@@ -803,7 +806,7 @@ func _build_crew() -> void:
 	# [本地坐标, 朝向, 是否坐姿]；GLB 正面朝 +Z，副驾朝车头(-Z)故转 180°
 	# 地板顶面 y=-0.4：所有站位 root 均落地板；坐姿髋部下沉约 0.44，落在坐垫顶(y=0.0)上
 	var stations := [
-		[Vector3(0.55, -0.4, -1.58), PI, true],          # 副驾（坐姿朝车头，首位队友；坐姿髋部后滑 0.28，root 前置）
+		[Vector3(0.55, -0.4, -2.85), PI, true],          # 副驾（坐姿朝车头，首位队友；座椅已前移贴方向盘）
 		[Vector3(-0.55, -0.4, -0.1), -PI * 0.5, false],  # 灶台前，朝 -X
 		[Vector3(0.55, -0.4, 0.4), PI * 0.5, false],     # 货架前，朝 +X
 		[Vector3(-0.55, -0.4, 1.15), PI * 0.5, false],    # 餐桌靠车头侧，左，朝桌/右
@@ -854,8 +857,8 @@ func _sync_crew() -> void:
 ## 主角驾驶位：hero 坐主驾播 sit，双手 TwoBoneIK3D 持续握方向盘（仅车内视角可见）
 func _build_driver() -> void:
 	var fig := Node3D.new()
-	# 主驾坐垫中心（与副驾站位对称）；坐姿髋部后滑 0.28，root 前置使髋部落坐垫上（seat_c0 顶 y=0.0）
-	fig.position = Vector3(-0.55, -0.4, -1.58)
+	# 主驾坐垫后部（座椅已前移贴方向盘：坐垫 z -3.04..-2.50）；坐姿髋部后滑 0.28，root 使髋部贴靠背不插入
+	fig.position = Vector3(-0.55, -0.4, -2.85)
 	fig.rotation.y = PI  # 朝车头
 	var lb := Label3D.new()
 	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -885,7 +888,7 @@ func _build_driver() -> void:
 		rv.add_child(grip)
 		# pole 决定肘部朝向：放在肩后下方偏外侧，肘自然下垂外张
 		var pole := Node3D.new()
-		pole.position = Vector3(-0.55 + sgn * 0.35, 0.3, -1.9)
+		pole.position = Vector3(-0.55 + sgn * 0.35, 0.3, -2.2)
 		rv.add_child(pole)
 		var ik := TwoBoneIK3D.new()
 		skel.add_child(ik)
@@ -1204,14 +1207,20 @@ func start_rv_walk() -> void:
 		driver_figure.visible = false   # 主角起身，驾驶位空出
 	if not parked:
 		# 队友代驾：首位队友（副驾坐姿）挪到主驾位
-		crew_figures[0].position = Vector3(-0.55, -0.4, -1.58)
+		crew_figures[0].position = Vector3(-0.55, -0.4, -2.85)
 	p.aim_yaw = 0.0    # 面朝车头（车内 -Z）
 	p.aim_pitch = 0.0
 	p._enter()
 	if not p.fps:
 		p.toggle_fps(true)
 	hud.set_drive_buttons_visible(false)
-	if DisplayServer.is_touchscreen_available():
+	if parked:
+		# 驻车起身：出发走驻车键，不再提示回驾驶座
+		if DisplayServer.is_touchscreen_available():
+			hud.toast("已起身 · 左下摇杆走动 · 拖动屏幕环顾 · 设施键操作 · 驻车键出发")
+		else:
+			hud.toast("已起身 · WASD 走动 · 右键拖动环顾 · E 设施 · F 出发")
+	elif DisplayServer.is_touchscreen_available():
 		hud.toast("车内行走：左下摇杆移动 · 拖动屏幕环顾 · 车内键回驾驶座")
 	else:
 		hud.toast("车内行走：WASD 移动 · 鼠标环顾 · Q 回驾驶座")
@@ -1229,7 +1238,7 @@ func end_rv_walk() -> void:
 	cam.make_current()
 	if not parked and not crew_members.is_empty():
 		# 代驾结束：队友挪回副驾位
-		crew_figures[0].position = Vector3(0.55, -0.4, -1.58)
+		crew_figures[0].position = Vector3(0.55, -0.4, -2.85)
 	# 回驾驶座：驻车回车内视角，行驶回追尾视角
 	view_mode = 2 if parked else 0
 	rv_model.visible = true
@@ -1408,6 +1417,7 @@ func _update_frontier() -> void:
 func _spawn_obstacle(z: float) -> void:
 	var roll := randf()
 	var scene: PackedScene
+	var scale_f := 1.0
 	var half := Vector3.ONE
 	var center := Vector3.ZERO
 	var hard := false
@@ -1424,12 +1434,14 @@ func _spawn_obstacle(z: float) -> void:
 		hx = 3.0
 	elif roll < 0.8:
 		scene = WTRUCK_SCENE
+		scale_f = 0.28
 		half = Vector3(3.3, 2.0, 5.0)
 		center = Vector3(0, 1.6, 0)
 		hard = true
 		hx = 3.3
 	else:
 		scene = BARRICADE_SCENE
+		scale_f = 0.55
 		half = Vector3(5.7, 0.95, 0.35)
 		center = Vector3(0, 0.95, 0)
 		hard = true
@@ -1455,6 +1467,7 @@ func _spawn_obstacle(z: float) -> void:
 	col.position = center
 	body.add_child(col)
 	var model := scene.instantiate()
+	model.scale = Vector3.ONE * scale_f
 	body.add_child(model)
 	var ox := road_x(z) + x_off
 	body.position = Vector3(ox, ground_height(ox, z), z)
@@ -2570,13 +2583,13 @@ func _emis_mat(col: Color, energy: float) -> StandardMaterial3D:
 
 # ---------- 地形函数（全场景共享） ----------
 func road_x(z: float) -> float:
-	# 直弯变化：长周期包络低值压成长直道，高值叠大摆幅连续弯
+	# 直弯变化：弯道段大幅摆动（视觉明显盘弯，横向 ±20m 级），直道段仍保留轻微摆动
 	var w := _bend_weight(z)
-	return (sin(z * 0.035) * 3.5 + sin(z * 0.1 + 1.5) * 1.6 + sin(z * 0.008 + 0.7) * 7.0) * w
+	return (sin(z * 0.018) * 7.5 + sin(z * 0.045 + 1.5) * 4.0 + sin(z * 0.008 + 0.7) * 11.0) * w
 
 func _bend_weight(z: float) -> float:
 	var t := sin(z * 0.011) * 0.6 + sin(z * 0.0043 + 2.0) * 0.4
-	return smoothstep(-0.15, 0.45, t)
+	return lerpf(0.25, 1.0, smoothstep(-0.15, 0.45, t))
 
 func ground_y(z: float) -> float:
 	return GROUND_Y + _elev_at(z) + sin(z * 0.06) * 0.08 + sin(z * 0.13 + 2.1) * 0.05 + sin(z * 0.031 + 5.0) * 0.04
