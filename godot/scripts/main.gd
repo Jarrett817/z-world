@@ -1019,16 +1019,17 @@ func _spawn_zombie() -> void:
 	# 成批生成在车前各处：路面、路肩、远处野地都有踱步的丧尸，靠声音才被惊动
 	var rvz := rv.global_position.z
 	var count := randi_range(1, 4)
-	var base_z := rvz - 20.0 - randf() * 150.0
+	# 刷在车前 12~90m：保持在无雾视野内，远处太散既看不见也构不成威胁
+	var base_z := rvz - 12.0 - randf() * 78.0
 	for i in count:
 		var zz := base_z - i * randf_range(3.0, 10.0)
-		# 45% 在道路附近，55% 散布到两侧野地（最远约 60m）
+		# 65% 在道路附近（行驶主威胁），35% 散布到两侧野地（最远约 35m，作氛围）
 		var off: float
-		if randf() < 0.45:
+		if randf() < 0.65:
 			off = (randf() - 0.5) * 13.0
 		else:
 			var side2 := 1.0 if randf() > 0.5 else -1.0
-			off = side2 * randf_range(ROAD_HALF + 3.0, 60.0)
+			off = side2 * randf_range(ROAD_HALF + 3.0, 35.0)
 		var body := _make_zombie_body()
 		body.position = Vector3(road_x(zz) + off, GROUND_Y + 0.5, zz)
 		add_child(body)
