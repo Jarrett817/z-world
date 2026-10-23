@@ -112,6 +112,7 @@ var _place_sign_idx := 0           # 下一个待出预告牌的地点（预告�
 var _g_down := false
 var _t_down := false
 var parked := false
+var _park_brake := false  # 驻车自动刹车中：F 超速时按下即重刹，停稳自动完成驻车
 var _f_down := false
 var _e_down := false
 var facilities_visible := false
@@ -223,6 +224,10 @@ func _physics_process(delta: float) -> void:
 	_update_weather(delta)
 	_update_zombies(delta)
 	_update_bullets(delta)
+	# 驻车自动刹车：停稳即完成驻车（复用正常驻车路径）
+	if _park_brake and rv.speed_kmh <= 0.5:
+		_park_brake = false
+		_toggle_park()
 	_update_frontier()
 	_recycle_world()
 	# 终点前 8km 方舟营地进入视野
@@ -497,8 +502,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		_fv_yaw -= event.relative.x * 0.005
 		_fv_pitch = clampf(_fv_pitch - event.relative.y * 0.005, -0.9, 0.75)
 
-## 驻车休整：全员检修，消耗食物，时间快进；主角即起身车内自由活动；再按 F 出发
+## 驻车休整：按一下即可——超速时自动重刹，停稳即驻车；再按 F 出发
 func _toggle_park() -> void:
+	if _park_brake:
+		_park_brake = false   # 自动刹车中再按 F = 取消
+		hud.toast("已取消驻车")
+		return
 	if rv_walk_active:
 		if not parked:
 			hud.toast("代驾巡航中：先按车内键回驾驶座再驻车")
@@ -506,7 +515,8 @@ func _toggle_park() -> void:
 		end_rv_walk()   # 行走中按驻车键 = 出发：回驾驶座直接开车
 	if not parked:
 		if rv.speed_kmh > 6.0:
-			hud.toast("车速降到 6 km/h 以下才能驻车")
+			_park_brake = true
+			hud.toast("自动刹车中，停稳即驻车（再按 F 取消）")
 			return
 		parked = true
 		rv.parked = true
@@ -1242,6 +1252,9 @@ func end_combat() -> void:
 ## Q/「车内」按钮：驻车起身车内转；有队友时行驶中也可（首位队友挪到主驾代驾，定速巡航）
 func start_rv_walk() -> void:
 	if rv_walk_active or combat_active or game_over or story_active:
+		return
+	if _park_brake:
+		hud.toast("自动刹车中，停稳再起身")
 		return
 	if not parked and crew_members.is_empty():
 		hud.toast("行驶中需要队友代驾才能起身走动（先招募幸存者）")

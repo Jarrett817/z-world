@@ -58,7 +58,7 @@ func _physics_process(delta: float) -> void:
 		rotation.z = lerpf(rotation.z, 0.0, delta * 4.0)
 		return
 	var gas := touch_gas or Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP)
-	var brake := touch_brake or Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN)
+	var brake: bool = touch_brake or main_node._park_brake or Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN)
 	var steer_in := clampf(touch_steer + _key_steer(), -1.0, 1.0)
 
 	if not engine_dead and gas:
