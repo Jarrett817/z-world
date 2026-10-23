@@ -102,6 +102,9 @@ var _zones: Array = []        # 景观段循环（data/terrain_zones.json）
 var _zones_total := 0.0
 var _wrecks: Array = []       # 撞飞后待落地冻结的障碍残骸
 var scenery_z := -20.0
+var sign_z := -50.0 * KMH_FACTOR   # 里程碑路牌：首块在 50km 处
+var pole_z := -40.0                # 电线杆生成前沿
+var _pole_prev: Array = []         # 上一根电线杆两侧挂线点（世界坐标）
 var _g_down := false
 var _t_down := false
 var parked := false
@@ -1371,6 +1374,19 @@ func _update_frontier() -> void:
 			break
 		_spawn_scenery(scenery_z)
 		scenery_z -= 12.0
+	while sign_z > rvz - VIEW_AHEAD:
+		if sign_z < safe_z:
+			sign_z = safe_z - 1.0
+			break
+		_spawn_milepost(sign_z)
+		sign_z -= 50.0 * KMH_FACTOR
+	while pole_z > rvz - VIEW_AHEAD:
+		if pole_z < safe_z:
+			pole_z = safe_z - 1.0
+			_pole_prev.clear()
+			break
+		_spawn_pole(pole_z)
+		pole_z -= 48.0
 	# 清理身后
 	for s in get_children():
 		if s.is_in_group("consumable") and s.global_position.z > rvz + 40.0:
@@ -1506,6 +1522,106 @@ func _spawn_lamp(z: float) -> void:
 	head.material_override = lamp_mat
 	root.add_child(head)
 	add_child(root)
+
+## 里程碑路牌：每 50km 一块绿底白字高速指示牌，路右、面向来车
+func _spawn_milepost(z: float) -> void:
+	# 方舟营地世界 z ≈ rvz - 剩余里程（与 safe_z 同一基准）
+	var ark_z := rv.global_position.z - (GOAL_KM - dist_km) * KMH_FACTOR
+	var remain_km := int(round((z - ark_z) / KMH_FACTOR))
+	if remain_km <= 0:
+		return
+	var root := Node3D.new()
+	root.add_to_group("consumable")
+	var mx := road_x(z) + ROAD_HALF + 3.4
+	root.position = Vector3(mx, ground_height(mx, z), z)
+	var post := MeshInstance3D.new()
+	var pm := CylinderMesh.new()
+	pm.top_radius = 0.09
+	pm.bottom_radius = 0.11
+	pm.height = 4.4
+	post.mesh = pm
+	post.position.y = 2.2
+	post.material_override = _mat(Color(0.42, 0.44, 0.45))
+	root.add_child(post)
+	var back := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(3.6, 1.8, 0.07)
+	back.mesh = bm
+	back.position.y = 5.0
+	back.material_override = _mat(Color(0.92, 0.93, 0.9))
+	root.add_child(back)
+	var face := MeshInstance3D.new()
+	var fm := BoxMesh.new()
+	fm.size = Vector3(3.44, 1.64, 0.03)
+	face.mesh = fm
+	face.position = Vector3(0.0, 5.0, 0.05)
+	face.material_override = _mat(Color(0.02, 0.38, 0.2))
+	root.add_child(face)
+	var lb := Label3D.new()
+	lb.text = "方舟 %d km" % remain_km
+	lb.font_size = 96
+	lb.pixel_size = 0.0048
+	lb.outline_size = 10
+	lb.outline_modulate = Color(0.02, 0.2, 0.1)
+	lb.modulate = Color(0.95, 0.97, 0.95)
+	lb.position = Vector3(0.0, 5.0, 0.08)
+	root.add_child(lb)
+	add_child(root)
+
+## 郊野电线杆：平原/森林/丘陵段路左，跨间挂垂弧电线
+func _spawn_pole(z: float) -> void:
+	var zone := zone_at(z)
+	if zone != "plain" and zone != "forest" and zone != "hills":
+		_pole_prev.clear()
+		return
+	var root := Node3D.new()
+	root.add_to_group("consumable")
+	var mx := road_x(z) - (ROAD_HALF + 4.5)
+	var gy := ground_height(mx, z)
+	root.position = Vector3(mx, gy, z)
+	var wood := _mat(Color(0.32, 0.24, 0.16))
+	var pole := MeshInstance3D.new()
+	var pm := CylinderMesh.new()
+	pm.top_radius = 0.09
+	pm.bottom_radius = 0.14
+	pm.height = 7.2
+	pole.mesh = pm
+	pole.position.y = 3.6
+	pole.material_override = wood
+	root.add_child(pole)
+	var arm := MeshInstance3D.new()
+	var am := BoxMesh.new()
+	am.size = Vector3(2.4, 0.12, 0.12)
+	arm.mesh = am
+	arm.position.y = 6.6
+	arm.material_override = wood
+	root.add_child(arm)
+	# 与上一根杆跨接垂弧电线（横担两端各一根）
+	var ends := [Vector3(mx - 1.1, gy + 6.55, z), Vector3(mx + 1.1, gy + 6.55, z)]
+	if _pole_prev.size() == 2:
+		for i in range(2):
+			_wire_span(_pole_prev[i], ends[i])
+	_pole_prev = ends
+	add_child(root)
+
+## 两点间 6 段下垂电线（悬链线近似，中点垂 1.1m）
+func _wire_span(a: Vector3, b: Vector3) -> void:
+	var dark := _mat(Color(0.08, 0.08, 0.08))
+	var prev := a
+	for i in range(1, 7):
+		var t := float(i) / 6.0
+		var p := a.lerp(b, t)
+		p.y -= 4.0 * 1.1 * t * (1.0 - t)
+		var seg := MeshInstance3D.new()
+		var sm := BoxMesh.new()
+		sm.size = Vector3(0.03, 0.03, prev.distance_to(p))
+		seg.mesh = sm
+		seg.material_override = dark
+		seg.add_to_group("consumable")
+		add_child(seg)
+		seg.global_position = (prev + p) * 0.5
+		seg.look_at(p, Vector3.UP)
+		prev = p
 
 # ---------- 撞击处理（rv.gd 回调） ----------
 func on_obstacle_hit(hard: bool, speed_kmh: float, obstacle: Node3D = null) -> void:
