@@ -12,7 +12,7 @@ const GRAVITY := 18.0
 const JUMP_VEL := 7.2
 const CROUCH_MUL := 0.45
 const GUN_POS := Vector3(-0.12, 1.30, 0.33)   # 枪挂点基准（下蹲时随手下放）
-const FPS_GUN_POS := Vector3(0.24, -0.22, 0.5)   # 第一人称视模型枪位（眼部挂点本地，+Z 朝准星）
+const FPS_GUN_POS := Vector3(-0.24, -0.22, 0.5)  # 第一人称视模型枪位（眼部挂点本地，+Z 朝准星；fps_rig 转 180° 故 x 取负=画面右侧）
 const FPS_EYE := 1.62        # 站立眼高
 const FPS_EYE_CROUCH := 1.05 # 下蹲眼高
 

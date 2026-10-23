@@ -803,7 +803,7 @@ func _build_crew() -> void:
 	# [本地坐标, 朝向, 是否坐姿]；GLB 正面朝 +Z，副驾朝车头(-Z)故转 180°
 	# 地板顶面 y=-0.4：所有站位 root 均落地板；坐姿髋部下沉约 0.44，落在坐垫顶(y=0.0)上
 	var stations := [
-		[Vector3(0.55, -0.4, -1.45), PI, true],          # 副驾（坐姿朝车头，首位队友）
+		[Vector3(0.55, -0.4, -1.58), PI, true],          # 副驾（坐姿朝车头，首位队友；坐姿髋部后滑 0.28，root 前置）
 		[Vector3(-0.55, -0.4, -0.1), -PI * 0.5, false],  # 灶台前，朝 -X
 		[Vector3(0.55, -0.4, 0.4), PI * 0.5, false],     # 货架前，朝 +X
 		[Vector3(-0.55, -0.4, 1.15), PI * 0.5, false],    # 餐桌靠车头侧，左，朝桌/右
@@ -854,8 +854,8 @@ func _sync_crew() -> void:
 ## 主角驾驶位：hero 坐主驾播 sit，双手 TwoBoneIK3D 持续握方向盘（仅车内视角可见）
 func _build_driver() -> void:
 	var fig := Node3D.new()
-	# 主驾坐垫中心（与副驾站位对称）；坐姿髋部下沉落在 seat_b0 坐垫上
-	fig.position = Vector3(-0.55, -0.4, -1.45)
+	# 主驾坐垫中心（与副驾站位对称）；坐姿髋部后滑 0.28，root 前置使髋部落坐垫上（seat_c0 顶 y=0.0）
+	fig.position = Vector3(-0.55, -0.4, -1.58)
 	fig.rotation.y = PI  # 朝车头
 	var lb := Label3D.new()
 	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -1204,7 +1204,7 @@ func start_rv_walk() -> void:
 		driver_figure.visible = false   # 主角起身，驾驶位空出
 	if not parked:
 		# 队友代驾：首位队友（副驾坐姿）挪到主驾位
-		crew_figures[0].position = Vector3(-0.55, -0.4, -1.45)
+		crew_figures[0].position = Vector3(-0.55, -0.4, -1.58)
 	p.aim_yaw = 0.0    # 面朝车头（车内 -Z）
 	p.aim_pitch = 0.0
 	p._enter()
@@ -1229,7 +1229,7 @@ func end_rv_walk() -> void:
 	cam.make_current()
 	if not parked and not crew_members.is_empty():
 		# 代驾结束：队友挪回副驾位
-		crew_figures[0].position = Vector3(0.55, -0.4, -1.45)
+		crew_figures[0].position = Vector3(0.55, -0.4, -1.58)
 	# 回驾驶座：驻车回车内视角，行驶回追尾视角
 	view_mode = 2 if parked else 0
 	rv_model.visible = true

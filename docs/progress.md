@@ -1,5 +1,16 @@
 # 开发日志
 
+## 2026-10-23 · n50 FPS 枪镜像 + 坐姿穿模修复
+
+- 枪"拿反了"根因：`fps_rig.rotation.y = aim_yaw + PI` 转 180°，挂点本地 +X 翻到画面左；`FPS_GUN_POS.x` +0.24 → −0.24 即归位画面右侧（枪口朝向原本就正确）
+- 坐姿穿模根因：sit 动画髋部相对 root 向车尾（+Z）滑 0.28m，未补偿时髋部 z=−1.17 插进靠背 seat_b0（z −1.23~−1.09）。root 前移 0.13（z −1.45→−1.58），髋部落坐垫上（seat_c0 顶 y=0.0），背贴靠背不插入
+- 四处座位 z 同步：主驾/副驾（_build_crew 首项）/start_rv_walk 代驾去/end_rv_walk 代驾回
+- 诊断手段：临时 --probe 骨骼探针（Skeleton3D.get_bone_global_pose 取 posed 髋/膝/脚 rv 本地坐标）+ 座椅三件 AABB 探针；skinned mesh 的 get_aabb() 返回绑定姿势，不能用于坐姿判定
+- 验收：zw_fps2.png 枪持于画面右侧；zw_seat3.png 车内特写 hero 正常坐于主驾位
+- 无头回归 EXIT=0 且无 SCRIPT ERROR
+
+---
+
 ## 2026-10-23 · n49 手机端驻车体验修复
 
 - 闪回根因：`end_rv_walk` 回座强制 `view_mode = 0`（车外追尾），驻车状态相机瞬切。改为 `2 if parked else 0`
