@@ -1,5 +1,25 @@
 # 开发日志
 
+## 2026-10-23 · n40 动捕重定向：动画去僵硬（8b7ed76）
+
+### 本次完成（用户反馈「代码写的动画太僵硬」）
+
+- **根因实锤**：Blender 采样 hero.glb 证实旧程序化动画数据退化——crouch 单帧且髋部恒 0.93 不下沉、jump 无身体起伏；动画链路（状态机/融合/优先级）本身全对
+- **动捕来源**：Quaternius Universal Animation Library（CC0，npm metaverse-avatar 包 jsDelivr 直下 UAL1_Standard.glb，65 骨 UE 命名、45 动画、自带 A_TPose 参考）
+- **重定向管线**（Blender 5 无头脚本，临时 %TEMP% 用后已删）：世界旋转差法——源参考 A_TPose f0 / 目标参考 rest，`delta=cur@ref.inv`、`want=delta@dst_rest`，链式求 matrix_basis；hips 位移按身高比 1.015 缩放；四元数相邻帧点积防翻转；51 骨映射含五指
+- **替换 7 动画**：idle←Idle_Loop、walk←Walk_Loop、run←Sprint_Loop、crouch←Crouch_Idle_Loop、jump←Jump_Loop、sit←Sitting_Idle_Loop、sit_talk←Sitting_Talking_Loop；保留 aim（UAL 只有单手枪姿不合步枪）/idle_look/idle_stretch/T-Pose
+- **验收**：crouch 髋部 0.886→0.478 真蹲下；walk 大腿四元数 ±0.7 摆动；jump 收腿滞空；Godot 连拍 5 张（aim/walk/run/crouch/jump）目检全过；无头回归 EXIT=0
+- **经验**：Blender 5 采样动画必须 `ad.action_slot = act.slots[0]`（slotted action），只 mute NLA track 无效；`Action.fcurves` 已移除，走 `layers[].strips[].channelbags[].fcurves`
+
+### 待办
+
+- VRoid 换装与超清模型（用户自捏 VRM 导出后走 VRM→Blender→GLB 管线）——P3
+- 画质提升（大公司手游质感）：玻璃幕墙反射、光影、后处理——P3
+- role1/role2.glb 队友模型同管线重定向（hero 管线已跑通，脚本模式可复制）
+- 署名页欠账：pxltiger、Colodical、TastyTony、5Nikitos5、SpatialNeglect、Vlasov Daniil（CC-BY）；Quaternius UAL 为 CC0 可致谢
+
+---
+
 ## 2026-10-23 · n39 房车内部行走（937fc6f，push 待 VPN）
 
 ### 本次完成（用户 12 项反馈中的第 10 项）
