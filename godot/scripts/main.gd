@@ -1573,6 +1573,26 @@ func _town(z: float, pj: Dictionary) -> void:
 	for i in range(2):
 		var jp: Vector3 = org + dir * (len * randf_range(0.9, 1.15)) + perp * (_side() * randf_range(5.5, 8.0))
 		_place_scenery(JUNK_SCENE, jp.x, jp.z, randf_range(2.4, 3.2))
+	# 镇内搜刮箱 2~3 个（楼间，步行/车均可拾取，奖励 ×2.5）+ 预置丧尸 3~6 只巡逻
+	for i in range(2 + randi() % 2):
+		var kp: Vector3 = org + dir * (len * randf_range(0.45, 1.1)) + perp * randf_range(-13.0, 13.0)
+		var p := Node3D.new()
+		p.set_script(PICKUP_SCRIPT)
+		p.add_to_group("consumable")
+		p.add_to_group("pickup")
+		var roll := randf()
+		p.kind = "fuel" if roll < 0.35 else ("food" if roll < 0.7 else "repair")
+		p.walkable = true
+		p.boost = 2.5
+		p.position = Vector3(kp.x, ground_height(kp.x, kp.z), kp.z)
+		add_child(p)
+	for i in range(3 + randi() % 4):
+		var zp: Vector3 = org + dir * (len * randf_range(0.4, 1.15)) + perp * randf_range(-16.0, 16.0)
+		var zb := _make_zombie_body()
+		zb.position = Vector3(zp.x, ground_height(zp.x, zp.z) + 0.5, zp.z)
+		add_child(zb)
+		zb.setup(self)
+		zombies.append(zb)
 
 ## 加油站：雨棚 + 双油泵 + 价格立牌（支路末端，正对来车方向）
 func _gas_station(z: float, pj: Dictionary) -> void:
@@ -2018,10 +2038,10 @@ func on_zombie_run_over() -> void:
 	add_trauma(0.08)
 	sfx.play("run_over")
 
-func on_pickup(kind: String) -> void:
+func on_pickup(kind: String, boost := 1.0) -> void:
 	if game_over:
 		return
-	var mult := 1.5 if _has_passive("ye_lan") else 1.0
+	var mult := (1.5 if _has_passive("ye_lan") else 1.0) * boost
 	match kind:
 		"fuel":
 			var g := 25.0 * mult

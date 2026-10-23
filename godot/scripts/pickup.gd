@@ -17,6 +17,10 @@ const COLORS := {
 const MODEL_HEIGHT := 0.95
 
 var kind := "fuel"
+## true=镇内搜刮箱：玩家步行可拾取（mask 含玩家层1）；false=路面箱：仅房车吸
+var walkable := false
+## 奖励倍率（镇内箱比路面丰厚）
+var boost := 1.0
 var _t := 0.0
 var _base_y := 0.0
 
@@ -37,7 +41,7 @@ func _ready() -> void:
 	light.position.y = 0.7
 	add_child(light)
 	var area := Area3D.new()
-	area.collision_mask = 2  # 房车独占碰撞层2
+	area.collision_mask = 3 if walkable else 2  # 层1=玩家 层2=房车
 	var cs := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(3.4, 2.8, 3.4)
@@ -67,6 +71,7 @@ func _process(delta: float) -> void:
 	rotate_y(delta * 0.6)
 
 func _on_body(body: Node3D) -> void:
-	if body == get_parent().rv:
-		get_parent().on_pickup(kind)
+	var m := get_parent()
+	if body == m.rv or (walkable and body == m.get_player_body()):
+		m.on_pickup(kind, boost)
 		queue_free()
