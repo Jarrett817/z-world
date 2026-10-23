@@ -504,6 +504,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## 驻车休整：按一下即可——超速时自动重刹，停稳即驻车；再按 F 出发
 func _toggle_park() -> void:
+	if story_active:
+		return   # 剧情弹窗期间不响应：防止 parked 隐形翻转（start_rv_walk 会被 story 拦截）
 	if _park_brake:
 		_park_brake = false   # 自动刹车中再按 F = 取消
 		hud.toast("已取消驻车")
