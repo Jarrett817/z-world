@@ -1573,9 +1573,13 @@ func _town(z: float, pj: Dictionary) -> void:
 	for i in range(2):
 		var jp: Vector3 = org + dir * (len * randf_range(0.9, 1.15)) + perp * (_side() * randf_range(5.5, 8.0))
 		_place_scenery(JUNK_SCENE, jp.x, jp.z, randf_range(2.4, 3.2))
-	# 镇内搜刮箱 2~3 个（楼间，步行/车均可拾取，奖励 ×2.5）+ 预置丧尸 3~6 只巡逻
-	for i in range(2 + randi() % 2):
-		var kp: Vector3 = org + dir * (len * randf_range(0.45, 1.1)) + perp * randf_range(-13.0, 13.0)
+	# 镇内探索：楼间搜刮箱 + 丧尸巡逻
+	_loot_and_zombies(org + dir * (len * 0.75), 15.0, 2 + randi() % 2, 3 + randi() % 4)
+
+## 聚落可探索内容：c 个搜刮箱（walkable 步行可拾取，×2.5 奖励）+ zn 只丧尸，散布 center 半径 r 内
+func _loot_and_zombies(center: Vector3, r: float, c: int, zn: int) -> void:
+	for i in range(c):
+		var kp: Vector3 = center + Vector3(randf_range(-r, r), 0, randf_range(-r, r))
 		var p := Node3D.new()
 		p.set_script(PICKUP_SCRIPT)
 		p.add_to_group("consumable")
@@ -1586,8 +1590,8 @@ func _town(z: float, pj: Dictionary) -> void:
 		p.boost = 2.5
 		p.position = Vector3(kp.x, ground_height(kp.x, kp.z), kp.z)
 		add_child(p)
-	for i in range(3 + randi() % 4):
-		var zp: Vector3 = org + dir * (len * randf_range(0.4, 1.15)) + perp * randf_range(-16.0, 16.0)
+	for i in range(zn):
+		var zp: Vector3 = center + Vector3(randf_range(-r, r), 0, randf_range(-r, r))
 		var zb := _make_zombie_body()
 		zb.position = Vector3(zp.x, ground_height(zp.x, zp.z) + 0.5, zp.z)
 		add_child(zb)
@@ -1646,6 +1650,8 @@ func _gas_station(z: float, pj: Dictionary) -> void:
 	th.material_override = _emis_mat(Color(0.85, 0.12, 0.1), 1.2)
 	root.add_child(th)
 	add_child(root)
+	# 油站探索：雨棚周边搜刮箱 + 丧尸（下车加油有风险有回报）
+	_loot_and_zombies(end, 11.0, 1 + randi() % 2, 2 + randi() % 3)
 
 ## 营地：三顶斜顶帐篷 + 石圈篝火（路左 25m 外）
 func _camp(z: float) -> void:
