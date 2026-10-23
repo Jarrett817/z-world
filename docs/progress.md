@@ -1,5 +1,15 @@
 # 开发日志
 
+## 2026-10-23 · n45 role1/role2 队友动捕重定向
+
+- 沿用 n40 hero 管线（世界旋转差法 + 51 骨 UE→J_Bip 映射 + slotted action），UAL1_Standard.glb 动捕替换 5 动画：idle/walk/run/sit/sit_talk（aim/idle_look/idle_stretch/T-Pose 保留原程序化）
+- hips 身高比：role1 = 0.9767（0.895/0.917），role2 = 0.8873（0.813/0.917）；帧数 idle 76 / walk 41 / run 21 / sit 51 / sit_talk 89
+- role2 裙摆/狐尾 J_Sec/J_Opt 物理骨未映射，保持 rest 随父动，验收无畸变
+- Blender Workbench 渲染目检 10 图全过：idle 自然站立、walk 真实迈步、run 屈肘高抬、sit 大腿水平臀部落坐垫、role2 裙摆随体/狐尾后垂，无 T-pose 残留
+- 覆盖 `godot/assets/roles_glb/role1.glb`（14.7MB）/ `role2.glb`（18.4MB）→ `--import` 重导入 → 无头回归 EXIT=0 → 截帧场景正常
+
+---
+
 ## 2026-10-23 · n44 丧尸 spawn 分布收紧
 
 - 刷怪距离车前 20~170m → 12~90m（无雾视野内，远处太散看不见也构不成威胁）
