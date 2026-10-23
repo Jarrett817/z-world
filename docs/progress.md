@@ -1,5 +1,16 @@
 # 开发日志
 
+## 2026-10-23 · n46 路面四件套替换 Quaternius CC0
+
+- credits.json `pending` 段清零：原 Sketchfab 佚名四件套（wcar/wtruck/barriers/barricade）整体替换为 poly.pizza 的 Quaternius CC0 模型，署名风险彻底消除
+- 选型目检定案：Broken Car→wcar（锈棕废轿车）、Truck→wtruck（厢式货车，Blender 程序化做旧：基色混锈棕 0.4 + 压暗 0.75，车窗保留）、Traffic Barrier→barriers（橙白条纹施工路障）、Barrier Large×2 + Sack Trench×2 组合→barricade（黄黑警示围栏 + 两端沙袋，军用检查哨）
+- Blender 无头管线：逐件非均匀缩放精确匹配碰撞盒 half×2（wcar 5.6×8.1×3.5 / wtruck 6.6×10×4 / barriers 6×3.6×2.4 / barricade 11.4×0.75×1.9），脚底 y=0、x/z 居中，apply 全变换导出自包含 GLB
+- main.gd 配套精简：障碍物 scale_f 归一（删 wtruck 0.28 / barricade 0.55 特例与变量本身），碰撞 half/center 不变
+- 旧外挂贴图 146 张（.jpg/.png + .import）全删，新 GLB 贴图内嵌
+- 验收：Workbench TEXTURE 渲染确认调色板贴图采样正确（EEVEE 灰白为显示怪癖排除）；`--import` + 无头回归 EXIT=0；驾驶截帧路面障碍正常
+
+---
+
 ## 2026-10-23 · n45 role1/role2 队友动捕重定向
 
 - 沿用 n40 hero 管线（世界旋转差法 + 51 骨 UE→J_Bip 映射 + slotted action），UAL1_Standard.glb 动捕替换 5 动画：idle/walk/run/sit/sit_talk（aim/idle_look/idle_stretch/T-Pose 保留原程序化）

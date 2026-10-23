@@ -1371,7 +1371,6 @@ func _update_frontier() -> void:
 func _spawn_obstacle(z: float) -> void:
 	var roll := randf()
 	var scene: PackedScene
-	var scale_f := 1.0
 	var half := Vector3.ONE
 	var center := Vector3.ZERO
 	var hard := false
@@ -1388,14 +1387,12 @@ func _spawn_obstacle(z: float) -> void:
 		hx = 3.0
 	elif roll < 0.8:
 		scene = WTRUCK_SCENE
-		scale_f = 0.28
 		half = Vector3(3.3, 2.0, 5.0)
 		center = Vector3(0, 1.6, 0)
 		hard = true
 		hx = 3.3
 	else:
 		scene = BARRICADE_SCENE
-		scale_f = 0.55
 		half = Vector3(5.7, 0.95, 0.35)
 		center = Vector3(0, 0.95, 0)
 		hard = true
@@ -1421,7 +1418,6 @@ func _spawn_obstacle(z: float) -> void:
 	col.position = center
 	body.add_child(col)
 	var model := scene.instantiate()
-	model.scale = Vector3.ONE * scale_f
 	body.add_child(model)
 	var ox := road_x(z) + x_off
 	body.position = Vector3(ox, ground_height(ox, z), z)
