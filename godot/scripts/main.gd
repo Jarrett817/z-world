@@ -2335,7 +2335,8 @@ func _make_wreck(col: Color, rng: RandomNumberGenerator, seed_i: int) -> Node3D:
 func _make_scenery(z: float) -> Node3D:
 	var root := Node3D.new()
 	var side := 1.0 if randf() > 0.5 else -1.0
-	var sx2 := road_x(z) + side * (ROAD_HALF + 3.0 + randf() * 26.0)
+	# 路肩（车可开）到 21m：带碰撞/实心景物一律放 22m 外，杜绝贴路穿车
+	var sx2 := road_x(z) + side * (ROAD_HALF + 15.0 + randf() * 22.0)
 	root.position = Vector3(sx2, ground_height(sx2, z), z)
 	var roll := randf()
 	if roll < 0.06:
@@ -2445,7 +2446,7 @@ func _make_scenery(z: float) -> Node3D:
 		panel.rotation.y = randf_range(-0.15, 0.15)
 		panel.material_override = _mat(Color(0.36, 0.3, 0.24))
 		root.add_child(panel)
-		root.position.x = road_x(z) + side * randf_range(ROAD_HALF + 4.0, ROAD_HALF + 9.0)
+		root.position.x = road_x(z) + side * randf_range(ROAD_HALF + 15.0, ROAD_HALF + 21.0)
 	elif roll < 0.90:
 		# 茂盛灌木：两团鲜绿球丛，部分顶端点缀花色
 		var shrub_col := Color(0.17, 0.34, 0.13).lerp(Color(0.3, 0.42, 0.16), randf())
@@ -2717,9 +2718,9 @@ func _spawn_scenery(z: float) -> void:
 	match zone:
 		"city":
 			if randf() < 0.55:
-				_place_scenery(BUILDING_SCENE, rx + _side() * randf_range(16.0, 30.0), z, randf_range(9.0, 16.0))
+				_place_scenery(BUILDING_SCENE, rx + _side() * randf_range(23.0, 32.0), z, randf_range(9.0, 16.0))
 			if randf() < 0.25:
-				_place_scenery(JUNK_SCENE, rx + _side() * randf_range(9.5, 13.0), z + randf_range(-5.0, 5.0), randf_range(2.4, 3.0))
+				_place_scenery(JUNK_SCENE, rx + _side() * randf_range(22.5, 28.0), z + randf_range(-5.0, 5.0), randf_range(2.4, 3.0))
 			tree_p = 0.06
 		"forest":
 			tree_p = 0.9
@@ -2727,12 +2728,12 @@ func _spawn_scenery(z: float) -> void:
 		"mountain":
 			tree_p = 0.4
 			if randf() < 0.3:
-				_spawn_rock(rx + _side() * randf_range(12.0, 45.0), z + randf_range(-6.0, 6.0))
+				_spawn_rock(rx + _side() * randf_range(23.0, 45.0), z + randf_range(-6.0, 6.0))
 		"hills", "lake", "coast":
 			tree_p = 0.22
 	for i in range(tree_n):
 		if randf() < tree_p:
-			_place_scenery(TREE_SCENE, rx + _side() * randf_range(10.0, 65.0), z + randf_range(-6.0, 6.0), randf_range(7.0, 13.0))
+			_place_scenery(TREE_SCENE, rx + _side() * randf_range(23.0, 65.0), z + randf_range(-6.0, 6.0), randf_range(7.0, 13.0))
 
 ## 实例化景物：按 AABB 缩放到目标高度、脚底落地（外部资产尺寸不可控）
 func _place_scenery(scene: PackedScene, x: float, z: float, target_h: float) -> void:
