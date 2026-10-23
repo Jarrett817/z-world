@@ -507,18 +507,26 @@ func _toggle_park() -> void:
 	if story_active:
 		return   # 剧情弹窗期间不响应：防止 parked 隐形翻转（start_rv_walk 会被 story 拦截）
 	if _park_brake:
-		_park_brake = false   # 自动刹车中再按 F = 取消
-		hud.toast("已取消驻车")
-		return
+		return   # 自动刹车中：停稳自动完成驻车（不允许取消，连按 F 不会误退出刹车）
 	if rv_walk_active:
 		if not parked:
-			hud.toast("代驾巡航中：先按车内键回驾驶座再驻车")
+			# 代驾巡航中按驻车键 = 驻车：超速先自动刹车（停稳后经 _park_brake 闭环回本分支），低速立即停稳
+			if rv.speed_kmh > 6.0:
+				_park_brake = true
+				hud.toast("自动刹车中，停稳即驻车")
+			else:
+				parked = true
+				rv.parked = true
+				rv.speed_kmh = 0.0
+				_starving = false
+				set_facilities_ui(true)
+				hud.toast("已驻车 · 再按驻车键出发")
 			return
-		end_rv_walk()   # 行走中按驻车键 = 出发：回驾驶座直接开车
+		end_rv_walk()   # 驻车行走中按驻车键 = 出发：回驾驶座直接开车
 	if not parked:
 		if rv.speed_kmh > 6.0:
 			_park_brake = true
-			hud.toast("自动刹车中，停稳即驻车（再按 F 取消）")
+			hud.toast("自动刹车中，停稳即驻车")
 			return
 		parked = true
 		rv.parked = true
