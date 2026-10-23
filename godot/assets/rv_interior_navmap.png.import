@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cimqr3qh4eeah"
-path="res://.godot/imported/rv_interior_navmap.png-302f7d4873979dbdb6c3d26915ec8818.ctex"
+path.s3tc="res://.godot/imported/rv_interior_navmap.png-302f7d4873979dbdb6c3d26915ec8818.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "96cbf688d567c606452d117d9c510af7"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/rv_interior_navmap.png"
-dest_files=["res://.godot/imported/rv_interior_navmap.png-302f7d4873979dbdb6c3d26915ec8818.ctex"]
+dest_files=["res://.godot/imported/rv_interior_navmap.png-302f7d4873979dbdb6c3d26915ec8818.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

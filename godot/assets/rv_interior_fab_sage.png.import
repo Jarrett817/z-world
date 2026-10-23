@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://wv6g7si38is3"
-path="res://.godot/imported/rv_interior_fab_sage.png-a201dd640c6bfbf1eef33d3c3ded2a8e.ctex"
+path.s3tc="res://.godot/imported/rv_interior_fab_sage.png-a201dd640c6bfbf1eef33d3c3ded2a8e.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "5f1c0e2ccf8bca738b13264cc6024fd8"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/rv_interior_fab_sage.png"
-dest_files=["res://.godot/imported/rv_interior_fab_sage.png-a201dd640c6bfbf1eef33d3c3ded2a8e.ctex"]
+dest_files=["res://.godot/imported/rv_interior_fab_sage.png-a201dd640c6bfbf1eef33d3c3ded2a8e.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

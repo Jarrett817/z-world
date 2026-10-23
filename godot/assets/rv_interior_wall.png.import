@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b5v5ucdo7kira"
-path="res://.godot/imported/rv_interior_wall.png-65d24df6fc80af68fefdf68de5c87aa1.ctex"
+path.s3tc="res://.godot/imported/rv_interior_wall.png-65d24df6fc80af68fefdf68de5c87aa1.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "741cb9bd114bd8b37b3f7805cb658662"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/rv_interior_wall.png"
-dest_files=["res://.godot/imported/rv_interior_wall.png-65d24df6fc80af68fefdf68de5c87aa1.ctex"]
+dest_files=["res://.godot/imported/rv_interior_wall.png-65d24df6fc80af68fefdf68de5c87aa1.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0
