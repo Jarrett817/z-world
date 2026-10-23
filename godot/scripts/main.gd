@@ -108,6 +108,7 @@ var _pole_prev: Array = []         # 上一根电线杆两侧挂线点（世界�
 var _world_seed := 1               # 确定性世界种子（data/world.json）
 var _places: Array = []            # 沿途地点（km 升序，data/world.json）
 var _place_idx := 0                # 下一个待生成地点
+var _place_sign_idx := 0           # 下一个待出预告牌的地点（预告牌在地点前 1.5km）
 var _g_down := false
 var _t_down := false
 var parked := false
@@ -195,6 +196,7 @@ func _ready() -> void:
 		dist_km = _jump_km
 		last_z = rv.global_position.z
 		terrain_front = rv.global_position.z + 100.0
+		terrain.rebuild(terrain_front)   # jump 后原条带留在原地，必须按新位置重建
 		obs_z = rv.global_position.z - 30.0
 		pick_z = rv.global_position.z - 20.0
 		surv_z = rv.global_position.z - 180.0
@@ -204,6 +206,8 @@ func _ready() -> void:
 		_pole_prev.clear()
 		while _place_idx < _places.size() and float(_places[_place_idx].get("km", 0.0)) <= _jump_km:
 			_place_idx += 1
+		while _place_sign_idx < _places.size() and float(_places[_place_sign_idx].get("km", 0.0)) - 1.5 <= _jump_km:
+			_place_sign_idx += 1
 
 func _physics_process(delta: float) -> void:
 	_update_time(delta)
@@ -1459,6 +1463,16 @@ func _update_frontier() -> void:
 		_wseed(pole_z, 7)
 		_spawn_pole(pole_z)
 		pole_z -= 48.0
+	# 聚落预告牌：town/gas 地点前 1.5km 路右立"前方 X 出口"绿牌（高速惯例，提前减速）
+	while _place_sign_idx < _places.size():
+		var sp: Dictionary = _places[_place_sign_idx]
+		var st := String(sp.get("type", ""))
+		var sz: float = rvz - (float(sp.get("km", 0.0)) - 1.5 - dist_km) * KMH_FACTOR
+		if sz <= rvz - VIEW_AHEAD:
+			break
+		if st == "town" or st == "gas":
+			_place_sign("前方 " + String(sp.get("name", "")) + " 1.5km", sz)
+		_place_sign_idx += 1
 	# 沿途聚落：按 data/world.json 固定里程生成
 	while _place_idx < _places.size():
 		var p: Dictionary = _places[_place_idx]
@@ -1528,29 +1542,47 @@ func _spawn_place(p: Dictionary, z: float) -> void:
 	_wseed(z, 8)
 	match String(p.get("type", "")):
 		"town":
-			# 楼群沿镇区两侧均匀排开：宽体废墟楼放远些不压路，集装箱可贴近
-			var n := 4 + randi() % 3
-			for i in range(n):
-				var sd := 1.0 if i % 2 == 0 else -1.0
-				var bz: float = z - 75.0 + i * (150.0 / n) + randf_range(-8.0, 8.0)
-				_place_scenery(BUILDING_SCENE, road_x(bz) + sd * randf_range(38.0, 55.0), bz, randf_range(9.0, 16.0))
-			for i in range(2):
-				var jz: float = z + randf_range(-60.0, 60.0)
-				_place_scenery(JUNK_SCENE, road_x(jz) + _side() * randf_range(24.0, 28.0), jz, randf_range(2.4, 3.2))
+			_town(z, _place_junction(p))
 		"gas":
-			_gas_station(z)
+			_gas_station(z, _place_junction(p))
 		"camp":
 			_camp(z)
 		"landmark":
 			_landmark_rock(z)
-	_place_sign(String(p.get("name", "")), z)
+	# 到达牌立支路对侧，避免遮挡岔口
+	var pj := _place_junction(p)
+	_place_sign(String(p.get("name", "")), z, -float(pj["side"]) if not pj.is_empty() else 1.0)
 
-## 加油站：雨棚 + 双油泵 + 价格立牌（路右 27m 外，不挡路肩）
-func _gas_station(z: float) -> void:
+## 小镇：支路（_place_junction）斜出主路，楼群沿支路后半段两侧排开，车可一路开进镇中心
+func _town(z: float, pj: Dictionary) -> void:
+	var side := float(pj["side"])
+	var dir := Vector3(side * sin(pj["ang"]), 0, -cos(pj["ang"])).normalized()
+	var perp := Vector3(-dir.z, 0, dir.x)
+	var org := Vector3(road_x(z) + side * (ROAD_HALF - 0.8), 0, z)
+	var len := float(pj["len"])
+	var n := 4 + randi() % 3
+	for i in range(n):
+		var sd := 1.0 if i % 2 == 0 else -1.0
+		var bp: Vector3 = org + dir * (len * randf_range(0.5, 1.1)) + perp * (sd * randf_range(16.0, 24.0))
+		# 废墟楼体宽（半宽可达 15m）：距主路 25m 内翻到支路另一侧，仍压路则舍弃
+		if absf(bp.x - road_x(bp.z)) < 25.0:
+			bp = org + dir * (len * randf_range(0.5, 1.1)) + perp * (-sd * randf_range(16.0, 24.0))
+		if absf(bp.x - road_x(bp.z)) < 25.0:
+			continue
+		_place_scenery(BUILDING_SCENE, bp.x, bp.z, randf_range(8.0, 13.0))
+	for i in range(2):
+		var jp: Vector3 = org + dir * (len * randf_range(0.9, 1.15)) + perp * (_side() * randf_range(5.5, 8.0))
+		_place_scenery(JUNK_SCENE, jp.x, jp.z, randf_range(2.4, 3.2))
+
+## 加油站：雨棚 + 双油泵 + 价格立牌（支路末端，正对来车方向）
+func _gas_station(z: float, pj: Dictionary) -> void:
 	var root := Node3D.new()
 	root.add_to_group("consumable")
-	var bx: float = road_x(z) + ROAD_HALF + 20.0
-	root.position = Vector3(bx, ground_height(bx, z), z)
+	var side := float(pj["side"])
+	var dir := Vector3(side * sin(pj["ang"]), 0, -cos(pj["ang"])).normalized()
+	var end: Vector3 = Vector3(road_x(z) + side * (ROAD_HALF - 0.8), 0, z) + dir * (float(pj["len"]) + 7.0)
+	root.position = Vector3(end.x, ground_height(end.x, end.z), end.z)
+	root.rotation.y = atan2(-dir.x, -dir.z)
 	var roof := MeshInstance3D.new()
 	var rm := BoxMesh.new()
 	rm.size = Vector3(13.0, 0.35, 8.0)
@@ -1667,11 +1699,11 @@ func _landmark_rock(z: float) -> void:
 		rock.add_child(mi)
 	_solid_box(rock, Vector3(9, 23, 8), Vector3(0, 11.5, 0))
 
-## 高速地名名牌：绿底白字双立柱，立在聚落旁路右（样式对齐里程碑）
-func _place_sign(pname: String, z: float) -> void:
+## 高速绿牌：默认立路右；side=-1 立路左（town/gas 到达牌避让支路入口用）
+func _place_sign(pname: String, z: float, side := 1.0) -> void:
 	var root := Node3D.new()
 	root.add_to_group("consumable")
-	var mx := road_x(z) + ROAD_HALF + 4.2
+	var mx: float = road_x(z) + side * (ROAD_HALF + 4.2)
 	root.position = Vector3(mx, ground_height(mx, z), z)
 	var bw: float = 0.62 * pname.length() + 0.8
 	for dx in [-bw * 0.38, bw * 0.38]:
@@ -2920,8 +2952,30 @@ const JUNCTION_EVERY := 170.0   # 岔路间距基准（米）
 func _jh(n: int) -> float:
 	return fposmod(sin(float(n) * 127.1) * 43758.5453, 1.0)
 
+## 聚落专属岔路（town/gas）：由地点 km 哈希确定参数（确定性），车沿支路可驶达镇区/油站
+## 返回 {km, side, ang, len}；非 town/gas 返回 {}。kind 恒 0（土路支路），ang 小=接近垂直主路
+func _place_junction(p: Dictionary) -> Dictionary:
+	var t := String(p.get("type", ""))
+	if t != "town" and t != "gas":
+		return {}
+	var km := float(p.get("km", 0.0))
+	var n := int(km * 10.0)
+	return {
+		"km": km,
+		"side": 1.0 if t == "gas" else (1.0 if _jh(n + 11) < 0.5 else -1.0),
+		"ang": lerpf(0.12, 0.3, _jh(n + 12)),
+		"len": lerpf(45.0, 70.0, _jh(n + 13)) if t == "town" else 34.0,
+	}
+
+## 聚落岔路的世界 z（按当前里程换算，与 _update_frontier 同公式；rv 未建时返回 INF=暂不出现，
+## 首个地形条带漏画的支路在前进 60m 触发 terrain rebuild 后补上，玩家不可能更早到达 1km 外岔口）
+func _place_junction_z(pj: Dictionary) -> float:
+	if rv == null:
+		return INF
+	return rv.global_position.z - (float(pj["km"]) - dist_km) * KMH_FACTOR
+
 ## 窗口 [z1, z0]（z0 > z1，向 -Z 前进）内的岔路清单：{z, side, kind, ang, len}
-## kind：0 土路支路 / 1 沥青十字路口；约 25% 的位置没有岔路
+## kind：0 土路支路 / 1 沥青十字路口；约 25% 的位置没有岔路；末尾合并聚落专属岔路
 func junctions_in(z0: float, z1: float) -> Array:
 	var out: Array = []
 	var n0 := int(ceil(-z0 / JUNCTION_EVERY))
@@ -2937,14 +2991,26 @@ func junctions_in(z0: float, z1: float) -> Array:
 			"ang": lerpf(0.5, 1.0, _jh(n + 3000)),
 			"len": lerpf(60.0, 120.0, _jh(n + 4000)),
 		})
+	for p in _places:
+		var pj := _place_junction(p)
+		if pj.is_empty():
+			continue
+		var pz := _place_junction_z(pj)
+		if pz <= z0 and pz >= z1:
+			out.append({"z": pz, "side": pj["side"], "kind": 0, "ang": pj["ang"], "len": pj["len"]})
 	return out
 
-## 护栏缺口查询：z 附近 ±12m 内有岔路且在该侧（十字两侧都断）
+## 护栏缺口查询：z 附近 ±12m 内有岔路且在该侧（十字两侧都断；含聚落专属岔路）
 func junction_gap(z: float, side: float) -> bool:
 	var n := int(round(-z / JUNCTION_EVERY))
-	if n < 1 or absf(-n * JUNCTION_EVERY - z) > 12.0 or _jh(n) > 0.75:
-		return false
-	return _jh(n + 2000) < 0.28 or signf(side) == (1.0 if _jh(n + 1000) < 0.5 else -1.0)
+	if n >= 1 and absf(-n * JUNCTION_EVERY - z) <= 12.0 and _jh(n) <= 0.75:
+		if _jh(n + 2000) < 0.28 or signf(side) == (1.0 if _jh(n + 1000) < 0.5 else -1.0):
+			return true
+	for p in _places:
+		var pj := _place_junction(p)
+		if not pj.is_empty() and absf(_place_junction_z(pj) - z) <= 12.0 and signf(side) == float(pj["side"]):
+			return true
+	return false
 
 ## 定位路段所属景观带（向 -Z 前进，zones 循环）
 func zone_at(z: float) -> String:
