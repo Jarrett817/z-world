@@ -624,8 +624,14 @@ func _build_sky() -> void:
 	environment.glow_enabled = true
 	environment.glow_intensity = 0.55
 	environment.glow_bloom = 0.12
-	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	environment.tonemap_mode = Environment.TONE_MAPPER_AGX
 	environment.tonemap_exposure = 1.08
+	# 画质：SSAO 接触阴影 + SSIL 间接光反弹 + 微色彩校正，提升立体感与通透度
+	environment.ssao_enabled = true
+	environment.ssil_enabled = true
+	environment.adjustment_enabled = true
+	environment.adjustment_saturation = 1.06
+	environment.adjustment_contrast = 1.04
 	self.env = environment
 	get_viewport().world_3d.environment = environment
 	sun = DirectionalLight3D.new()
@@ -633,6 +639,8 @@ func _build_sky() -> void:
 	sun.light_energy = 1.75
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 180.0
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	sun.directional_shadow_blend_splits = true
 	sun.rotation_degrees = Vector3(-42, 24, 0)
 	add_child(sun)
 	# 路灯灯头共享材质：夜间开自发光，靠 glow 发亮，不用真实光源

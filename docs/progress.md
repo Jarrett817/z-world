@@ -1,5 +1,14 @@
 # 开发日志
 
+## 2026-10-23 · n47 画质提升：渲染器切 Forward+
+
+- project.godot `gl_compatibility` → `forward_plus`：PC 单机目标下解锁 SSAO/SSIL/高质量阴影
+- `_build_sky` 环境增强：tonemap FILMIC→AGX（蓝天更通透、高光不过曝）、SSAO 接触阴影 + SSIL 间接光反弹、adjustment 饱和 1.06/对比 1.04
+- 太阳光阴影显式 4 级 PSSM + 级间混合，远距阴影过渡更柔
+- 截帧验收：玻璃幕墙高楼反射天光层次分明、房车高光质感、树木草地鲜活、路面橙白路障（n46 新模型实机确认）、明媚末日基调保持
+
+---
+
 ## 2026-10-23 · n46 路面四件套替换 Quaternius CC0
 
 - credits.json `pending` 段清零：原 Sketchfab 佚名四件套（wcar/wtruck/barriers/barricade）整体替换为 poly.pizza 的 Quaternius CC0 模型，署名风险彻底消除
