@@ -1,5 +1,12 @@
 # 开发日志
 
+## 2026-10-23 · n58 驻车修复闭环：剧情弹窗吞驻车（3a8654f）
+
+- 根因：剧情弹窗期间按 F/HUD 驻车按钮，_toggle_park 置 parked=true 但 start_rv_walk 被 story_active 静默拦截——状态隐形翻转，再按又隐形取消，用户体感"要长按/按很多次"；退出驻车同理（剧情中出发视觉被冻结）
+- 修复：_toggle_park 开头加 story_active 早退（2 行），剧情期间驻车状态不可能隐形变化；剧情关掉后按一次即生效
+- 实测：窗口实例 PostMessage 注入 F，车速 0 单次按键秒驻车起身（"驻车中"+车内行走视角）✓；无头 EXIT=0 零 SCRIPT ERROR
+- 工具教训：keybd_event/SendInput 注入的键游戏里没反应（Godot 物理键轮询吃不到），PostMessage WM_KEYDOWN/UP 直投窗口句柄才可靠；截图为窗口矩形（GetWindowRect）区域，先 AttachThreadInput+Alt 解锁 SetForegroundWindow
+
 ## 2026-10-23 · n57 一键驻车：自动重刹替代长按体感（addba52）
 
 - 根因：超速按 F 只弹 toast 拒绝（不显眼），DRAG=10 滑行约 12 秒才停——玩家以为要长按，且松手后车还在自己滑
