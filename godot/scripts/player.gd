@@ -390,7 +390,7 @@ func _try_fire() -> void:
 	# 相机在身后：俯角大时目标点可能落在枪口后方，导致弹道反向，直接沿瞄准方向打
 	if dir.dot(aim_dir) < 0.5:
 		dir = aim_dir
-	main_node.spawn_bullet(muzzle_ws, dir, float(cfg["bullet_speed"]), exclude)
+	main_node.spawn_bullet(muzzle_ws, dir, float(cfg["bullet_speed"]), exclude, float(cfg.get("damage", 1)))
 	# 枪声惊动周围尸群
 	main_node.alert_gunshot(muzzle_ws)
 	main_node.spawn_muzzle_flash(muzzle_ws)

@@ -1307,8 +1307,8 @@ func _sync_player_to_rv(_delta: float) -> void:
 	p.position = rv.to_global(Vector3(0, RV_ROOF_Y, 0.2))
 	p.velocity = Vector3.ZERO
 
-func on_zombie_shot() -> void:
-	hud.flash_hit_marker()
+func on_zombie_shot(killed := true, headshot := false) -> void:
+	hud.flash_hit_marker(killed, headshot)
 
 func on_player_dead() -> void:
 	end_combat()
@@ -1331,7 +1331,7 @@ func spawn_muzzle_flash(muzzle_ws: Vector3) -> void:
 var _bullets: Array = []
 
 ## 发射一发实弹（exclude：不参与的碰撞 RID，如射手自身与房车）
-func spawn_bullet(from: Vector3, dir: Vector3, speed: float, exclude: Array) -> void:
+func spawn_bullet(from: Vector3, dir: Vector3, speed: float, exclude: Array, dmg := 1.0) -> void:
 	var root := Node3D.new()
 	add_child(root)
 	root.global_position = from
@@ -1350,6 +1350,7 @@ func spawn_bullet(from: Vector3, dir: Vector3, speed: float, exclude: Array) -> 
 		"pos": from,
 		"dist": 120.0,
 		"exclude": exclude,
+		"dmg": dmg,
 		"node": root,
 	})
 
@@ -1365,7 +1366,7 @@ func _update_bullets(delta: float) -> void:
 		q.exclude = b["exclude"]
 		var hit := space.intersect_ray(q)
 		if hit:
-			_bullet_impact(hit)
+			_bullet_impact(hit, b["dmg"], b["vel"].normalized())
 			b["node"].queue_free()
 			_bullets.remove_at(i)
 			continue
@@ -1379,12 +1380,12 @@ func _update_bullets(delta: float) -> void:
 			node.queue_free()
 			_bullets.remove_at(i)
 
-## 命中结算：丧尸中弹 + 命中点火花
-func _bullet_impact(hit: Dictionary) -> void:
+## 命中结算：丧尸中弹（命中点过肩算爆头 ×2）+ 命中点火花
+func _bullet_impact(hit: Dictionary, dmg: float, dir: Vector3) -> void:
 	var col: Object = hit["collider"]
 	if col is RigidBody3D and col.has_method("on_shot"):
-		col.on_shot()
-		on_zombie_shot()
+		var headshot: bool = hit["position"].y > col.global_position.y + 0.75
+		on_zombie_shot(col.on_shot(dmg, headshot, dir), headshot)
 	var flash := OmniLight3D.new()
 	flash.light_color = Color(1.0, 0.8, 0.45)
 	flash.light_energy = 2.5

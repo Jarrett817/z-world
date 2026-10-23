@@ -376,6 +376,7 @@ func _build_combat(root: Control) -> void:
 	crosshair.offset_top = -24
 	crosshair.offset_bottom = 8
 	crosshair.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	crosshair.pivot_offset = Vector2(16, 16)  # 击杀放大时绕中心缩放
 	combat_root.add_child(crosshair)
 	# 右下：弹匣 + 枪名（左侧按钮列上方，避免与跳跃/下蹲按钮重叠）
 	ammo_label = _label("12/12", 30, ACCENT)
@@ -483,14 +484,21 @@ func set_combat_hp(hp: float) -> void:
 	combat_hp_fill.color = Color(0.75, 0.3, 0.2).lerp(Color(0.55, 0.8, 0.45), ratio)
 	combat_hp_label.text = "%d" % int(round(hp))
 
-## 命中丧尸：准星闪橙
-func flash_hit_marker() -> void:
-	crosshair.modulate = ACCENT
+## 命中丧尸：准星闪橙；击杀闪红放大，爆头击杀更醒目
+func flash_hit_marker(killed := true, headshot := false) -> void:
+	if killed:
+		crosshair.modulate = Color(1.0, 0.25, 0.15) if headshot else Color(1.0, 0.45, 0.2)
+		crosshair.scale = Vector2(1.35, 1.35)
+	else:
+		crosshair.modulate = ACCENT
+		crosshair.scale = Vector2(1.15, 1.15)
 	if _hit_tween != null:
 		_hit_tween.kill()
 	_hit_tween = create_tween()
+	_hit_tween.set_parallel(true)
 	_hit_tween.tween_interval(0.08)
-	_hit_tween.tween_property(crosshair, "modulate", TEXT_MAIN, 0.18)
+	_hit_tween.tween_property(crosshair, "modulate", TEXT_MAIN, 0.18).set_delay(0.08)
+	_hit_tween.tween_property(crosshair, "scale", Vector2.ONE, 0.18).set_delay(0.08)
 
 ## 电台剧情对话框：底部通栏，左侧立绘 + 说话人名，右侧打字机正文与选项
 func _build_story(root: Control) -> void:

@@ -21,6 +21,8 @@ var state: int = St.WANDER
 var state_t := 0.0
 var wander_target := Vector3.ZERO
 var flung_t := 0.0
+var stagger_t := 0.0  # 中弹硬直：短暂定身，读得出命中感
+var hp := 2.0         # 身体血量；爆头伤害 ×2，AKM/沙鹰 2 伤可一枪倒
 var bite_t := 0.0
 var dead := false
 var death_t := 0.0
@@ -32,6 +34,7 @@ func setup(main: Node3D) -> void:
 	main_node = main
 	rv = main.rv
 	speed = CHASE_SPEED_BASE + randf_range(-0.8, 1.4) * (1.0 + clampf(main.dist_km * 0.05, 0.0, 0.5))
+	hp = 2.0 + clampf(main.dist_km / 150.0, 0.0, 2.0)  # 后期更耐打：150km 后 3、300km 后 4
 	mass = 70.0
 	linear_damp = 1.2
 	# mask=层1(地面/障碍/玩家)+层2(房车)：平时能贴身拦车；被撞飞/击毙后清第2位不再挡车
@@ -108,6 +111,10 @@ func _physics_process(delta: float) -> void:
 		return
 	if flung_t > 0.0:
 		flung_t -= delta
+		return
+	if stagger_t > 0.0:
+		stagger_t -= delta
+		linear_velocity = Vector3(0, linear_velocity.y, 0)
 		return
 	_ai(delta)
 
@@ -235,16 +242,24 @@ func on_hit_by_rv(speed_kmh: float, _normal: Vector3) -> void:
 		main_node.sfx.play3d("zombie_die", global_position, 1.1, 0.12)
 		_play_once(DEATH)
 
-## 被玩家武器击中：低速车辆撞不死的枪下亡魂
-func on_shot() -> void:
+## 被玩家武器击中：爆头 ×2；未死则硬直 + 沿弹道击退，读得出命中感
+func on_shot(dmg: float, headshot: bool, dir: Vector3) -> bool:
 	if dead:
-		return
+		return true
+	hp -= dmg * (2.0 if headshot else 1.0)
+	if hp > 0.0:
+		stagger_t = 0.32
+		var push := Vector3(dir.x, 0.0, dir.z)
+		if push.length() > 0.01:
+			apply_central_impulse(push.normalized() * mass * 0.9)
+		return false
 	set_collision_mask_value(2, false)  # 尸体不挡车
 	dead = true
 	death_t = 1.5
 	linear_velocity = Vector3(0, linear_velocity.y, 0)
 	main_node.sfx.play3d("zombie_die", global_position, 1.0, 0.12)
 	_play_once(DEATH)
+	return true
 
 func _apply_anim_rate() -> void:
 	if anim != null:
