@@ -1411,14 +1411,13 @@ func spawn_bullet(from: Vector3, dir: Vector3, speed: float, exclude: Array, dmg
 	add_child(root)
 	root.global_position = from
 	root.look_at(from + dir, Vector3.UP)
-	# 曳光杆：-Z 朝飞行方向，杆身拖在弹头后方
+	# 曳光轨迹：从枪口向弹头生长的亮线，命中瞬间恰好连接枪口与落点
 	var trail := MeshInstance3D.new()
 	var bm := BoxMesh.new()
-	var trail_len := clampf(speed * 0.0025, 0.7, 2.2)
-	bm.size = Vector3(0.03, 0.03, trail_len)
+	bm.size = Vector3(0.03, 0.03, 0.7)
 	trail.mesh = bm
 	trail.material_override = _emis_mat(Color(1.0, 0.85, 0.5), 4.0)
-	trail.position.z = trail_len * 0.5
+	trail.position.z = 0.35
 	root.add_child(trail)
 	_bullets.append({
 		"vel": dir.normalized() * speed,
@@ -1427,6 +1426,8 @@ func spawn_bullet(from: Vector3, dir: Vector3, speed: float, exclude: Array, dmg
 		"exclude": exclude,
 		"dmg": dmg,
 		"node": root,
+		"trail": trail,
+		"muzzle": from,
 	})
 
 func _update_bullets(delta: float) -> void:
@@ -1451,6 +1452,11 @@ func _update_bullets(delta: float) -> void:
 		var node: Node3D = b["node"]
 		node.global_position = b["pos"]
 		node.look_at(b["pos"] + b["vel"].normalized(), Vector3.UP)
+		# 轨迹线随飞行拉长：后端固定在枪口，前端跟随弹头
+		var bm := (b["trail"] as MeshInstance3D).mesh as BoxMesh
+		var len: float = clampf((b["pos"] - b["muzzle"]).length(), 0.7, 40.0)
+		bm.size.z = len
+		(b["trail"] as MeshInstance3D).position.z = len * 0.5
 		if b["dist"] <= 0.0:
 			node.queue_free()
 			_bullets.remove_at(i)
