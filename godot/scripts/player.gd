@@ -49,6 +49,21 @@ var _crouching := false
 var _space_down := false
 var _c_down := false
 
+## 持枪晃动（sway）：呼吸 + 步伐 bob + 视角惯性滞后，参数见 guns.json "sway" 节
+var _sway_cfg: Dictionary = {}
+var _sway_t := 0.0
+var _look_sway := Vector2.ZERO
+var _prev_yaw := 0.0
+var _prev_pitch := 0.0
+var _bob_phase := 0.0
+var _bob_amp := 0.0
+var _bob_x := 0.0
+var _bob_y := 0.0
+var _bob_roll := 0.0
+var _breath_y := 0.0
+var _breath_roll := 0.0
+var _move_speed := 0.0
+
 func setup(main: Node, m: int) -> void:
 	main_node = main
 	mode = m
@@ -74,6 +89,7 @@ func _ready() -> void:
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/guns.json"))
 	_guns = parsed["guns"]
 	_gun_order = parsed["order"]
+	_sway_cfg = parsed.get("sway", {})
 	for id in _gun_order:
 		_ammo_map[id] = int(_guns[id]["mag_size"])
 	# 枪挂点：位置按 aim 动作双手实测对位；grip 点对齐到这里
@@ -231,8 +247,10 @@ func _physics_process(delta: float) -> void:
 	elif mode == Mode.ON_FOOT:
 		_move_foot(delta)
 	else:
+		_move_speed = 0.0
 		velocity = Vector3.ZERO
 		move_and_slide()
+	_update_sway(delta)
 	_aim_and_camera(delta)
 
 ## 车内行走：玩家挂在 rv 下，本地空间直接挪动（无物理）；地板顶 y=-0.4，车头 -Z
@@ -249,6 +267,7 @@ func _move_rv(delta: float) -> void:
 	input += touch_move
 	var yaw_basis := Basis(Vector3.UP, aim_yaw)
 	var dir := yaw_basis * Vector3(input.x, 0, input.y)
+	_move_speed = WALK_SPEED * 0.55 if dir.length() > 0.01 else 0.0
 	if dir.length() > 0.01:
 		position += dir.normalized() * WALK_SPEED * 0.55 * delta
 	# 活动范围：仪表台后到尾壁前（内饰实测尾壁 z=3.07），两侧舱壁内
@@ -294,6 +313,7 @@ func _move_foot(delta: float) -> void:
 		spd *= CROUCH_MUL
 	var yaw_basis := Basis(Vector3.UP, aim_yaw)
 	var dir := yaw_basis * Vector3(input.x, 0, input.y)
+	_move_speed = spd if dir.length() > 0.01 else 0.0
 	if dir.length() > 0.01:
 		dir = dir.normalized()
 	velocity.x = dir.x * spd
@@ -311,8 +331,7 @@ func _move_foot(delta: float) -> void:
 		# 贴地：跟随地形
 		position.y = ground
 		velocity.y = 0.0
-	# 下蹲时手臂随骨骼链下沉，枪挂点同步下放
-	gun.position.y = lerpf(gun.position.y, 0.99 if _crouching else GUN_POS.y, delta * 10.0)
+	# 下蹲时枪挂点下放在 _apply_gun 统一处理
 	# 模型朝瞄准方向（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
 	model_root.rotation.y = aim_yaw + PI
 	# 动画优先级：跳跃 > 下蹲 > 走/跑 > 端枪戒备（变化才播，0.15s 融合）
@@ -327,6 +346,47 @@ func _move_foot(delta: float) -> void:
 		_cur_anim = want
 		_anim.play(want, 0.15)
 
+## 持枪晃动解算：呼吸（双频正弦）+ 步伐 bob（Lissajous）+ 视角惯性滞后
+func _update_sway(delta: float) -> void:
+	_sway_t += delta
+	# 步伐幅度按移动速度渐变（起跑快淡入、停下慢淡出）
+	var target_amp := clampf(_move_speed / WALK_SPEED, 0.0, 1.0)
+	_bob_amp = lerpf(_bob_amp, target_amp, delta * (5.0 if target_amp > _bob_amp else 3.0))
+	var freq := 1.55 + 0.85 * clampf(_move_speed / RUN_SPEED, 0.0, 1.0)
+	_bob_phase += delta * TAU * freq
+	_bob_x = cos(_bob_phase) * float(_sway_cfg.get("bob_x", 0.0075)) * _bob_amp
+	_bob_y = sin(_bob_phase * 2.0) * float(_sway_cfg.get("bob_y", 0.006)) * _bob_amp
+	_bob_roll = cos(_bob_phase) * float(_sway_cfg.get("bob_roll", 0.008)) * _bob_amp
+	# 呼吸：移动时减弱 70%，原地端枪时最明显
+	var br := (sin(_sway_t * 1.35) * 0.6 + sin(_sway_t * 2.13 + 1.7) * 0.4) * (1.0 - _bob_amp * 0.7)
+	_breath_y = br * float(_sway_cfg.get("breath_y", 0.004))
+	_breath_roll = br * float(_sway_cfg.get("breath_roll", 0.0015))
+	# 视角惯性：枪滞后于视线，转头/抬枪时枪口先甩后收
+	var dyaw := aim_yaw - _prev_yaw
+	var dpitch := aim_pitch - _prev_pitch
+	_prev_yaw = aim_yaw
+	_prev_pitch = aim_pitch
+	_look_sway.x = clampf(_look_sway.x - dyaw * float(_sway_cfg.get("look_yaw", 0.9)), -float(_sway_cfg.get("look_max_x", 0.07)), float(_sway_cfg.get("look_max_x", 0.07)))
+	_look_sway.y = clampf(_look_sway.y + dpitch * float(_sway_cfg.get("look_pitch", 0.7)), -float(_sway_cfg.get("look_max_y", 0.05)), float(_sway_cfg.get("look_max_y", 0.05)))
+	_look_sway = _look_sway.lerp(Vector2.ZERO, delta * float(_sway_cfg.get("look_recover", 8.0)))
+
+## 统一写枪挂点姿态：后坐衰减 + sway 叠加 + 蹲姿下放
+func _apply_gun(delta: float) -> void:
+	_recoil = maxf(0.0, _recoil - delta * 6.0)
+	gun.rotation.x = -aim_pitch - _recoil * 0.22 + _look_sway.y
+	gun.rotation.y = _look_sway.x
+	gun.rotation.z = _bob_roll + _look_sway.x * 0.3 + _breath_roll
+	gun.position.x = GUN_POS.x + _bob_x + _look_sway.x * 0.35
+	gun.position.z = GUN_POS.z
+	var base_y := GUN_POS.y
+	if mode == Mode.ON_FOOT and _crouching:
+		base_y = 0.99
+	var target_y := base_y + _bob_y + _breath_y
+	if mode == Mode.ON_FOOT:
+		gun.position.y = lerpf(gun.position.y, target_y, delta * 10.0)
+	else:
+		gun.position.y = target_y
+
 func _aim_and_camera(delta: float) -> void:
 	# 身体随瞄准转身（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
 	model_root.rotation.y = aim_yaw + PI
@@ -334,8 +394,7 @@ func _aim_and_camera(delta: float) -> void:
 		# 车内：aim_yaw 是 rv 本地朝向，相机直接用本地变换（车转弯不甩视角）
 		var eye := Vector3(0, FPS_EYE, 0)
 		cam.transform = Transform3D(Basis(Vector3.UP, aim_yaw) * Basis(Vector3.RIGHT, aim_pitch), eye)
-		_recoil = maxf(0.0, _recoil - delta * 6.0)
-		gun.rotation.x = -aim_pitch - _recoil * 0.22
+		_apply_gun(delta)
 		return
 	var cam_basis := Basis(Vector3.UP, aim_yaw)
 	var right := cam_basis.x
@@ -349,9 +408,8 @@ func _aim_and_camera(delta: float) -> void:
 		cam.global_position = global_position + Vector3(0, 3.6, 0) + back * 4.5
 	var look_dir := (cam_basis * Vector3(0, 0, -1)).rotated(right, aim_pitch)
 	cam.look_at(cam.global_position + look_dir * 10.0, Vector3.UP)
-	_recoil = maxf(0.0, _recoil - delta * 6.0)
-	# 枪身随俯仰角指向瞄点，开火瞬间后坐上抬
-	gun.rotation.x = -aim_pitch - _recoil * 0.22
+	# 枪身随俯仰角指向瞄点，开火瞬间后坐上抬；sway/蹲姿下放统一在 _apply_gun
+	_apply_gun(delta)
 	main_node.hud.set_combat_aim(look_dir, cam.global_position)
 
 func _try_fire() -> void:

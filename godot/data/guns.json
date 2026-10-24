@@ -61,5 +61,17 @@
 			"muzzle": [-100.995, 24.0, 40.0],
 			"grip": [120.0, 24.0, -35.0]
 		}
+	},
+	"sway": {
+		"bob_x": 0.0075,
+		"bob_y": 0.006,
+		"bob_roll": 0.008,
+		"breath_y": 0.004,
+		"breath_roll": 0.0015,
+		"look_yaw": 0.9,
+		"look_pitch": 0.7,
+		"look_max_x": 0.07,
+		"look_max_y": 0.05,
+		"look_recover": 8.0
 	}
 }
