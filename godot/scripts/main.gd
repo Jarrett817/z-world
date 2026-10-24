@@ -109,6 +109,8 @@ var _pole_prev: Array = []         # 上一根电线杆两侧挂线点（世界�
 var _world_seed := 1               # 确定性世界种子（data/world.json）
 var _places: Array = []            # 沿途地点（km 升序，data/world.json）
 var _detours: Array = []           # 可探索支路 POI 类型表（data/world.json）
+var _hamlet_cfg: Dictionary = {}   # 小聚落填充配置（data/world.json hamlets）
+var _hamlet_km := 0.0              # 下一个小聚落里程（0=未初始化/已结束）
 var _place_idx := 0                # 下一个待生成地点
 var _place_sign_idx := 0           # 下一个待出预告牌的地点（预告牌在地点前 1.5km）
 var _g_down := false
@@ -234,6 +236,9 @@ func _ready() -> void:
 			_place_idx += 1
 		while _place_sign_idx < _places.size() and float(_places[_place_sign_idx].get("km", 0.0)) - 1.5 <= _jump_km:
 			_place_sign_idx += 1
+		# 小聚落游标同步（带 180m 预告牌提前量，跳过牌身位已在身后的点）
+		while _hamlet_km > 0.0 and _hamlet_km - DETOUR_SIGN_LEAD / KMH_FACTOR <= _jump_km:
+			_hamlet_km = _next_hamlet_km(_hamlet_km)
 
 func _physics_process(delta: float) -> void:
 	_update_time(delta)
@@ -300,6 +305,10 @@ func _load_world() -> void:
 		_world_seed = int(parsed.get("world_seed", 1))
 		_places = parsed.get("places", [])
 		_detours = parsed.get("detours", [])
+		_hamlet_cfg = parsed.get("hamlets", {})
+		if not _hamlet_cfg.is_empty():
+			var kr: Array = _hamlet_cfg.get("km_range", [3.0, 5.0])
+			_hamlet_km = lerpf(float(kr[0]), float(kr[1]), _jh(31))
 
 ## 储物架等级决定燃料上限
 func fuel_cap() -> float:
@@ -1556,6 +1565,14 @@ func _update_frontier() -> void:
 			break
 		_spawn_place(p, pz)
 		_place_idx += 1
+	# 小聚落填充：每 3-5km 一处（确定性），避开剧情地点 ±2.5km 与终点区
+	while _hamlet_km > 0.0 and _hamlet_km < 664.0:
+		var hz: float = rvz - (_hamlet_km - dist_km) * KMH_FACTOR
+		if hz <= rvz - VIEW_AHEAD:
+			break
+		if not _hamlet_near_place(_hamlet_km):
+			_spawn_hamlet(hz)
+		_hamlet_km = _next_hamlet_km(_hamlet_km)
 	# 清理身后
 	for s in get_children():
 		if s.is_in_group("consumable") and s.global_position.z > rvz + 40.0:
@@ -1655,16 +1672,7 @@ func _town(z: float, pj: Dictionary) -> void:
 func _loot_and_zombies(center: Vector3, r: float, c: int, zn: int) -> void:
 	for i in range(c):
 		var kp: Vector3 = center + Vector3(randf_range(-r, r), 0, randf_range(-r, r))
-		var p := Node3D.new()
-		p.set_script(PICKUP_SCRIPT)
-		p.add_to_group("consumable")
-		p.add_to_group("pickup")
-		var roll := randf()
-		p.kind = "fuel" if roll < 0.35 else ("food" if roll < 0.7 else "repair")
-		p.walkable = true
-		p.boost = 2.5
-		p.position = Vector3(kp.x, ground_height(kp.x, kp.z), kp.z)
-		add_child(p)
+		_loot_box(kp.x, kp.z)
 	for i in range(zn):
 		var zp: Vector3 = center + Vector3(randf_range(-r, r), 0, randf_range(-r, r))
 		var zb := _make_zombie_body()
@@ -1672,6 +1680,282 @@ func _loot_and_zombies(center: Vector3, r: float, c: int, zn: int) -> void:
 		add_child(zb)
 		zb.setup(self)
 		zombies.append(zb)
+
+## 单个搜刮箱（聚落门口等精准点位用；随机 roll 物资类型）
+func _loot_box(x: float, z: float) -> void:
+	var p := Node3D.new()
+	p.set_script(PICKUP_SCRIPT)
+	p.add_to_group("consumable")
+	p.add_to_group("pickup")
+	var roll := randf()
+	p.kind = "fuel" if roll < 0.35 else ("food" if roll < 0.7 else "repair")
+	p.walkable = true
+	p.boost = 2.5
+	p.position = Vector3(x, ground_height(x, z), z)
+	add_child(p)
+
+## 下一个小聚落里程：km_range 内确定性随机步进
+func _next_hamlet_km(km: float) -> float:
+	var kr: Array = _hamlet_cfg.get("km_range", [3.0, 5.0])
+	return km + lerpf(float(kr[0]), float(kr[1]), _jh(int(km * 16.0) + 43))
+
+## 是否与剧情地点太近（±avoid_place_km 内避让）
+func _hamlet_near_place(km: float) -> bool:
+	var avoid := float(_hamlet_cfg.get("avoid_place_km", 2.5))
+	for p in _places:
+		if absf(float(p.get("km", 0.0)) - km) < avoid:
+			return true
+	return false
+
+## 小聚落分派：按景观带选镇/村/景区，立预告牌（确定性）
+func _spawn_hamlet(z: float) -> void:
+	_wseed(z, 11)
+	var zone := zone_at(z)
+	if zone == "city":
+		return  # 城区楼群已密，不再叠小镇
+	var kind := "town"
+	var roll := randf()
+	if zone == "lake" or zone == "coast" or zone == "mountain":
+		kind = "scenic" if roll < 0.55 else "town"
+	elif zone == "plain":
+		kind = "village" if roll < 0.5 else "town"
+	else:  # forest / hills
+		kind = "scenic" if roll < 0.2 else ("village" if roll < 0.55 else "town")
+	var pool: Array = _hamlet_cfg.get("names_" + kind, [])
+	if pool.is_empty():
+		return
+	var hname := String(pool[randi() % pool.size()])
+	var side := _side()
+	if kind == "town":
+		_hamlet_town(z)
+	elif kind == "village":
+		_hamlet_village(z, side)
+	else:
+		_hamlet_scenic(z, side)
+	# 预告牌：镇/村蓝底、景区棕底，立来车方向前 180m 同侧路肩
+	var scol := Color(0.55, 0.38, 0.18) if kind == "scenic" else Color(0.16, 0.32, 0.6)
+	_place_detour_sign(hname, z + DETOUR_SIGN_LEAD, side, scol)
+
+## 小镇：跨路两侧各 4-5 栋临街楼，一栋带店铺招牌 + 门口搜刮箱
+func _hamlet_town(z: float) -> void:
+	for sd in [-1.0, 1.0]:
+		var n := 4 + randi() % 2
+		var shop_i := randi() % n
+		for i in range(n):
+			var bz := z - 50.0 + i * randf_range(22.0, 28.0) + randf_range(-4.0, 4.0)
+			var bx: float = road_x(bz) + sd * randf_range(22.0, 27.0)
+			_place_scenery(BUILDING_SCENE, bx, bz, randf_range(7.0, 12.0))
+			if i == shop_i:
+				var shops: Array = _hamlet_cfg.get("shops", ["便利店"])
+				_shop_sign(bx, bz, sd, String(shops[randi() % shops.size()]))
+				_loot_box(bx - sd * 4.5, bz + randf_range(-2.0, 2.0))
+	_loot_and_zombies(Vector3(road_x(z), 0, z), 18.0, 0, 2 + randi() % 3)
+
+## 村庄：side 侧 2-3 栋农舍 + 两块农田，丧尸 1-2
+func _hamlet_village(z: float, side: float) -> void:
+	var n := 2 + randi() % 2
+	for i in range(n):
+		var hx := road_x(z) + side * randf_range(24.0, 40.0)
+		var hz := z + randf_range(-28.0, 28.0)
+		_make_farmhouse(hx, hz, side)
+		if i == 0:
+			_loot_box(hx - side * 3.4, hz + randf_range(-1.5, 1.5))
+	_make_farmland(road_x(z) + side * randf_range(24.0, 34.0), z + randf_range(-16.0, 16.0), randf_range(14.0, 20.0), randf_range(10.0, 14.0))
+	_make_farmland(road_x(z) - side * randf_range(28.0, 45.0), z + randf_range(-22.0, 22.0), randf_range(18.0, 26.0), randf_range(12.0, 16.0))
+	_loot_and_zombies(Vector3(road_x(z) + side * 28.0, 0, z), 16.0, 0, 1 + randi() % 2)
+
+## 景区：停车场 + 售票亭（亭后有箱） + 观景台，沿景侧一字排开
+func _hamlet_scenic(z: float, side: float) -> void:
+	_make_parking_lot(road_x(z) + side * 16.0, z, side)
+	_make_ticket_booth(road_x(z - 9.0) + side * randf_range(20.0, 24.0), z - 9.0, side)
+	_make_viewpoint(road_x(z + 4.0) + side * randf_range(36.0, 44.0), z + 4.0, side)
+	_loot_and_zombies(Vector3(road_x(z) + side * 22.0, 0, z), 14.0, 0, randi() % 3)
+
+## 白墙红瓦农舍，正面朝路
+func _make_farmhouse(x: float, z: float, side: float) -> void:
+	var root := Node3D.new()
+	root.add_to_group("consumable")
+	root.position = Vector3(x, ground_height(x, z), z)
+	root.rotation.y = -side * PI * 0.5
+	var body := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(5.0, 3.2, 4.2)
+	body.mesh = bm
+	body.position = Vector3(0, 1.6, 0)
+	body.material_override = _mat(Color(0.88, 0.86, 0.8))
+	root.add_child(body)
+	var roof := MeshInstance3D.new()
+	var rm := PrismMesh.new()
+	rm.size = Vector3(5.6, 1.6, 4.8)
+	roof.mesh = rm
+	roof.position = Vector3(0, 4.0, 0)
+	roof.material_override = _mat(Color(0.62, 0.25, 0.18))
+	root.add_child(roof)
+	var door := MeshInstance3D.new()
+	var dm := BoxMesh.new()
+	dm.size = Vector3(1.0, 2.1, 0.08)
+	door.mesh = dm
+	door.position = Vector3(0, 1.05, 2.12)
+	door.material_override = _mat(Color(0.3, 0.2, 0.12))
+	root.add_child(door)
+	_solid_box(root, Vector3(5.0, 3.2, 4.2), Vector3(0, 1.6, 0))
+	add_child(root)
+
+## 农田：土色底 + 绿色田垄（纯视觉）
+func _make_farmland(x: float, z: float, w: float, d: float) -> void:
+	var root := Node3D.new()
+	root.add_to_group("consumable")
+	root.position = Vector3(x, ground_height(x, z) + 0.04, z)
+	var soil := MeshInstance3D.new()
+	var sm := BoxMesh.new()
+	sm.size = Vector3(w, 0.05, d)
+	soil.mesh = sm
+	soil.material_override = _mat(Color(0.45, 0.34, 0.2))
+	root.add_child(soil)
+	var rows := int(d / 1.6)
+	for i in range(rows):
+		var ridge := MeshInstance3D.new()
+		var rm := BoxMesh.new()
+		rm.size = Vector3(w - 1.0, 0.14, 0.5)
+		ridge.mesh = rm
+		ridge.position = Vector3(0, 0.1, -d * 0.5 + 0.8 + i * 1.6)
+		ridge.material_override = _mat(Color(0.38, 0.52, 0.22))
+		root.add_child(ridge)
+	add_child(root)
+
+## 景区停车场：沥青面 + 车位线 + 废弃车 1-2
+func _make_parking_lot(x: float, z: float, side: float) -> void:
+	var root := Node3D.new()
+	root.add_to_group("consumable")
+	root.position = Vector3(x, ground_height(x, z) + 0.05, z)
+	var pad := MeshInstance3D.new()
+	var pm := BoxMesh.new()
+	pm.size = Vector3(12.0, 0.06, 10.0)
+	pad.mesh = pm
+	pad.material_override = _mat(Color(0.25, 0.25, 0.27))
+	root.add_child(pad)
+	for i in range(5):
+		var line := MeshInstance3D.new()
+		var lm := BoxMesh.new()
+		lm.size = Vector3(0.12, 0.02, 4.5)
+		line.mesh = lm
+		line.position = Vector3(-3.6 + i * 2.4, 0.04, side * 2.5)
+		line.material_override = _mat(Color(0.9, 0.9, 0.88))
+		root.add_child(line)
+	add_child(root)
+	var ncar := 1 + randi() % 2
+	for i in range(ncar):
+		var cx := x - 2.4 + i * 4.8
+		var cz := z + side * 2.5
+		_wreck_solid(WCAR_SCENE, 1.0, Vector3(2.8, 1.75, 4.05), Vector3(0, 1.43, 0), Vector3(cx, 0, cz), side * PI * 0.5 + randf_range(-0.2, 0.2))
+
+## 景区售票亭：米黄小屋 + 窗口 + 挑檐，亭后有搜刮箱
+func _make_ticket_booth(x: float, z: float, side: float) -> void:
+	var root := Node3D.new()
+	root.add_to_group("consumable")
+	root.position = Vector3(x, ground_height(x, z), z)
+	root.rotation.y = -side * PI * 0.5
+	var body := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(2.4, 2.6, 2.2)
+	body.mesh = bm
+	body.position = Vector3(0, 1.3, 0)
+	body.material_override = _mat(Color(0.82, 0.76, 0.62))
+	root.add_child(body)
+	var win := MeshInstance3D.new()
+	var wm := BoxMesh.new()
+	wm.size = Vector3(1.2, 0.9, 0.06)
+	win.mesh = wm
+	win.position = Vector3(0, 1.45, 1.12)
+	win.material_override = _mat(Color(0.2, 0.16, 0.12))
+	root.add_child(win)
+	var eave := MeshInstance3D.new()
+	var em := BoxMesh.new()
+	em.size = Vector3(3.2, 0.12, 3.0)
+	eave.mesh = em
+	eave.position = Vector3(0, 2.75, 0)
+	eave.material_override = _mat(Color(0.5, 0.28, 0.18))
+	root.add_child(eave)
+	_solid_box(root, Vector3(2.4, 2.6, 2.2), Vector3(0, 1.3, 0))
+	add_child(root)
+	_loot_box(x + side * 2.0, z - 1.6)
+
+## 景区观景台：木平台 + 角柱 + 三边栏杆，朝景侧
+func _make_viewpoint(x: float, z: float, side: float) -> void:
+	var root := Node3D.new()
+	root.add_to_group("consumable")
+	root.position = Vector3(x, ground_height(x, z), z)
+	root.rotation.y = side * PI * 0.5
+	var post_mat := _mat(Color(0.42, 0.3, 0.18))
+	var deck := MeshInstance3D.new()
+	var dm := BoxMesh.new()
+	dm.size = Vector3(4.5, 0.18, 3.4)
+	deck.mesh = dm
+	deck.position = Vector3(0, 0.55, 0)
+	deck.material_override = post_mat
+	root.add_child(deck)
+	for px in [-2.1, 2.1]:
+		for pz in [-1.5, 1.5]:
+			var post := MeshInstance3D.new()
+			var pm := CylinderMesh.new()
+			pm.top_radius = 0.08
+			pm.bottom_radius = 0.1
+			pm.height = 0.55
+			post.mesh = pm
+			post.position = Vector3(px, 0.27, pz)
+			post.material_override = post_mat
+			root.add_child(post)
+	# 三边栏杆（近路侧留开口）
+	for sd in [-1.0, 1.0]:
+		for i in range(3):
+			var rp := MeshInstance3D.new()
+			var rpm := CylinderMesh.new()
+			rpm.top_radius = 0.05
+			rpm.bottom_radius = 0.05
+			rpm.height = 1.0
+			rp.mesh = rpm
+			rp.position = Vector3(sd * 2.2, 1.1, -1.4 + i * 1.4)
+			rp.material_override = post_mat
+			root.add_child(rp)
+		var rail := MeshInstance3D.new()
+		var rlm := BoxMesh.new()
+		rlm.size = Vector3(0.08, 0.08, 3.4)
+		rail.mesh = rlm
+		rail.position = Vector3(sd * 2.2, 1.6, 0)
+		rail.material_override = post_mat
+		root.add_child(rail)
+	for i in range(4):
+		var fp := MeshInstance3D.new()
+		var fpm := CylinderMesh.new()
+		fpm.top_radius = 0.05
+		fpm.bottom_radius = 0.05
+		fpm.height = 1.0
+		fp.mesh = fpm
+		fp.position = Vector3(-2.2 + i * 1.47, 1.1, 1.65)
+		fp.material_override = post_mat
+		root.add_child(fp)
+	var frail := MeshInstance3D.new()
+	var frm := BoxMesh.new()
+	frm.size = Vector3(4.5, 0.08, 0.08)
+	frail.mesh = frm
+	frail.position = Vector3(0, 1.6, 1.65)
+	frail.material_override = post_mat
+	root.add_child(frail)
+	add_child(root)
+
+## 店铺竖招：贴楼面朝来车方向
+func _shop_sign(x: float, z: float, side: float, text: String) -> void:
+	var lb := Label3D.new()
+	lb.add_to_group("consumable")
+	lb.text = text
+	lb.font_size = 80
+	lb.pixel_size = 0.012
+	lb.outline_size = 10
+	lb.outline_modulate = Color(0.08, 0.06, 0.04)
+	lb.modulate = Color(1.0, 0.85, 0.4)
+	lb.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	lb.position = Vector3(x - side * 2.6, ground_height(x, z) + 3.6, z)
+	add_child(lb)
 
 ## 加油站：雨棚 + 双油泵 + 价格立牌（支路末端，正对来车方向）
 func _gas_station(z: float, pj: Dictionary) -> void:
@@ -3167,7 +3451,7 @@ func _wreck_solid(scene: PackedScene, scale_f: float, half: Vector3, center: Vec
 	add_child(body)
 
 ## 支路预告锈牌：岔口前 DETOUR_SIGN_LEAD 米立支路同侧路肩（矮单柱锈铁皮，与高速绿牌区分）
-func _place_detour_sign(pname: String, z: float, side: float) -> void:
+func _place_detour_sign(pname: String, z: float, side: float, face_col := Color(0.48, 0.3, 0.15)) -> void:
 	var root := Node3D.new()
 	root.add_to_group("consumable")
 	var mx: float = road_x(z) + side * (ROAD_HALF + 3.4)
@@ -3187,7 +3471,7 @@ func _place_detour_sign(pname: String, z: float, side: float) -> void:
 	fm.size = Vector3(bw, 0.85, 0.04)
 	face.mesh = fm
 	face.position = Vector3(0, 2.0, 0)
-	face.material_override = _mat(Color(0.48, 0.3, 0.15))
+	face.material_override = _mat(face_col)
 	root.add_child(face)
 	var lb := Label3D.new()
 	lb.text = pname + (" →" if side > 0.0 else " ←")

@@ -1,5 +1,14 @@
 # 开发日志
 
+## 2026-10-24 · n62 小聚落系统：3-5km 一处镇/村/景区可搜刮（p4）
+
+- 需求：用户要真实城镇/乡村/景区，目的「3-5 公里能搜刮物资」
+- 实现：`_hamlet_km` 确定性游标（`_next_hamlet_km` 步进 3-5km，`_wseed(z,11)`），避开剧情地点 ±2.5km（`_hamlet_near_place`）与 city 带；按 zone 分派——lake/coast/mountain 55% 景区，plain 50% 村，forest/hills 混合；world.json `hamlets` 表配 km_range/名字池/店铺名
+- 三类生成：town（两侧各 4-5 栋 7-12m 临街楼依次排开，一栋带金黄 Label3D 店招+门口搜刮箱，丧尸 2-4）；village（2-3 栋白墙红瓦农舍+两块绿垄农田，首栋门口箱，丧尸 1-2）；scenic（沥青停车场+车位线+废弃车、售票亭带挑檐亭后箱、木观景台栏杆朝景侧，丧尸 0-2）；预告牌镇/村蓝底、景区棕底
+- jump 游标同步跳过条件 `_hamlet_km - 0.72 <= _jump_km`（含等号）→ 截帧验收窗口 `(X-1.04, X-0.72)`，跳过头就连聚落一起跳过
+- 坑：PowerShell `[int]` 是四舍五入，复算 GDScript `int()` 截断序列必须用 `[Math]::Floor`（序列 3.62/8.15/12.50 避让/15.57/20.50/24.72/29.25 避让/33.55...）；`--shot` 等自定义参数必须在 `--` 之后（`get_cmdline_user_args`）；`--quit-after` 按帧数非秒，高 fps 下 240 帧 < 3s 截帧时机会提前退出
+- 验收：headless print 实测 km/zone/kind/name 序列（渡口游园 scenic、王家营 village、双河镇等 town 群）；截帧确认王家营蓝牌+红瓦农舍、观景台棕牌、石桥镇夹道楼群；无头回归 EXIT=0 零 SCRIPT ERROR
+
 ## 2026-10-24 · n61 副驾坐姿修复 + 驻车/贴图问题闭环（101b835/2d048b1/ec55738）
 
 - p1 驻车闪退（101b835）：驻车行走分支 `end_rv_walk()` 后缺 return 落到出发分支
