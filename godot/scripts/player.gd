@@ -322,14 +322,16 @@ func _move_foot(delta: float) -> void:
 	move_and_slide()
 	var ground: float = main_node.ground_height(position.x, position.z)
 	if _airborne:
-		# 滞空：仅下落段才检测落地（起跳帧 y 还在地面，直接判会瞬间落地）
-		if velocity.y <= 0.0 and position.y <= ground:
-			position.y = ground
+		# 滞空：仅下落段才检测落地（起跳帧 y 还在地面，直接判会瞬间落地）；落到地形或实体（残骸/障碍/车体）上都算
+		if velocity.y <= 0.0 and (position.y <= ground or is_on_floor()):
+			if not is_on_floor():
+				position.y = ground
 			velocity.y = 0.0
 			_airborne = false
 	else:
-		# 贴地：跟随地形
-		position.y = ground
+		# 贴地：跟随地形；被实体托住（站上残骸/障碍）时不拉回地面
+		if not (is_on_floor() and position.y > ground + 0.05):
+			position.y = ground
 		velocity.y = 0.0
 	# 下蹲时枪挂点下放在 _apply_gun 统一处理
 	# 模型朝瞄准方向（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
