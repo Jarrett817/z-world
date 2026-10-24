@@ -148,7 +148,10 @@ var _shot_fps := false     # --fps：配合 --shotcombat 切第一人称截帧
 var _shot_credits := false  # --shotcredits：截帧前先打开署名面板
 var _shot_cab := false      # --shotcab：截帧前切车内视角看驾驶座
 var _shot_cab_cam := false  # --shotcab：截帧专用近距离侧拍驾驶座相机
+var _shot_seat := false     # --shotseat：截帧前切车内视角看副驾队友
+var _shot_seat_cam := false # --shotseat：截帧专用近距离侧拍副驾相机
 var _jump_km := 0.0         # --jump=KM：直达指定里程（配合 --shot 截帧验收）
+var _debug_crew := 0        # --crew=N：调试直接补 N 名队友（配合截帧验收座位角色）
 var _dump := false          # --dump：截帧时刻打印房车周边节点并退出（验收定位异常物）
 
 func _ready() -> void:
@@ -166,8 +169,12 @@ func _ready() -> void:
 			_shot_credits = true
 		elif a == "--shotcab":
 			_shot_cab = true
+		elif a == "--shotseat":
+			_shot_seat = true
 		elif a.begins_with("--jump="):
 			_jump_km = float(a.trim_prefix("--jump="))
+		elif a.begins_with("--crew="):
+			_debug_crew = int(a.trim_prefix("--crew="))
 		elif a == "--dump":
 			_dump = true
 			_shot_at = 3.0
@@ -184,6 +191,16 @@ func _ready() -> void:
 	_build_weather()
 	_build_hud()
 	_build_music()
+	# --crew=N 调试补员：配合截帧验收座位角色
+	if _debug_crew > 0:
+		for i in _debug_crew:
+			var m := _next_crew_member()
+			if m.is_empty():
+				break
+			crew_members.append(m)
+			crew += 1
+		_sync_crew()
+		hud.set_crew(crew_members)
 	sfx = Sfx.new()
 	add_child(sfx)
 	_spawn_initial_scenery()
@@ -413,6 +430,14 @@ func _process(delta: float) -> void:
 				_shot_at = 1.5
 				_shot_t = 0.0
 				return
+			if _shot_seat:
+				# --shotseat：切车内视角看副驾队友，稳定 1.5s 后截帧
+				_shot_seat = false
+				view_mode = 2
+				_shot_seat_cam = true
+				_shot_at = 1.5
+				_shot_t = 0.0
+				return
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(_shot_path)
 			get_tree().quit()
@@ -496,6 +521,11 @@ func _process(delta: float) -> void:
 			# --shotcab：主驾正侧面近拍，验收坐姿穿模
 			cam.global_position = rv.to_global(Vector3(0.5, 0.95, -2.85))
 			cam.look_at(rv.to_global(Vector3(-0.55, 0.5, -2.85)), Vector3.UP)
+			cam.fov = 55.0
+		if _shot_seat_cam:
+			# --shotseat：副驾正侧面近拍，验收座位队友
+			cam.global_position = rv.to_global(Vector3(-0.5, 0.95, -2.85))
+			cam.look_at(rv.to_global(Vector3(0.55, 0.5, -2.85)), Vector3.UP)
 			cam.fov = 55.0
 	else:
 		var target := rv.global_position + Vector3(0, 3.5, 11.0)
@@ -906,7 +936,8 @@ func _build_crew() -> void:
 	# [本地坐标, 朝向, 是否坐姿]；GLB 正面朝 +Z，副驾朝车头(-Z)故转 180°
 	# 地板顶面 y=-0.4：所有站位 root 均落地板；坐姿髋部下沉约 0.44，落在坐垫顶(y=0.0)上
 	var stations := [
-		[Vector3(0.55, -0.4, -2.85), PI, true],          # 副驾（坐姿朝车头，首位队友；座椅已前移贴方向盘）
+		# sit 动画髋部在 root 后方约 0.324：副驾 root 需再靠前 0.33，髋才落在坐垫(z -3.04..-2.50)后 1/3 处
+		[Vector3(0.55, -0.4, -3.18), PI, true],          # 副驾（坐姿朝车头，首位队友；座椅已前移贴方向盘）
 		[Vector3(-0.55, -0.4, -0.1), -PI * 0.5, false],  # 灶台前，朝 -X
 		[Vector3(0.55, -0.4, 0.4), PI * 0.5, false],     # 货架前，朝 +X
 		[Vector3(-0.55, -0.4, 1.15), PI * 0.5, false],    # 餐桌靠车头侧，左，朝桌/右
@@ -922,7 +953,8 @@ func _build_crew() -> void:
 		lb.outline_size = 10
 		lb.no_depth_test = false
 		lb.modulate = Color(1.0, 0.93, 0.84)
-		lb.position = Vector3(0, 1.72, 0)
+		# 坐姿头顶(rv 本地)约 0.79，名牌 1.30 悬顶 0.5 内不穿挡风；站姿头顶约 1.6，用 1.72
+		lb.position = Vector3(0, 1.30 if st[2] else 1.72, 0)
 		fig.add_child(lb)
 		fig.position = st[0]
 		fig.rotation.y = st[1]
