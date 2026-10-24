@@ -1,5 +1,15 @@
 # 开发日志
 
+## 2026-10-25 · n66 发行冲刺：岗位/手雷/路障通道/立绘UI + credits 指纹补署 + 队友真枪 + 冒烟巡检
+
+- **f1 车内岗位系统**（bbc33c1）：5 岗位点位——副驾瞭望（坐姿）/灶台前做饭/货架收拾/左右射击孔射手；射手播 aim 持枪、`_update_port_gunners` 自动开火；灶台蒸汽粒子 + 两侧射击孔墙洞道具；名牌「名字·岗位」。同提交含 t1 子弹反向修复（见 n65）
+- **f2 手雷武器**（f5dc31d）：guns.json grenade（damage 6 / radius 6 / fuse 2.2 / count 3），战斗 X 键抛物线投掷、范围伤害
+- **f3 路障留车宽通道**（2966b79）：`_spawn_obstacle` 旋转后按 hx_eff 留位，不再堵死公路
+- **f4 剧情全屏立绘 UI**（86f98b9）：幸存者立绘全屏（`STRETCH_KEEP_ASPECT_CENTERED` 修复左上对齐→居中），对话框移屏幕中下；两帧截屏验收通过
+- **r1 credits 署名补署**（06e2578）：本地线索（git 历史/Downloads/GLB copyright）耗尽后，用 **GLB 节点名/材质名当指纹 + Sketchfab API 下载原包对比**——废轿车/废卡车确认 rashad-brahimli（阿塞拜疆语部件名 QAPI/ARXA/BAQAJ/KAPOT 锁定）、施工路障包确认 sabriayes（材质名含原作者笔误 warning_sing 都一致）；barricade 三个候选（MRowa/TampaJoey/_SeF_）下载验证全排除，留 pending 收窄披露
+- **r3 队友枪换真 AKM**（06e2578）：`CharUtil.build_gun()` 程序化方块枪→AKM GLB，变换从 guns.json ak 同源推算（0.066 缩放、绕 Y 180° 对齐 +Z 瞄准向、grip 对位原程序化枪握把），枪手枪口节点移到 0.62（枪管末端）
+- **r2 冒烟巡检**：SceneTree 帧计数状态机四状态截帧——驾驶（HUD/路障/明媚基调）/车内（做饭/收拾/射手各就各位、AK 朝窗外）/天窗战斗（M4+手雷×3+准星）/设施面板（灶台/工作台/储物架/种植箱/拆解台），目检全通过；无头回归 EXIT=0 零 SCRIPT ERROR
+
 ## 2026-10-24 · n65 子弹轨迹"反向"修复：曳光改为枪口→弹头生长线
 
 - 现象：用户报"落点对、轨迹反"。排查：曳光几何（look_at -Z 朝飞行方向、杆 +Z 拖尾）、4 枪 muzzle 挂点、队友程序化枪 muzzle、击退方向全部数值/截帧验证正确
