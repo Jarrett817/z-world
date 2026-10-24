@@ -1,5 +1,14 @@
 # 开发日志
 
+## 2026-10-24 · n61 副驾坐姿修复 + 驻车/贴图问题闭环（101b835/2d048b1/ec55738）
+
+- p1 驻车闪退（101b835）：驻车行走分支 `end_rv_walk()` 后缺 return 落到出发分支
+- p2 角色贴图压缩（2d048b1）：`.import` `embedded_image_handling=2→3`；确认三个 GLB 就是用户 VRM 原模型烘焙产物
+- p3 副驾坐姿奇怪（ec55738）：双根因——①sit 动画髋在 root 后方 0.324m，副驾 root z=-2.85 时髋落在坐垫(z -3.04..-2.50)最后沿半悬空（"压座椅前沿"观感），root 前移 z=-3.18 髋坐进坐垫后 1/3；②坐姿头顶 rv 本地仅 0.79，名牌 y=1.72 悬空 0.53m 透视飘到挡风玻璃外公路上方，按 seated 分支坐姿降 1.30/站姿保持 1.72
+- 弯路警示：怀疑 GLB 混入 Icosphere 异物做了一轮"清理"，实测 GLB 本身干净（Blender 里的 Icosphere 是 VRM addon 导入 collider 的可视化，见 art-pipeline 第 23 条）；且清理脚本重复运行把 role1 的 %TEMP% 备份污染成已修改版，靠 `git checkout`（LFS）恢复原始
+- 调试基建：`--crew=N` 直接上 N 名队友、`--shotseat` 副驾近拍截帧（随 ec55738 提交）
+- 验收：--crew=2 --shotseat 见屁股大腿贴坐垫、小腿自然垂下；--shotrvwalk 见名牌在座椅正上方不再飘出车外；无头回归 EXIT=0 零 SCRIPT ERROR；两个 commit 已 push
+
 ## 2026-10-24 · n60 可探索支路：POI + 锈牌预告（b4 公路单一）
 
 - 根因：随机岔路（junctions_in）纯装饰——支路尽头空无一物，玩家没有开进去的理由，公路观感单一
