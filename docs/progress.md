@@ -1,5 +1,13 @@
 # 开发日志
 
+## 2026-10-24 · n60 可探索支路：POI + 锈牌预告（b4 公路单一）
+
+- 根因：随机岔路（junctions_in）纯装饰——支路尽头空无一物，玩家没有开进去的理由，公路观感单一
+- 方案：`_jh(n+5000)<0.35` 从既有岔路筛可探索支路（约 1/3），支路末端按 `world.json` detours 表刷三类 POI（wrecks 废车场/camp 旧营地/truck 翻倒货车），复用 consumable 回收；`DETOUR_SIGN_LEAD=180` 在支路口前 180m 立锈棕牌（矮单柱+BoxMesh 牌面+Label3D「名称 →/←」）预告
+- 实心残骸抽成 `_wreck_solid`（StaticBody+BoxShape3D+模型，撞不动）；truck 侧翻绕长轴 roll 90°，碰撞盒高宽互换
+- 坑：①侧翻模型绕原点 roll 后半埋（原 y∈[0,h] 翻成水平向，x 半宽变垂直半高）——`if roll!=0: model.position.y=center.y` 按新半高抬回地面；②match 分支内 `_wreck_solid` 调用 SearchReplace 丢一级 tab 致 Parse Error（「Expected indented block after match pattern block」），且截帧静默失败不产 PNG——先跑 headless 查 stderr 才发现
+- 验收：headless print 实测 13 个 detour 的 id/end/sign_z/side 全合理（end 距路心 45-90m）；截帧确认锈牌文字可读、箭头方向与支路同侧、支路条带+护栏缺口清晰；无头回归 EXIT=0 零 SCRIPT ERROR
+
 ## 2026-10-24 · n59 驾驶座穿模修复：烘焙 drive 动画替代 sit+运行时 IK
 
 - 根因：sit 动画本身是佝偻休息坐姿（手放腿上、躯干前倾 25°+），运行时 TwoBoneIK 只能修手臂修不了躯干，且手型跟随 sit 张开；三轮 IK 调参（grip 位置/pole/fig.rotation.x）到极限仍「举手投降/瘫坐玩手机」

@@ -12,5 +12,10 @@
 		{ "name": "青石垭口加油站", "km": 420.0, "type": "gas" },
 		{ "name": "白沙镇",       "km": 520.0, "type": "town" },
 		{ "name": "最后营地",     "km": 600.0, "type": "camp" }
+	],
+	"detours": [
+		{ "id": "wrecks", "name": "废车场" },
+		{ "id": "camp",   "name": "旧营地" },
+		{ "id": "truck",  "name": "翻倒的货车" }
 	]
 }

@@ -103,10 +103,12 @@ var _zones_total := 0.0
 var _wrecks: Array = []       # 撞飞后待落地冻结的障碍残骸
 var scenery_z := -20.0
 var sign_z := -50.0 * KMH_FACTOR   # 里程碑路牌：首块在 50km 处
+var _detour_z := -JUNCTION_EVERY   # 可探索支路扫描游标（对齐 -n*JUNCTION_EVERY 岔路网格）
 var pole_z := -40.0                # 电线杆生成前沿
 var _pole_prev: Array = []         # 上一根电线杆两侧挂线点（世界坐标）
 var _world_seed := 1               # 确定性世界种子（data/world.json）
 var _places: Array = []            # 沿途地点（km 升序，data/world.json）
+var _detours: Array = []           # 可探索支路 POI 类型表（data/world.json）
 var _place_idx := 0                # 下一个待生成地点
 var _place_sign_idx := 0           # 下一个待出预告牌的地点（预告牌在地点前 1.5km）
 var _g_down := false
@@ -209,6 +211,8 @@ func _ready() -> void:
 		scenery_z = rv.global_position.z - 20.0
 		pole_z = rv.global_position.z - 40.0
 		_pole_prev.clear()
+		# 支路游标对齐 -n*JUNCTION_EVERY 绝对网格（与 terrain 支路条带同源，不可随 rvz 偏移）
+		_detour_z = -float(maxi(int(ceil(-(rv.global_position.z - 30.0) / JUNCTION_EVERY)), 1)) * JUNCTION_EVERY
 		while _place_idx < _places.size() and float(_places[_place_idx].get("km", 0.0)) <= _jump_km:
 			_place_idx += 1
 		while _place_sign_idx < _places.size() and float(_places[_place_sign_idx].get("km", 0.0)) - 1.5 <= _jump_km:
@@ -278,6 +282,7 @@ func _load_world() -> void:
 	if parsed is Dictionary:
 		_world_seed = int(parsed.get("world_seed", 1))
 		_places = parsed.get("places", [])
+		_detours = parsed.get("detours", [])
 
 ## 储物架等级决定燃料上限
 func fuel_cap() -> float:
@@ -1490,6 +1495,15 @@ func _update_frontier() -> void:
 		_wseed(pole_z, 7)
 		_spawn_pole(pole_z)
 		pole_z -= 48.0
+	# 可探索支路：哈希命中（与 junctions_in 同式）+ _jh(n+5000) 再筛——尽头 POI + 岔口前 180m 锈牌
+	# 游标保持网格对齐：safe_z 截断时只 break 不改 _detour_z（车抵近终点后每帧一次空检查，无开销）
+	while _detour_z > rvz - VIEW_AHEAD - DETOUR_SIGN_LEAD:
+		if _detour_z < safe_z:
+			break
+		var dn := int(round(-_detour_z / JUNCTION_EVERY))
+		if dn >= 1 and _jh(dn) <= 0.75 and _jh(dn + 2000) >= 0.28 and _jh(dn + 5000) < 0.35:
+			_spawn_detour(dn, _detour_z)
+		_detour_z -= JUNCTION_EVERY
 	# 聚落预告牌：town/gas 地点前 1.5km 路右立"前方 X 出口"绿牌（高速惯例，提前减速）
 	while _place_sign_idx < _places.size():
 		var sp: Dictionary = _places[_place_sign_idx]
@@ -3000,6 +3014,7 @@ func ground_height_c(x: float, z: float, gy: float, rx: float, zone: String) -> 
 
 # ---------- 岔路/路口（确定性生成，护栏缺口与地形条带共用） ----------
 const JUNCTION_EVERY := 170.0   # 岔路间距基准（米）
+const DETOUR_SIGN_LEAD := 180.0 # 支路预告锈牌提前量（米）：牌入 260m 视野时支路条带已在地形窗口内
 
 ## 岔路哈希：同 index 恒定
 func _jh(n: int) -> float:
@@ -3064,6 +3079,92 @@ func junction_gap(z: float, side: float) -> bool:
 		if not pj.is_empty() and absf(_place_junction_z(pj) - z) <= 12.0 and signf(side) == float(pj["side"]):
 			return true
 	return false
+
+## 可探索支路：尽头兴趣点（world.json detours 表：废车场/旧营地/翻倒货车）
+## org/dir/len 与 junctions_in（terrain 支路条带）同一哈希公式，POI 落在条带末端；consumable 组车后自动回收
+func _spawn_detour(n: int, zj: float) -> void:
+	if _detours.is_empty():
+		return
+	_wseed(zj, 9)
+	var side := 1.0 if _jh(n + 1000) < 0.5 else -1.0
+	var ang := lerpf(0.5, 1.0, _jh(n + 3000))
+	var len := lerpf(60.0, 120.0, _jh(n + 4000))
+	var dir := Vector3(side * sin(ang), 0, -cos(ang)).normalized()
+	var org := Vector3(road_x(zj) + side * (ROAD_HALF - 0.8), 0, zj)
+	var end := org + dir * (len * randf_range(0.85, 1.0))
+	var d: Dictionary = _detours[randi() % _detours.size()]
+	match String(d.get("id", "")):
+		"wrecks":
+			for i in range(2 + randi() % 2):
+				var wp := end + Vector3(randf_range(-7.0, 7.0), 0, randf_range(-7.0, 7.0))
+				_wreck_solid(WCAR_SCENE, 1.0, Vector3(2.8, 1.75, 4.05), Vector3(0, 1.43, 0), wp, randf() * TAU)
+			_loot_and_zombies(end, 9.0, 2, 1 + randi() % 3)
+		"camp":
+			for i in range(2):
+				var bp := end + Vector3(randf_range(-6.0, 6.0), 0, randf_range(-6.0, 6.0))
+				_wreck_solid(BARRICADE_SCENE, 0.55, Vector3(5.7, 0.95, 0.35), Vector3(0, 0.95, 0), bp, randf() * TAU)
+			_place_scenery(JUNK_SCENE, end.x + randf_range(-5.0, 5.0), end.z + randf_range(-5.0, 5.0), randf_range(2.4, 3.2))
+			_loot_and_zombies(end, 8.0, 2, randi() % 3)
+		"truck":
+			# 侧翻大货车：绕长轴滚转 90°，碰撞盒高宽互换；center.y = 新半高 3.3 - 下沉 0.4
+			_wreck_solid(WTRUCK_SCENE, 0.28, Vector3(2.0, 3.3, 5.0), Vector3(0, 2.9, 0), end, randf() * TAU, PI / 2.0)
+			_place_scenery(JUNK_SCENE, end.x + randf_range(-6.0, 6.0), end.z + randf_range(-6.0, 6.0), randf_range(2.4, 3.2))
+			_loot_and_zombies(end, 8.0, 1 + randi() % 2, randi() % 2)
+	_place_detour_sign(String(d.get("name", "")), zj + DETOUR_SIGN_LEAD, side)
+
+## 支路 POI 实心残骸：StaticBody + 碰撞盒 + 模型（撞不动，与 BARRICADE 同类）
+func _wreck_solid(scene: PackedScene, scale_f: float, half: Vector3, center: Vector3, pos: Vector3, yaw: float, roll := 0.0) -> void:
+	var body := StaticBody3D.new()
+	body.add_to_group("consumable")
+	var col := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = half * 2.0
+	col.shape = box
+	col.position = center
+	body.add_child(col)
+	var model := scene.instantiate()
+	model.scale = Vector3.ONE * scale_f
+	if roll != 0.0:
+		# 侧翻：滚转绕原点，原 y∈[0,高] 翻成水平向，x 半宽变成垂直半高——按 center.y 抬回地面
+		model.position.y = center.y
+	body.add_child(model)
+	body.position = Vector3(pos.x, ground_height(pos.x, pos.z), pos.z)
+	body.rotation = Vector3(0.0, yaw, roll)
+	add_child(body)
+
+## 支路预告锈牌：岔口前 DETOUR_SIGN_LEAD 米立支路同侧路肩（矮单柱锈铁皮，与高速绿牌区分）
+func _place_detour_sign(pname: String, z: float, side: float) -> void:
+	var root := Node3D.new()
+	root.add_to_group("consumable")
+	var mx: float = road_x(z) + side * (ROAD_HALF + 3.4)
+	root.position = Vector3(mx, ground_height(mx, z), z)
+	var bw: float = 0.5 * pname.length() + 0.6
+	var post := MeshInstance3D.new()
+	var pm := CylinderMesh.new()
+	pm.top_radius = 0.06
+	pm.bottom_radius = 0.08
+	pm.height = 2.4
+	post.mesh = pm
+	post.position = Vector3(0, 1.2, 0)
+	post.material_override = _mat(Color(0.4, 0.38, 0.35))
+	root.add_child(post)
+	var face := MeshInstance3D.new()
+	var fm := BoxMesh.new()
+	fm.size = Vector3(bw, 0.85, 0.04)
+	face.mesh = fm
+	face.position = Vector3(0, 2.0, 0)
+	face.material_override = _mat(Color(0.48, 0.3, 0.15))
+	root.add_child(face)
+	var lb := Label3D.new()
+	lb.text = pname + (" →" if side > 0.0 else " ←")
+	lb.font_size = 64
+	lb.pixel_size = 0.005
+	lb.outline_size = 8
+	lb.outline_modulate = Color(0.25, 0.14, 0.06)
+	lb.modulate = Color(0.94, 0.88, 0.74)
+	lb.position = Vector3(0, 2.0, 0.06)
+	root.add_child(lb)
+	add_child(root)
 
 ## 定位路段所属景观带（向 -Z 前进，zones 循环）
 func zone_at(z: float) -> String:
