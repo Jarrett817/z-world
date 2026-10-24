@@ -524,7 +524,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_fv_yaw -= event.relative.x * 0.005
 		_fv_pitch = clampf(_fv_pitch - event.relative.y * 0.005, -0.9, 0.75)
 
-## 驻车休整：按一下即可——超速时自动重刹，停稳即驻车；再按 F 出发
+## 驻车休整：按一下即可——超速时自动重刹，停稳即驻车；车内行走中按 F 回驾驶座；在驾驶座再按 F 出发
 func _toggle_park() -> void:
 	if story_active:
 		return   # 剧情弹窗期间不响应：防止 parked 隐形翻转（start_rv_walk 会被 story 拦截）
@@ -544,7 +544,9 @@ func _toggle_park() -> void:
 				set_facilities_ui(true)
 				hud.toast("已驻车 · 再按驻车键出发")
 			return
-		end_rv_walk()   # 驻车行走中按驻车键 = 出发：回驾驶座直接开车
+		end_rv_walk()   # 驻车行走中按驻车键 = 回驾驶座保持驻车（不直接出发，防误触闪退）
+		hud.toast("已回驾驶座 · 再按驻车键出发")
+		return
 	if not parked:
 		if rv.speed_kmh > 6.0:
 			_park_brake = true
