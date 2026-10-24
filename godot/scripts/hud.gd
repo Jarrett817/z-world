@@ -82,7 +82,8 @@ var _hit_tween: Tween
 # 电台剧情对话框
 var story_node: Node
 var story_root: Panel
-var story_portrait: TextureRect
+var story_bg: TextureRect
+var story_dim: ColorRect
 var story_speaker: Label
 var story_text: Label
 var story_options: VBoxContainer
@@ -510,16 +511,32 @@ func flash_hit_marker(killed := true, headshot := false) -> void:
 
 ## 电台剧情对话框：底部通栏，左侧立绘 + 说话人名，右侧打字机正文与选项
 func _build_story(root: Control) -> void:
+	# 全屏立绘：压暗底 + 完整比例大图（立绘是竖幅，COVERED 会切头，故 KEEP_ASPECT 居中撑满高度）
+	story_dim = ColorRect.new()
+	story_dim.color = Color(0.04, 0.03, 0.03, 0.62)
+	story_dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	story_dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	story_dim.visible = false
+	root.add_child(story_dim)
+	story_bg = TextureRect.new()
+	story_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	story_bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	# KEEP_ASPECT 是左上对齐，必须用 CENTERED 才居中（竖幅立绘高撑满、两侧留暗场）
+	story_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	story_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	story_bg.visible = false
+	root.add_child(story_bg)
+
 	story_root = Panel.new()
-	# 底部宽锚点（anchor 顶/底均为 1）：offset 相对屏幕底边
-	story_root.anchor_left = 0.0
-	story_root.anchor_right = 1.0
+	# 对话框居中偏下：940 宽水平居中，底边距屏 40（anchor 顶/底均为 1，offset 相对屏幕底边）
+	story_root.anchor_left = 0.5
+	story_root.anchor_right = 0.5
 	story_root.anchor_top = 1.0
 	story_root.anchor_bottom = 1.0
-	story_root.offset_left = 140
-	story_root.offset_right = -140
+	story_root.offset_left = -470
+	story_root.offset_right = 470
 	story_root.offset_top = -360
-	story_root.offset_bottom = -26
+	story_root.offset_bottom = -40
 	story_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.105, 0.085, 0.07, 0.96)
@@ -534,27 +551,17 @@ func _build_story(root: Control) -> void:
 	story_root.visible = false
 	root.add_child(story_root)
 
-	story_portrait = TextureRect.new()
-	story_portrait.custom_minimum_size = Vector2(150, 200)
-	story_portrait.position = Vector2(26, 28)
-	story_portrait.size = Vector2(150, 200)
-	story_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	story_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	story_portrait.clip_contents = true
-	story_portrait.visible = false
-	story_root.add_child(story_portrait)
-
-	story_speaker = _label("", 22, ACCENT, Vector2(196, 18))
+	story_speaker = _label("", 22, ACCENT, Vector2(26, 18))
 	story_root.add_child(story_speaker)
-	story_text = _label("", 19, TEXT_MAIN, Vector2(196, 52))
-	story_text.size = Vector2(720, 128)
+	story_text = _label("", 19, TEXT_MAIN, Vector2(26, 52))
+	story_text.size = Vector2(888, 128)
 	story_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	story_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	story_root.add_child(story_text)
 
 	story_options = VBoxContainer.new()
-	story_options.position = Vector2(196, 188)
-	story_options.size = Vector2(760, 138)
+	story_options.position = Vector2(26, 188)
+	story_options.size = Vector2(888, 138)
 	story_options.add_theme_constant_override("separation", 8)
 	story_options.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	story_root.add_child(story_options)
@@ -618,15 +625,16 @@ func show_story(ev: Dictionary) -> void:
 	story_speaker.text = String(ev.get("speaker", ""))
 	for c in story_options.get_children():
 		c.queue_free()
-	# 立绘
+	# 全屏立绘
 	var pic := String(ev.get("portrait", ""))
-	if pic != "":
-		var path := "res://assets/portraits/" + pic
-		if ResourceLoader.exists(path):
-			story_portrait.texture = load(path)
-			story_portrait.visible = true
+	var path := "res://assets/portraits/" + pic
+	if pic != "" and ResourceLoader.exists(path):
+		story_bg.texture = load(path)
+		story_bg.visible = true
+		story_dim.visible = true
 	else:
-		story_portrait.visible = false
+		story_bg.visible = false
+		story_dim.visible = false
 	story_root.visible = true
 
 ## 正文显示完毕后生成选项按钮（条件不足置灰）
@@ -637,7 +645,7 @@ func _show_options() -> void:
 	var opts: Array = ev.get("options", [])
 	# 选项过多时（如终章 7 个分支结局）面板自适应加高
 	var panel_h: float = maxf(334.0, 208.0 + opts.size() * 49.0)
-	story_root.offset_top = -(panel_h + 26.0)
+	story_root.offset_top = -(panel_h + 40.0)
 	story_options.size.y = panel_h - 208.0
 	for i in opts.size():
 		var b := Button.new()
@@ -665,6 +673,8 @@ func _show_options() -> void:
 
 func hide_story() -> void:
 	story_root.visible = false
+	story_bg.visible = false
+	story_dim.visible = false
 
 # ---------- 素材署名面板 ----------
 func set_credits_visible(v: bool) -> void:
