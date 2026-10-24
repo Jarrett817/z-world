@@ -37,6 +37,8 @@ var _gun_order: Array = []
 var _gun_idx := 0
 var _ammo_map: Dictionary = {}   # id -> 余弹
 var _firing := false             # 左键按住（全自动连发用）
+var _grenade_cfg: Dictionary = {}  # guns.json "grenade" 节
+var _grenades := 0               # 剩余手雷数
 
 var _r_down := false
 var _recoil := 0.0
@@ -90,6 +92,8 @@ func _ready() -> void:
 	_guns = parsed["guns"]
 	_gun_order = parsed["order"]
 	_sway_cfg = parsed.get("sway", {})
+	_grenade_cfg = parsed.get("grenade", {})
+	_grenades = int(_grenade_cfg.get("count", 0))
 	for id in _gun_order:
 		_ammo_map[id] = int(_guns[id]["mag_size"])
 	# 枪挂点：位置按 aim 动作双手实测对位；grip 点对齐到这里
@@ -134,6 +138,7 @@ func _equip_current() -> void:
 	muzzle.position = Vector3(mz[0], mz[1], mz[2])
 	wm.add_child(muzzle)
 	main_node.hud.set_combat_gun(cfg["name"], ammo(), int(cfg["mag_size"]))
+	main_node.hud.set_combat_grenades(_grenades)
 
 ## 切换武器（数字键直选 / HUD 按钮循环）
 func switch_gun(idx: int) -> void:
@@ -203,6 +208,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			switch_gun(int(event.keycode - KEY_1))
 		elif event.keycode == KEY_V:
 			toggle_fps()
+		elif event.keycode == KEY_X:
+			throw_grenade()
 
 ## HUD 开火按钮：按下开火（半自动单发、全自动按住连发），松开停火
 func press_fire() -> void:
@@ -454,6 +461,23 @@ func _try_fire() -> void:
 	main_node.alert_gunshot(muzzle_ws)
 	main_node.spawn_muzzle_flash(muzzle_ws)
 	main_node.hud.set_combat_ammo(ammo(), int(reload_t > 0.0))
+
+## X：投掷手雷（抛物线 + 引信爆炸，AOE 杀伤；HUD 余量拼在枪名行尾）
+func throw_grenade() -> void:
+	if mode == Mode.RV_WALK:
+		main_node.hud.toast("车内无法投掷，Q 回驾驶座后下车作战")
+		return
+	if _grenades <= 0:
+		main_node.hud.toast("手雷用完了")
+		return
+	_grenades -= 1
+	# 出手点取枪口，方向沿瞄准、略抬抛角
+	var from := muzzle.global_position
+	var dir := (-cam.global_transform.basis.z + Vector3.UP * 0.18).normalized()
+	main_node.throw_grenade(from, dir, _grenade_cfg)
+	main_node.sfx.play("reload", 1.6)   # 拔销脆响
+	main_node.hud.set_combat_grenades(_grenades)
+	main_node.hud.toast("手雷投出！剩余 %d" % _grenades)
 
 func _finish_reload() -> void:
 	var mag := int(_cfg()["mag_size"])

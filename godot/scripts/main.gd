@@ -257,6 +257,7 @@ func _physics_process(delta: float) -> void:
 	_update_weather(delta)
 	_update_zombies(delta)
 	_update_bullets(delta)
+	_update_grenades(delta)
 	# 驻车自动刹车：停稳即完成驻车（复用正常驻车路径）
 	if _park_brake and rv.speed_kmh <= 0.5:
 		_park_brake = false
@@ -1395,7 +1396,7 @@ func start_combat(m: int) -> void:
 			mate.position.y = ground_height(mate.position.x, mate.position.z)
 			add_child(mate)
 			mates.append(mate)
-	hud.toast("天窗射击：鼠标瞄准 · 左键开火 · G/T 返回" if m == 1 else "下车战斗：WASD 移动 · 鼠标瞄准 · 左键开火 · 队友协同作战 · G 返回车内")
+	hud.toast("天窗射击：鼠标瞄准 · 左键开火 · X 手雷 · G/T 返回" if m == 1 else "下车战斗：WASD 移动 · 鼠标瞄准 · 左键开火 · X 手雷 · 队友协同作战 · G 返回车内")
 
 func end_combat() -> void:
 	if not combat_active:
@@ -1607,6 +1608,86 @@ func _bullet_impact(hit: Dictionary, dmg: float, dir: Vector3) -> void:
 	var tw := create_tween()
 	tw.tween_property(flash, "light_energy", 0.0, 0.08)
 	tw.tween_callback(flash.queue_free)
+
+# ---------- 手雷 ----------
+## 玩家 X 键投掷：视觉弹道（重力抛物线 + 落地弹跳），引信到点爆炸 AOE
+var _grenades: Array = []
+
+func throw_grenade(from: Vector3, dir: Vector3, cfg: Dictionary) -> void:
+	var ball := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.09
+	sm.height = 0.18
+	ball.mesh = sm
+	ball.material_override = _emis_mat(Color(0.16, 0.2, 0.14), 0.0)
+	ball.position = from
+	add_child(ball)
+	_grenades.append({
+		"node": ball,
+		"vel": dir.normalized() * float(cfg.get("throw_speed", 16.0)),
+		"fuse": float(cfg.get("fuse", 2.2)),
+		"dmg": float(cfg.get("damage", 6.0)),
+		"radius": float(cfg.get("radius", 6.0)),
+	})
+
+func _update_grenades(delta: float) -> void:
+	if _grenades.is_empty():
+		return
+	for i in range(_grenades.size() - 1, -1, -1):
+		var g: Dictionary = _grenades[i]
+		var node: MeshInstance3D = g["node"]
+		var vel: Vector3 = g["vel"]
+		vel.y -= 9.8 * delta
+		var pos: Vector3 = node.global_position + vel * delta
+		var gy := ground_height(pos.x, pos.z)
+		if pos.y < gy + 0.09:
+			# 落地弹跳：垂直反弹衰减，水平摩擦
+			pos.y = gy + 0.09
+			if vel.y < 0.0:
+				vel.y = -vel.y * 0.35
+				vel.x *= 0.6
+				vel.z *= 0.6
+		node.global_position = pos
+		node.rotate_x(vel.length() * delta * 3.0)   # 滚动视觉
+		g["vel"] = vel
+		g["fuse"] = float(g["fuse"]) - delta
+		if float(g["fuse"]) <= 0.0:
+			_explode_grenade(pos, float(g["dmg"]), float(g["radius"]))
+			node.queue_free()
+			_grenades.remove_at(i)
+
+## 爆炸结算：半径内丧尸距离衰减杀伤 + 爆闪火球 + 震屏 + 惊动尸群
+func _explode_grenade(pos: Vector3, dmg: float, radius: float) -> void:
+	for z in zombies:
+		if not is_instance_valid(z):
+			continue
+		var d: float = z.global_position.distance_to(pos)
+		if d <= radius:
+			on_zombie_shot(z.on_shot(dmg * (1.0 - d / radius * 0.6), false, (z.global_position - pos).normalized()), false)
+	# 爆闪火球：自发光球膨胀 + 强点光熄灭
+	var flash := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.4
+	sm.height = 0.8
+	flash.mesh = sm
+	flash.material_override = _emis_mat(Color(1.0, 0.62, 0.2), 8.0)
+	flash.position = pos + Vector3(0, 0.4, 0)
+	add_child(flash)
+	var light := OmniLight3D.new()
+	light.light_color = Color(1.0, 0.6, 0.25)
+	light.light_energy = 14.0
+	light.omni_range = radius * 2.2
+	light.position = pos + Vector3(0, 0.8, 0)
+	add_child(light)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(flash, "scale", Vector3.ONE * radius * 0.55, 0.16)
+	tw.tween_property(light, "light_energy", 0.0, 0.28)
+	tw.chain().tween_callback(flash.queue_free)
+	tw.tween_callback(light.queue_free)
+	sfx.play3d("gunshot", pos, 0.45, 0.05, 8.0)   # 低音枪声近似爆炸轰响
+	add_trauma(0.5)
+	alert_gunshot(pos)
 
 func zombie_bite() -> void:
 	# 全局冷却：同一时刻只允许一只丧尸生效，避免多只叠加秒杀

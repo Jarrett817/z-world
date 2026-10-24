@@ -72,6 +72,8 @@ var combat_root: Control
 var crosshair: Label
 var ammo_label: Label
 var gun_label: Label
+var _cur_gun_name := ""
+var _grenade_count := 0
 var _cur_mag: int = 12
 var combat_hp_fill: ColorRect
 var combat_hp_label: Label
@@ -474,8 +476,14 @@ func set_combat_ammo(ammo: int, reloading: int) -> void:
 ## 切枪：刷新枪名与弹匣上限
 func set_combat_gun(gun_name: String, ammo: int, mag: int) -> void:
 	_cur_mag = mag
-	gun_label.text = gun_name
+	_cur_gun_name = gun_name
+	gun_label.text = _cur_gun_name + (" · 手雷×%d" % _grenade_count if _grenade_count > 0 else "")
 	set_combat_ammo(ammo, 0)
+
+## 手雷余量：拼在枪名行尾
+func set_combat_grenades(n: int) -> void:
+	_grenade_count = n
+	gun_label.text = _cur_gun_name + (" · 手雷×%d" % _grenade_count if _grenade_count > 0 else "")
 
 func set_combat_hp(hp: float) -> void:
 	var ratio := clampf(hp / 100.0, 0.0, 1.0)

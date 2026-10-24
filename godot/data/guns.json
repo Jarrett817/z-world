@@ -62,6 +62,14 @@
 			"grip": [-75.0, -45.0, 0.0]
 		}
 	},
+	"grenade": {
+		"name": "手雷",
+		"damage": 6.0,
+		"radius": 6.0,
+		"fuse": 2.2,
+		"throw_speed": 16.0,
+		"count": 3
+	},
 	"sway": {
 		"bob_x": 0.0075,
 		"bob_y": 0.006,
