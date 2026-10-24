@@ -28,8 +28,23 @@ static func instantiate(cid: String, anim_name := "idle", expr: Dictionary = {},
 static func _get_scene(cid: String) -> PackedScene:
 	var key := _role_key(cid)
 	if not _scene_cache.has(key):
-		_scene_cache[key] = load(ROLE_SCENES[key])
+		var packed: PackedScene = load(ROLE_SCENES[key])
+		# GLB 材质缺 metallicFactor（glTF 默认 1.0），皮肤变全金属反射环境泛灰蓝；实例化一次修正共享材质
+		var probe := packed.instantiate()
+		_fix_materials(probe)
+		probe.free()
+		_scene_cache[key] = packed
 	return _scene_cache[key]
+
+static func _fix_materials(root: Node) -> void:
+	if root is MeshInstance3D:
+		var mi := root as MeshInstance3D
+		for i in mi.mesh.get_surface_count():
+			var m := mi.mesh.surface_get_material(i)
+			if m is StandardMaterial3D:
+				(m as StandardMaterial3D).metallic = 0.0
+	for c in root.get_children():
+		_fix_materials(c)
 
 static func _role_key(cid: String) -> String:
 	if ROLE_SCENES.has(cid):

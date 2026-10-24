@@ -1,5 +1,15 @@
 # 开发日志
 
+## 2026-10-24 · n63 皮肤灰蓝根因修复：材质 metallic=1 + 无损贴图真正落地
+
+- 现象：用户截帧车内角色皮肤灰蓝、色块，质疑模型压缩
+- 排查链：GLB 源贴图原始分辨率完整（Body/Face 2048² 等，Python 解 GLB JSON chunk 读 PNG IHDR）；但 `.import` 改 `embedded_image_handling=3` 后 `.godot/imported` 的 ctex/scn 缓存仍是 10/21 旧文件——**游戏运行模式不会因 .import 参数变化自动重导**，需删缓存 + `--import` 重建；重建后贴图不再产 ctex，直接内嵌进 .scn，运行时探针（`--script` SceneTree 脚本 load GLB 打印 `img.is_compressed()`）全部 false、原分辨率
+- 真根因：三个角色 GLB 全部材质 `metallic=1.0 roughness=1.0`（Blender 导 glTF 没写 metallicFactor，glTF 规范默认 1.0）→ 皮肤成全金属反射蓝天环境光 → 灰蓝。role1 截图"正常"只是反射角度碰巧
+- 修复：char_util.gd `_get_scene` 加载后实例化探针节点 `_fix_materials` 钳共享材质 metallic=0（修正一次对缓存 PackedScene 所有后续实例生效）；动漫哑光风格 roughness=1 保持不动
+- 顺带：`events.json` 双重 BOM（`EF BB BF`×2）导致 `Parse JSON failed` 剧情事件静默失效，剥 BOM 修复；全目录扫描其余 json 无 BOM
+- 验证：独立渲染脚本近拍 ye_lan（role2）——皮肤暖肤色、发丝瞳孔锐利；无头回归 EXIT=0 且 Parse JSON 错误消失
+- 教训：`--script` 继承 SceneTree 可跑独立验证脚本（root.add_child 后 look_at 仍会报 Node not inside tree，用 look_at_from_position 或先 add 再调）
+
 ## 2026-10-24 · n62 小聚落系统：3-5km 一处镇/村/景区可搜刮（p4）
 
 - 需求：用户要真实城镇/乡村/景区，目的「3-5 公里能搜刮物资」
