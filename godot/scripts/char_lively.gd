@@ -7,7 +7,8 @@ const EYE_CLOSE := "Fcl_EYE_Close"
 const MTH_A := "Fcl_MTH_A"
 const BLINK_TIME := 0.12
 const DEFAULT_EXPR := {"Fcl_ALL_Joy": 0.10}
-const IDLE_VARIANTS: Array[StringName] = [&"idle_look", &"idle_stretch"]
+# idle_stretch（伸懒腰双臂上举 2.8s）在车内狭小空间持续举手很怪，只保留转头的 idle_look
+const IDLE_VARIANTS: Array[StringName] = [&"idle_look"]
 const SIT_VARIANTS: Array[StringName] = [&"sit_talk"]
 
 var _face: MeshInstance3D

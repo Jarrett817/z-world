@@ -981,6 +981,11 @@ func _sync_crew() -> void:
 		var f: Node3D = crew_figures[i]
 		var lb: Label3D = f.get_meta("label")
 		var old: Node = f.get_node_or_null("Char")
+		# 旧节点先 remove_child 再 queue_free：同帧 queue_free 不立即出树，
+		# 新 Char 重名被改名，下次 get_node_or_null("Char") 找不到旧节点 → 叠加重影
+		if old:
+			f.remove_child(old)
+			old.queue_free()
 		if i < crew_members.size():
 			var m: Dictionary = crew_members[i]
 			lb.text = "%s · %s" % [m.get("name", ""), m.get("skill", "")]
@@ -988,13 +993,9 @@ func _sync_crew() -> void:
 			var made := CharUtil.instantiate(String(m.get("id", "")), anim_name, m.get("expression", {}))
 			var char: Node3D = made["node"]
 			char.name = "Char"
-			if old:
-				old.queue_free()
 			f.add_child(char)
 		else:
 			lb.text = ""
-			if old:
-				old.queue_free()
 
 ## 主角驾驶位：hero 坐主驾播 drive 动画（坐姿+双手握方向盘已烘焙，仅车内视角可见）
 func _build_driver() -> void:
