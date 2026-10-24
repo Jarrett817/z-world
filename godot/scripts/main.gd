@@ -151,6 +151,7 @@ var _shot_credits := false  # --shotcredits：截帧前先打开署名面板
 var _shot_cab := false      # --shotcab：截帧前切车内视角看驾驶座
 var _shot_cab_cam := false  # --shotcab：截帧专用近距离侧拍驾驶座相机
 var _shot_seat := false     # --shotseat：截帧前切车内视角看副驾队友
+var _shot_cabin := false    # --shotcabin：截帧前切车内视角整舱俯拍（验收岗位布局）
 var _shot_seat_cam := false # --shotseat：截帧专用近距离侧拍副驾相机
 var _jump_km := 0.0         # --jump=KM：直达指定里程（配合 --shot 截帧验收）
 var _debug_crew := 0        # --crew=N：调试直接补 N 名队友（配合截帧验收座位角色）
@@ -173,6 +174,8 @@ func _ready() -> void:
 			_shot_cab = true
 		elif a == "--shotseat":
 			_shot_seat = true
+		elif a == "--shotcabin":
+			_shot_cabin = true
 		elif a.begins_with("--jump="):
 			_jump_km = float(a.trim_prefix("--jump="))
 		elif a.begins_with("--crew="):
@@ -447,6 +450,13 @@ func _process(delta: float) -> void:
 				_shot_at = 1.5
 				_shot_t = 0.0
 				return
+			if _shot_cabin:
+				# --shotcabin：切车内视角整舱俯拍，稳定 1.5s 后截帧
+				_shot_cabin = false
+				view_mode = 2
+				_shot_at = 1.5
+				_shot_t = 0.0
+				return
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(_shot_path)
 			get_tree().quit()
@@ -497,6 +507,7 @@ func _process(delta: float) -> void:
 	if e and not _e_down and parked and not game_over:
 		set_facilities_ui(not facilities_visible)
 	_e_down = e
+	_update_port_gunners(delta)
 	if rv_walk_active:
 		# 车内行走：相机由玩家节点接管，显隐在 start/end 里一次性设好
 		return
@@ -939,19 +950,19 @@ func _build_interior() -> void:
 		if seat_mesh != null:
 			seat_mesh.position.z -= 1.27
 
-## 车内视角的队友：副驾坐姿、其余站姿，各自在灶台/货架/餐桌/后铺忙碌
+## 车内岗位制：副驾瞭望 / 灶台做饭 / 货架收拾 / 两侧射击孔持枪戒备（自动开火见 _update_port_gunners）
 func _build_crew() -> void:
 	crew_font = SystemFont.new()
 	crew_font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "sans-serif"])
-	# [本地坐标, 朝向, 是否坐姿]；GLB 正面朝 +Z，副驾朝车头(-Z)故转 180°
+	# [本地坐标, 朝向, 岗位, 岗位名牌]；GLB 正面朝 +Z，副驾朝车头(-Z)故转 180°
 	# 地板顶面 y=-0.4：所有站位 root 均落地板；坐姿髋部下沉约 0.44，落在坐垫顶(y=0.0)上
 	var stations := [
 		# sit 动画髋部在 root 后方约 0.324：副驾 root 需再靠前 0.33，髋才落在坐垫(z -3.04..-2.50)后 1/3 处
-		[Vector3(0.55, -0.4, -3.18), PI, true],          # 副驾（坐姿朝车头，首位队友；座椅已前移贴方向盘）
-		[Vector3(-0.55, -0.4, -0.1), -PI * 0.5, false],  # 灶台前，朝 -X
-		[Vector3(0.55, -0.4, 0.4), PI * 0.5, false],     # 货架前，朝 +X
-		[Vector3(-0.55, -0.4, 1.15), PI * 0.5, false],    # 餐桌靠车头侧，左，朝桌/右
-		[Vector3(0.55, -0.4, 1.15), -PI * 0.5, false],    # 餐桌靠车头侧，右，隔桌相望
+		[Vector3(0.55, -0.4, -3.18), PI, "sit", "瞭望"],          # 副驾（坐姿朝车头，首位队友；座椅已前移贴方向盘）
+		[Vector3(-0.55, -0.4, -0.1), -PI * 0.5, "cook", "做饭"],  # 灶台前，朝 -X
+		[Vector3(0.55, -0.4, 0.4), PI * 0.5, "tidy", "收拾"],     # 货架前，朝 +X
+		[Vector3(-0.92, -0.4, 1.3), -PI * 0.5, "gun", "射手"],    # 左射击孔，贴左墙朝 -X
+		[Vector3(0.92, -0.4, 1.3), PI * 0.5, "gun", "射手"],      # 右射击孔，贴右墙朝 +X
 	]
 	for st in stations:
 		var fig := Node3D.new()
@@ -963,17 +974,73 @@ func _build_crew() -> void:
 		lb.outline_size = 10
 		lb.no_depth_test = false
 		lb.modulate = Color(1.0, 0.93, 0.84)
+		var seated: bool = st[2] == "sit"
 		# 坐姿头顶(rv 本地)约 0.79，名牌 1.30 悬顶 0.5 内不穿挡风；站姿头顶约 1.6，用 1.72
-		lb.position = Vector3(0, 1.30 if st[2] else 1.72, 0)
+		lb.position = Vector3(0, 1.30 if seated else 1.72, 0)
 		fig.add_child(lb)
 		fig.position = st[0]
 		fig.rotation.y = st[1]
 		fig.set_meta("label", lb)
-		fig.set_meta("seated", st[2])
+		fig.set_meta("seated", seated)
+		fig.set_meta("duty", st[2])
+		fig.set_meta("duty_label", st[3])
 		fig.visible = false
 		rv.add_child(fig)
 		crew_figures.append(fig)
 	_sync_crew()
+	_build_duty_props()
+
+## 岗位道具：灶台蒸汽（锅上方）+ 两侧射击孔（墙洞）
+func _build_duty_props() -> void:
+	# 灶台蒸汽：定位内饰 GLB 里的 pot（网格顶点已烘在世界坐标，用 AABB 中心）
+	var pot := interior.find_child("pot", true, false) as MeshInstance3D
+	if pot != null:
+		var aabb: AABB = pot.get_aabb()
+		var steam := GPUParticles3D.new()
+		steam.amount = 10
+		steam.lifetime = 1.4
+		steam.position = aabb.get_center() + Vector3(0, aabb.size.y * 0.5, 0)
+		var pm := ParticleProcessMaterial.new()
+		pm.direction = Vector3(0, 1, 0)
+		pm.spread = 10.0
+		pm.initial_velocity_min = 0.2
+		pm.initial_velocity_max = 0.35
+		pm.gravity = Vector3(0, 0.12, 0)
+		pm.scale_min = 0.05
+		pm.scale_max = 0.12
+		steam.process_material = pm
+		var q := QuadMesh.new()
+		q.size = Vector2(0.12, 0.12)
+		var sm := StandardMaterial3D.new()
+		sm.albedo_color = Color(1.0, 1.0, 1.0, 0.3)
+		sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		sm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		q.material = sm
+		steam.draw_pass_1 = q
+		interior.add_child(steam)
+	# 射击孔：生活舱后部两侧墙（sill 在 x≈±1.31），深色金属框 + 黑色孔洞
+	var frame_mat := StandardMaterial3D.new()
+	frame_mat.albedo_color = Color(0.22, 0.2, 0.18)
+	frame_mat.metallic = 0.5
+	frame_mat.roughness = 0.5
+	var hole_mat := StandardMaterial3D.new()
+	hole_mat.albedo_color = Color(0.02, 0.02, 0.02)
+	for side in [-1.0, 1.0]:
+		var frame := MeshInstance3D.new()
+		var fm := BoxMesh.new()
+		fm.size = Vector3(0.06, 0.42, 0.42)
+		frame.mesh = fm
+		frame.material_override = frame_mat
+		frame.position = Vector3(side * 1.3, 0.62, 1.3)
+		rv.add_child(frame)
+		var hole := MeshInstance3D.new()
+		var hm := BoxMesh.new()
+		hm.size = Vector3(0.08, 0.3, 0.3)
+		hole.mesh = hm
+		hole.material_override = hole_mat
+		hole.position = Vector3(side * 1.29, 0.62, 1.3)
+		rv.add_child(hole)
 
 ## 队员加入/刷新时：按 id 实例化对应 VRM 基底（播 sit/idle）并更新名牌
 func _sync_crew() -> void:
@@ -988,12 +1055,25 @@ func _sync_crew() -> void:
 			old.queue_free()
 		if i < crew_members.size():
 			var m: Dictionary = crew_members[i]
-			lb.text = "%s · %s" % [m.get("name", ""), m.get("skill", "")]
-			var anim_name := "sit" if f.get_meta("seated") else "idle"
+			lb.text = "%s · %s" % [m.get("name", ""), f.get_meta("duty_label")]
+			var duty := String(f.get_meta("duty"))
+			var anim_name := "idle"
+			match duty:
+				"sit": anim_name = "sit"
+				"gun": anim_name = "aim"
 			var made := CharUtil.instantiate(String(m.get("id", "")), anim_name, m.get("expression", {}))
 			var char: Node3D = made["node"]
 			char.name = "Char"
 			f.add_child(char)
+			# 射手持枪：枪口节点供 _update_port_gunners 取世界坐标
+			if duty == "gun":
+				var gun := CharUtil.build_gun()
+				gun.position = Vector3(-0.12, 1.30, 0.33)
+				char.add_child(gun)
+				var mz := Node3D.new()
+				mz.position = Vector3(0, 0.04, 0.72)
+				gun.add_child(mz)
+				f.set_meta("muzzle", mz)
 		else:
 			lb.text = ""
 
@@ -1069,11 +1149,52 @@ func _start_banter() -> void:
 	fb.rotation.y = atan2(dir.x, dir.z)
 	var tw := create_tween()
 	tw.tween_interval(4.5)
+	# 射手闲聊期间暂停朝向接管与开火（_update_port_gunners 读此 meta）
+	fb.set_meta("banter_until", Time.get_ticks_msec() / 1000.0 + 4.5)
 	tw.tween_callback(func() -> void:
 		bubble.visible = false
 		fb.rotation.y = back
 		banter_busy = false
 	)
+
+## 射击孔射手：本侧 20m 内最近丧尸自动开火（CD 1.3s）；无目标回朝车外戒备；闲聊期间暂停
+func _update_port_gunners(delta: float) -> void:
+	if game_over or story_active:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	for f in crew_figures:
+		if f.get_meta("duty", "") != "gun" or not f.has_node("Char"):
+			continue
+		if f.get_meta("banter_until", 0.0) > now:
+			continue
+		var cd: float = f.get_meta("fire_cd", 0.0) - delta
+		var side: float = signf(f.position.x)
+		var best: Node3D = null
+		var best_d := 20.0
+		for z in zombies:
+			if not is_instance_valid(z) or z.dead:
+				continue
+			# 只打本侧目标（rv 本地空间）
+			if signf(rv.to_local(z.global_position).x) != side:
+				continue
+			var d: float = f.global_position.distance_to(z.global_position)
+			if d < best_d:
+				best_d = d
+				best = z
+		if best == null:
+			f.rotation.y = lerp_angle(f.rotation.y, side * PI * 0.5, delta * 4.0)
+			f.set_meta("fire_cd", cd)
+			continue
+		var to: Vector3 = rv.to_local(best.global_position) - f.position
+		f.rotation.y = lerp_angle(f.rotation.y, atan2(to.x, to.z), delta * 8.0)
+		if cd <= 0.0:
+			cd = 1.3
+			var from: Vector3 = (f.get_meta("muzzle") as Node3D).global_position
+			var dir := (best.global_position + Vector3(0, 1.1, 0) - from).normalized()
+			spawn_bullet(from, dir, 600.0, [])
+			spawn_muzzle_flash(from)
+			sfx.play3d("gunshot", f.global_position, 0.9, 0.08)
+		f.set_meta("fire_cd", cd)
 
 func _build_camera() -> void:
 	cam = Camera3D.new()
@@ -1412,13 +1533,13 @@ func spawn_bullet(from: Vector3, dir: Vector3, speed: float, exclude: Array, dmg
 	add_child(root)
 	root.global_position = from
 	root.look_at(from + dir, Vector3.UP)
-	# 曳光轨迹：从枪口向弹头生长的亮线，命中瞬间恰好连接枪口与落点
+	# 曳光轨迹：从枪口向弹头生长的亮线；出生帧长度≈0，否则枪口后方会亮出一帧反向短棍
 	var trail := MeshInstance3D.new()
 	var bm := BoxMesh.new()
-	bm.size = Vector3(0.03, 0.03, 0.7)
+	bm.size = Vector3(0.03, 0.03, 0.02)
 	trail.mesh = bm
 	trail.material_override = _emis_mat(Color(1.0, 0.85, 0.5), 4.0)
-	trail.position.z = 0.35
+	trail.position.z = 0.01
 	root.add_child(trail)
 	_bullets.append({
 		"vel": dir.normalized() * speed,
@@ -1444,7 +1565,16 @@ func _update_bullets(delta: float) -> void:
 		var hit := space.intersect_ray(q)
 		if hit:
 			_bullet_impact(hit, b["dmg"], b["vel"].normalized())
-			b["node"].queue_free()
+			# 命中帧把曳光拉满到落点并驻留 0.05s：弹迹完整连接枪口与落点后再消散
+			var hit_pos: Vector3 = hit["position"]
+			var hnode: Node3D = b["node"]
+			hnode.global_position = hit_pos
+			hnode.look_at(hit_pos + b["vel"].normalized(), Vector3.UP)
+			var hbm := (b["trail"] as MeshInstance3D).mesh as BoxMesh
+			var hlen: float = clampf((hit_pos - b["muzzle"]).length(), 0.02, 40.0)
+			hbm.size.z = hlen
+			(b["trail"] as MeshInstance3D).position.z = hlen * 0.5
+			get_tree().create_timer(0.05).timeout.connect(hnode.queue_free)
 			_bullets.remove_at(i)
 			continue
 		b["pos"] += step

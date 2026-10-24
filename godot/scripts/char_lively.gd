@@ -37,7 +37,12 @@ func _ready() -> void:
 		_apply_expression()
 	_anim = root.find_child("AnimationPlayer", true, false) as AnimationPlayer
 	if _anim != null:
-		var pool := SIT_VARIANTS if _base == &"sit" else IDLE_VARIANTS
+		# 仅 idle/sit 插播小动作；aim（射击孔射手）等姿势被 idle_look 打断会很怪
+		var pool: Array[StringName] = []
+		if _base == &"sit":
+			pool = SIT_VARIANTS
+		elif _base == &"idle":
+			pool = IDLE_VARIANTS
 		for v in pool:
 			if _anim.has_animation(v):
 				_anim.get_animation(v).loop_mode = Animation.LOOP_NONE
