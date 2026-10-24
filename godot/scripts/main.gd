@@ -144,6 +144,8 @@ var _shot_walk := false  # --shotrvwalk：截帧前先进车内行走
 var _shot_combat := false  # --shotcombat：截帧前先进下车战斗
 var _shot_fps := false     # --fps：配合 --shotcombat 切第一人称截帧
 var _shot_credits := false  # --shotcredits：截帧前先打开署名面板
+var _shot_cab := false      # --shotcab：截帧前切车内视角看驾驶座
+var _shot_cab_cam := false  # --shotcab：截帧专用近距离侧拍驾驶座相机
 var _jump_km := 0.0         # --jump=KM：直达指定里程（配合 --shot 截帧验收）
 var _dump := false          # --dump：截帧时刻打印房车周边节点并退出（验收定位异常物）
 
@@ -160,6 +162,8 @@ func _ready() -> void:
 			_shot_fps = true
 		elif a == "--shotcredits":
 			_shot_credits = true
+		elif a == "--shotcab":
+			_shot_cab = true
 		elif a.begins_with("--jump="):
 			_jump_km = float(a.trim_prefix("--jump="))
 		elif a == "--dump":
@@ -396,6 +400,14 @@ func _process(delta: float) -> void:
 				_shot_at = 1.5
 				_shot_t = 0.0
 				return
+			if _shot_cab:
+				# --shotcab：切车内视角看驾驶座，稳定 1.5s 后截帧
+				_shot_cab = false
+				view_mode = 2
+				_shot_cab_cam = true
+				_shot_at = 1.5
+				_shot_t = 0.0
+				return
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(_shot_path)
 			get_tree().quit()
@@ -475,6 +487,11 @@ func _process(delta: float) -> void:
 		var look_dir := Basis(Vector3.UP, _fv_yaw) * Basis(Vector3.RIGHT, _fv_pitch) * base_dir
 		cam.look_at(cam.global_position + rv.global_transform.basis * look_dir * 5.0, Vector3.UP)
 		cam.fov = 72.0
+		if _shot_cab_cam:
+			# --shotcab：主驾正侧面近拍，验收坐姿穿模
+			cam.global_position = rv.to_global(Vector3(0.5, 0.95, -2.85))
+			cam.look_at(rv.to_global(Vector3(-0.55, 0.5, -2.85)), Vector3.UP)
+			cam.fov = 55.0
 	else:
 		var target := rv.global_position + Vector3(0, 3.5, 11.0)
 		cam_pos = cam_pos.lerp(target, 1.0 - exp(-5.0 * delta))
@@ -930,11 +947,11 @@ func _sync_crew() -> void:
 			if old:
 				old.queue_free()
 
-## 主角驾驶位：hero 坐主驾播 sit，双手 TwoBoneIK3D 持续握方向盘（仅车内视角可见）
+## 主角驾驶位：hero 坐主驾播 drive 动画（坐姿+双手握方向盘已烘焙，仅车内视角可见）
 func _build_driver() -> void:
 	var fig := Node3D.new()
-	# 主驾坐垫后部（座椅已前移贴方向盘：坐垫 z -3.04..-2.50）；坐姿髋部后滑 0.28，root 使髋部贴靠背不插入
-	fig.position = Vector3(-0.55, -0.4, -2.85)
+	# 主驾坐垫后部（座椅已前移贴方向盘：坐垫 z -3.04..-2.50）；drive 动画髋部已前移 13cm 够到方向盘
+	fig.position = Vector3(-0.55, -0.42, -2.85)
 	fig.rotation.y = PI  # 朝车头
 	var lb := Label3D.new()
 	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -947,34 +964,12 @@ func _build_driver() -> void:
 	lb.position = Vector3(0, 1.35, 0)
 	lb.text = "我 · 驾驶中"
 	fig.add_child(lb)
-	var char: Node3D = CharUtil.instantiate("hero", "sit")["node"]
+	var char: Node3D = CharUtil.instantiate("hero", "drive")["node"]
 	char.name = "Char"
 	fig.add_child(char)
 	fig.visible = false
 	rv.add_child(fig)
 	driver_figure = fig
-	# 双手握方向盘：内饰 wheel 圈心 rv 局部 (-0.55, 0.78, -3.2)，握 10 点/2 点方位
-	var skel: Skeleton3D = char.find_child("Skeleton3D", true, false)
-	if skel == null:
-		return
-	for side in ["L", "R"]:
-		var sgn: float = -1.0 if side == "L" else 1.0
-		var grip := Node3D.new()
-		grip.position = Vector3(-0.55 + sgn * 0.2, 0.9, -3.15)
-		rv.add_child(grip)
-		# pole 决定肘部朝向：放在肩后下方偏外侧，肘自然下垂外张
-		var pole := Node3D.new()
-		pole.position = Vector3(-0.55 + sgn * 0.35, 0.3, -2.2)
-		rv.add_child(pole)
-		var ik := TwoBoneIK3D.new()
-		skel.add_child(ik)
-		ik.setting_count = 1
-		ik.set_root_bone_name(0, "J_Bip_%s_UpperArm" % side)
-		ik.set_middle_bone_name(0, "J_Bip_%s_LowerArm" % side)
-		ik.set_end_bone_name(0, "J_Bip_%s_Hand" % side)
-		ik.set_target_node(0, ik.get_path_to(grip))
-		ik.set_pole_node(0, ik.get_path_to(pole))
-		ik.set_extend_end_bone(0, true)
 
 # ---------- 队友互动 ----------
 ## 车内视角下，队友之间隔一阵子搭一句话，听的人转头看向说的人

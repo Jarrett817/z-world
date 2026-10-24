@@ -1,5 +1,13 @@
 # 开发日志
 
+## 2026-10-24 · n59 驾驶座穿模修复：烘焙 drive 动画替代 sit+运行时 IK
+
+- 根因：sit 动画本身是佝偻休息坐姿（手放腿上、躯干前倾 25°+），运行时 TwoBoneIK 只能修手臂修不了躯干，且手型跟随 sit 张开；三轮 IK 调参（grip 位置/pole/fig.rotation.x）到极限仍「举手投降/瘫坐玩手机」
+- 方案：Blender 烘焙专用 drive 动画进 hero.glb（沿用 aim 管线）：sit 底保下半身 → `ad.action=None` 冻结 → 髋前移 0.13m（臂长 0.43m vs 肩距方向盘 0.53m 物理不可达的根因）→ Spine/Chest 各 -7° 扳直 + Neck/Head +8° → 双臂 IK 到 (±0.16,-0.22,1.02) 屈肘握轮 7/5 点 → 四指半握 42/52/38° → 呼吸 64 帧
+- main.gd：`_build_driver` 删全部运行时 IK（TwoBoneIK3D+grip/pole 节点、fig.rotation.x 补偿），`CharUtil.instantiate("hero","drive")` 一行替代；新增 `--shotcab` 截帧参数（切车内视角+主驾正侧面近拍相机）供驾驶座验收
+- 验收：Blender Workbench 双机位 + Godot --shotcab 截帧——坐直、双手扣轮缘、无穿模 ✓；无头回归 EXIT=0 零 SCRIPT ERROR
+- 教训（已入 art-pipeline.md §4.1 第 21/22 条）：frame_set 会冲掉手动 pose 修改（底姿势应用后必须 `ad.action=None`）；IK target 先验臂长可达性；GDScript SearchReplace 易丢 tab 缩进致 Parse Error 且无头回归 EXIT=0 漏报（需查 stderr SCRIPT ERROR）；StopCommand 不停 Godot 子进程需 `Get-Process *Godot* | Stop-Process` 清场
+
 ## 2026-10-23 · n58 驻车修复闭环：剧情弹窗吞驻车（3a8654f）
 
 - 根因：剧情弹窗期间按 F/HUD 驻车按钮，_toggle_park 置 parked=true 但 start_rv_walk 被 story_active 静默拦截——状态隐形翻转，再按又隐形取消，用户体感"要长按/按很多次"；退出驻车同理（剧情中出发视觉被冻结）
