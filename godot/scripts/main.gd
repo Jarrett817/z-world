@@ -898,8 +898,8 @@ func _build_rv() -> void:
 	rv.add_child(col)
 	rv_model = RV_SCENE.instantiate()
 	rv_model.rotation.y = PI   # GLB 车头朝 +Z，翻转对齐行进方向 -Z
-	# 装甲裙边比车壳宽一圈且颜色不搭，斜上方看像穿模，直接隐藏
-	for n in rv_model.find_children("*skirt*", "Node3D", true, false):
+	# 装甲裙边/后保险杠比车壳宽一圈且颜色不搭，斜上方看像穿模，直接隐藏
+	for n in rv_model.find_children("*skirt*", "Node3D", true, false) + rv_model.find_children("*bumper*", "Node3D", true, false):
 		n.visible = false
 	rv.add_child(rv_model)
 	rv.position = Vector3(0, GROUND_Y + RV_MODEL_FOOT, 0)
