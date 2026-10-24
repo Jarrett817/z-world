@@ -2377,9 +2377,12 @@ func _spawn_obstacle(z: float) -> void:
 		center = Vector3(0, 0.95, 0)
 		hard = true
 		hx = 5.7
-	# 只占单侧车道，且保证另一侧至少留 4.8 宽通道（房车宽 3.8）
+	# 只占单侧车道，且保证另一侧至少留 4.8 宽通道（房车宽 3.8）；
+	# 软障碍的随机旋转会把 z 向长度折进 x 向占地，须按旋转后实际半宽留位
+	var rot_y := randf_range(-0.25, 0.25) if not hard else 0.0
+	var hx_eff: float = hx * absf(cos(rot_y)) + half.z * absf(sin(rot_y))
 	var side := 1.0 if randf() > 0.5 else -1.0
-	var x_off := side * (hx - 2.2 + randf() * 2.2)
+	var x_off := side * (hx_eff - 2.2 + randf() * 2.2)
 	var body: PhysicsBody3D
 	if hard:
 		body = StaticBody3D.new()
@@ -2402,7 +2405,7 @@ func _spawn_obstacle(z: float) -> void:
 	body.add_child(model)
 	var ox := road_x(z) + x_off
 	body.position = Vector3(ox, ground_height(ox, z), z)
-	body.rotation.y = randf_range(-0.25, 0.25) if not hard else 0.0
+	body.rotation.y = rot_y
 	add_child(body)
 
 func _spawn_pickup(z: float) -> void:
