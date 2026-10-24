@@ -274,12 +274,10 @@ func _move_rv(delta: float) -> void:
 	position.x = clampf(position.x, -1.0, 1.0)
 	position.z = clampf(position.z, -2.7, 2.6)
 	position.y = -0.4
-	var want := "aim"
-	if dir.length() > 0.01:
-		want = "walk"
-	if want != _cur_anim:
-		_cur_anim = want
-		_anim.play(want, 0.15)
+	# 车内行走恒第一人称：锁端枪姿势，避免手臂摆动脱离枪挂点
+	if _cur_anim != "aim":
+		_cur_anim = "aim"
+		_anim.play("aim", 0.15)
 
 ## 跳跃（Space / HUD 跳跃按钮）：滞空期间禁用下蹲
 func jump() -> void:
@@ -336,14 +334,15 @@ func _move_foot(delta: float) -> void:
 	# 下蹲时枪挂点下放在 _apply_gun 统一处理
 	# 模型朝瞄准方向（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
 	model_root.rotation.y = aim_yaw + PI
-	# 动画优先级：跳跃 > 下蹲 > 走/跑 > 端枪戒备（变化才播，0.15s 融合）
+	# 动画优先级：跳跃 > 下蹲 > 走/跑 > 端枪戒备（变化才播，0.15s 融合）；第一人称锁端枪避免手离枪
 	var want := "aim"
-	if dir.length() > 0.01:
-		want = "run" if sprinting else "walk"
-	if _crouching:
-		want = "crouch"
-	if _airborne:
-		want = "jump"
+	if not fps:
+		if dir.length() > 0.01:
+			want = "run" if sprinting else "walk"
+		if _crouching:
+			want = "crouch"
+		if _airborne:
+			want = "jump"
 	if want != _cur_anim:
 		_cur_anim = want
 		_anim.play(want, 0.15)

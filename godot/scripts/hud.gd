@@ -120,7 +120,7 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 车内 · E 设施 · V 射击视角 · Tab 队伍", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 车内走动 · E 设施 · V 射击视角 · Tab 队伍", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	hint.offset_left = -958
 	hint.offset_right = -308
@@ -960,6 +960,7 @@ func _on_btn_down(action: String) -> void:
 		"view":
 			if rv.main_node != null:
 				rv.main_node.view_mode = (rv.main_node.view_mode + 1) % 3
+				toast(["车外视角", "驾驶位视角 · 第一人称", "车厢视角 · 按住右键环顾"][rv.main_node.view_mode])
 		"park":
 			if rv.main_node != null:
 				rv.main_node._toggle_park()

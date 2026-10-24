@@ -5,7 +5,7 @@
 			"name": "M4 卡宾枪",
 			"model": "res://assets/guns/m4.glb",
 			"scale": 0.124,
-			"rot_deg": [0.0, 0.0, 0.0],
+			"rot_deg": [0.0, 180.0, 0.0],
 			"auto": true,
 		"fire_interval": 0.11,
 		"mag_size": 30,
@@ -20,7 +20,7 @@
 			"name": "AKM 突击步枪",
 			"model": "res://assets/guns/ak.glb",
 			"scale": 0.066,
-			"rot_deg": [0.0, 180.0, 0.0],
+			"rot_deg": [0.0, 0.0, 0.0],
 			"auto": true,
 		"fire_interval": 0.14,
 		"mag_size": 30,
@@ -35,7 +35,7 @@
 			"name": "格洛克 17",
 			"model": "res://assets/guns/glock.glb",
 			"scale": 0.058,
-			"rot_deg": [0.0, -90.0, 0.0],
+			"rot_deg": [0.0, 180.0, 0.0],
 			"auto": false,
 		"fire_interval": 0.18,
 		"mag_size": 17,
@@ -50,7 +50,7 @@
 			"name": "沙漠之鹰",
 			"model": "res://assets/guns/deagle.glb",
 			"scale": 0.001,
-			"rot_deg": [-90.0, 90.0, 0.0],
+			"rot_deg": [0.0, 90.0, 0.0],
 			"auto": false,
 		"fire_interval": 0.35,
 		"mag_size": 7,
@@ -58,8 +58,8 @@
 			"reload_time": 2.0,
 			"bullet_speed": 470.0,
 			"recoil": 1.2,
-			"muzzle": [-100.995, 24.0, 40.0],
-			"grip": [120.0, 24.0, -35.0]
+			"muzzle": [134.4, 50.0, 0.0],
+			"grip": [-75.0, -45.0, 0.0]
 		}
 	},
 	"sway": {

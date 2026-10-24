@@ -505,6 +505,7 @@ func _process(delta: float) -> void:
 		view_mode = (view_mode + 1) % 3
 		_fv_yaw = 0.0
 		_fv_pitch = 0.0
+		hud.toast(["车外视角", "驾驶位视角 · 第一人称", "车厢视角 · 按住右键环顾"][view_mode])
 	_c_down = pressed
 	# 追尾视角只看 GLB 车壳；车内/驾驶舱视角隐藏车壳、显示程序化内饰与队友
 	rv_model.visible = view_mode == 0
