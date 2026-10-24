@@ -7,6 +7,7 @@ const ROLE_SCENES := {
 	"role1": "res://assets/roles_glb/role1.glb",
 	"role2": "res://assets/roles_glb/role2.glb",
 }
+const AK_SCENE := preload("res://assets/guns/ak.glb")
 
 static var _scene_cache: Dictionary = {}
 
@@ -53,46 +54,12 @@ static func _role_key(cid: String) -> String:
 	var roles := {"lin_wan": "role1", "shen_man": "role1", "tang_tang": "role1", "ye_lan": "role2", "ivory": "role2"}
 	return roles.get(cid, "role1")
 
-## 程序化步枪：钢木材质，机匣/枪管/握把/枪托四件；挂点与枪口由调用者按 aim 动作对位
+## 队友步枪：AKM GLB（guns.json ak 同源 0.066 缩放；GLB 枪口朝 -Z，绕 Y 转 180° 对齐枪手 +Z 瞄准向；grip 对齐原程序化枪握把位）
 static func build_gun() -> Node3D:
 	var g := Node3D.new()
-	var steel := StandardMaterial3D.new()
-	steel.albedo_color = Color(0.12, 0.12, 0.13)
-	steel.metallic = 0.6
-	steel.roughness = 0.4
-	var wood := StandardMaterial3D.new()
-	wood.albedo_color = Color(0.28, 0.19, 0.11)
-	wood.roughness = 0.9
-	var body := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = Vector3(0.07, 0.1, 0.55)
-	body.mesh = bm
-	body.material_override = steel
-	body.position.z = 0.05
-	g.add_child(body)
-	var barrel := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.022
-	cyl.bottom_radius = 0.022
-	cyl.height = 0.42
-	barrel.mesh = cyl
-	barrel.rotation.x = PI * 0.5
-	barrel.position = Vector3(0, 0.03, 0.5)
-	barrel.material_override = steel
-	g.add_child(barrel)
-	var grip := MeshInstance3D.new()
-	var gm := BoxMesh.new()
-	gm.size = Vector3(0.06, 0.16, 0.08)
-	grip.mesh = gm
-	grip.position = Vector3(0, -0.12, -0.02)
-	grip.rotation.x = -0.3
-	grip.material_override = wood
-	g.add_child(grip)
-	var stock := MeshInstance3D.new()
-	var sm := BoxMesh.new()
-	sm.size = Vector3(0.06, 0.11, 0.22)
-	stock.mesh = sm
-	stock.position = Vector3(0, -0.02, -0.32)
-	stock.material_override = wood
-	g.add_child(stock)
+	var wm: Node3D = AK_SCENE.instantiate()
+	wm.scale = Vector3.ONE * 0.066
+	wm.rotation_degrees = Vector3(0, 180, 0)
+	wm.position = Vector3(0, -0.041, 0.166)
+	g.add_child(wm)
 	return g

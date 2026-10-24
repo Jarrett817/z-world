@@ -1072,7 +1072,7 @@ func _sync_crew() -> void:
 				gun.position = Vector3(-0.12, 1.30, 0.33)
 				char.add_child(gun)
 				var mz := Node3D.new()
-				mz.position = Vector3(0, 0.04, 0.72)
+				mz.position = Vector3(0, 0.0, 0.62)  # AKM 枪口（build_gun 变换后枪管末端）
 				gun.add_child(mz)
 				f.set_meta("muzzle", mz)
 		else:
