@@ -1883,7 +1883,7 @@ func _town(z: float, pj: Dictionary) -> void:
 			continue
 		_place_scenery(BUILDING_SCENE, bp.x, bp.z, randf_range(8.0, 13.0))
 	for i in range(2):
-		var jp: Vector3 = org + dir * (len * randf_range(0.9, 1.15)) + perp * (_side() * randf_range(5.5, 8.0))
+		var jp: Vector3 = org + dir * (len * randf_range(0.9, 1.15)) + perp * (_side() * randf_range(7.0, 10.0))
 		_place_scenery(JUNK_SCENE, jp.x, jp.z, randf_range(2.4, 3.2))
 	# 镇内探索：楼间搜刮箱 + 丧尸巡逻
 	_loot_and_zombies(org + dir * (len * 0.75), 15.0, 2 + randi() % 2, 3 + randi() % 4)
@@ -3502,8 +3502,8 @@ func _mat(col: Color) -> StandardMaterial3D:
 	m.roughness = 1.0
 	return m
 
-## 给景物加实心碰撞（layer 1 默认层：房车/玩家/丧尸都会撞上），随 consumable 一并回收
-func _solid_box(parent: Node3D, size: Vector3, pos: Vector3) -> void:
+## 给景物加实心碰撞（layer 1 默认层：房车/玩家/丧尸都会撞上），随 consumable 一并回收；report=true 时进 obstacle_hard 组（撞上有伤害/提示反馈）
+func _solid_box(parent: Node3D, size: Vector3, pos: Vector3, report := false) -> void:
 	var body := StaticBody3D.new()
 	var cs := CollisionShape3D.new()
 	var box := BoxShape3D.new()
@@ -3511,6 +3511,8 @@ func _solid_box(parent: Node3D, size: Vector3, pos: Vector3) -> void:
 	cs.shape = box
 	cs.position = pos
 	body.add_child(cs)
+	if report:
+		body.add_to_group("obstacle_hard")
 	parent.add_child(body)
 
 ## 自发光材质（营灯/篝火）
@@ -3803,17 +3805,23 @@ func _place_scenery(scene: PackedScene, x: float, z: float, target_h: float) -> 
 	var aabb := _merged_aabb(node)
 	if aabb.size.y > 0.01:
 		var s := target_h / aabb.size.y
+		if scene == BUILDING_SCENE or scene == JUNK_SCENE:
+			# 随机旋转后最大水平半径 = 底面半对角线：封顶，保证主路/支路走廊永远可通行
+			var hd := Vector2(aabb.size.x, aabb.size.z).length() * 0.5 * s
+			var max_hd := 9.5 if scene == BUILDING_SCENE else 3.0
+			if hd > max_hd:
+				s *= max_hd / hd
 		node.scale = Vector3.ONE * s
 		node.position.y = -aabb.position.y * s
 	node.position = Vector3(x, ground_height(x, z) + node.position.y, z)
 	node.rotation.y = randf() * TAU
 	if scene == BUILDING_SCENE or scene == JUNK_SCENE:
 		# 楼/集装箱：整体实心（本地坐标，随 node.scale 自动缩放）
-		_solid_box(node, aabb.size, aabb.get_center())
+		_solid_box(node, aabb.size, aabb.get_center(), true)
 	elif scene == TREE_SCENE:
 		# 树：只挡树干，树冠可穿
 		var trunk_w := maxf(0.35, aabb.size.x * 0.08)
-		_solid_box(node, Vector3(trunk_w, aabb.size.y, trunk_w), Vector3(aabb.get_center().x, aabb.get_center().y, aabb.get_center().z))
+		_solid_box(node, Vector3(trunk_w, aabb.size.y, trunk_w), Vector3(aabb.get_center().x, aabb.get_center().y, aabb.get_center().z), true)
 	node.add_to_group("consumable")
 	add_child(node)
 
@@ -3844,6 +3852,6 @@ func _spawn_rock(x: float, z: float) -> void:
 	rock.material_override = _mat(Color(0.52, 0.55, 0.56))
 	rock.position = Vector3(x, ground_height(x, z) + mesh.size.y * 0.3, z)
 	rock.rotation.y = randf() * TAU
-	_solid_box(rock, mesh.size * 0.85, Vector3.ZERO)
+	_solid_box(rock, mesh.size * 0.85, Vector3.ZERO, true)
 	rock.add_to_group("consumable")
 	add_child(rock)

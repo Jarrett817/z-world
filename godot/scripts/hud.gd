@@ -5,7 +5,7 @@ extends CanvasLayer
 const ACCENT := Color("e8862e")
 const TEXT_MAIN := Color("e8ded2")
 const TEXT_DIM := Color("8a7d6d")
-const BAR_W := 168.0
+const BAR_W := 240.0
 
 ## 虚拟摇杆：手游战斗移动输入，输出 -1..1 向量（推满自动奔跑由 player 判定）
 class Joystick:
@@ -82,8 +82,7 @@ var _hit_tween: Tween
 # 电台剧情对话框
 var story_node: Node
 var story_root: Panel
-var story_bg: TextureRect
-var story_dim: ColorRect
+var story_pic: TextureRect
 var story_speaker: Label
 var story_text: Label
 var story_options: VBoxContainer
@@ -109,7 +108,7 @@ func build(rv_node: Node) -> void:
 	add_child(root)
 
 	# 左上状态面板
-	var panel := _panel(Vector2(12, 12), Vector2(276, 164))
+	var panel := _panel(Vector2(12, 12), Vector2(348, 164))
 	root.add_child(panel)
 	panel.add_child(_label("车况", 15, TEXT_DIM, Vector2(14, 10)))
 	dur_fill = _add_bar(panel, Vector2(58, 13))
@@ -194,14 +193,19 @@ func build(rv_node: Node) -> void:
 	crew_panel.offset_bottom = 470
 	crew_panel.visible = false
 	root.add_child(crew_panel)
+	# 成员多时滚动：面板高度封顶，列表包 ScrollContainer
+	var crew_scroll := ScrollContainer.new()
+	crew_scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	crew_scroll.offset_left = 12
+	crew_scroll.offset_top = 12
+	crew_scroll.offset_right = -12
+	crew_scroll.offset_bottom = -12
+	crew_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	crew_panel.add_child(crew_scroll)
 	crew_rows = VBoxContainer.new()
-	crew_rows.set_anchors_preset(Control.PRESET_FULL_RECT)
-	crew_rows.offset_left = 12
-	crew_rows.offset_top = 12
-	crew_rows.offset_right = -12
-	crew_rows.offset_bottom = -12
+	crew_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	crew_rows.add_theme_constant_override("separation", 10)
-	crew_panel.add_child(crew_rows)
+	crew_scroll.add_child(crew_rows)
 
 	# 房车设施面板（驻车时 E 开关，底部居中）
 	facilities_root = Panel.new()
@@ -511,22 +515,6 @@ func flash_hit_marker(killed := true, headshot := false) -> void:
 
 ## 电台剧情对话框：底部通栏，左侧立绘 + 说话人名，右侧打字机正文与选项
 func _build_story(root: Control) -> void:
-	# 全屏立绘：压暗底 + 完整比例大图（立绘是竖幅，COVERED 会切头，故 KEEP_ASPECT 居中撑满高度）
-	story_dim = ColorRect.new()
-	story_dim.color = Color(0.04, 0.03, 0.03, 0.62)
-	story_dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	story_dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	story_dim.visible = false
-	root.add_child(story_dim)
-	story_bg = TextureRect.new()
-	story_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	story_bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	# KEEP_ASPECT 是左上对齐，必须用 CENTERED 才居中（竖幅立绘高撑满、两侧留暗场）
-	story_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	story_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	story_bg.visible = false
-	root.add_child(story_bg)
-
 	story_root = Panel.new()
 	# 对话框居中偏下：940 宽水平居中，底边距屏 40（anchor 顶/底均为 1，offset 相对屏幕底边）
 	story_root.anchor_left = 0.5
@@ -550,6 +538,17 @@ func _build_story(root: Control) -> void:
 	story_root.add_theme_stylebox_override("panel", sb)
 	story_root.visible = false
 	root.add_child(story_root)
+
+	# 对话框内左侧立绘（3:4 竖幅缩略，与队伍头像同风格）
+	story_pic = TextureRect.new()
+	story_pic.position = Vector2(20, 18)
+	story_pic.size = Vector2(150, 200)
+	story_pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	story_pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	story_pic.clip_contents = true
+	story_pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	story_pic.visible = false
+	story_root.add_child(story_pic)
 
 	story_speaker = _label("", 22, ACCENT, Vector2(26, 18))
 	story_root.add_child(story_speaker)
@@ -625,16 +624,20 @@ func show_story(ev: Dictionary) -> void:
 	story_speaker.text = String(ev.get("speaker", ""))
 	for c in story_options.get_children():
 		c.queue_free()
-	# 全屏立绘
+	# 对话框内嵌立绘：有立绘时正文/选项右移让位
 	var pic := String(ev.get("portrait", ""))
 	var path := "res://assets/portraits/" + pic
-	if pic != "" and ResourceLoader.exists(path):
-		story_bg.texture = load(path)
-		story_bg.visible = true
-		story_dim.visible = true
-	else:
-		story_bg.visible = false
-		story_dim.visible = false
+	var has_pic := pic != "" and ResourceLoader.exists(path)
+	story_pic.visible = has_pic
+	if has_pic:
+		story_pic.texture = load(path)
+	var tx := 190.0 if has_pic else 26.0
+	var tw := 724.0 if has_pic else 888.0
+	story_speaker.position.x = tx
+	story_text.position.x = tx
+	story_text.size.x = tw
+	story_options.position.x = tx
+	story_options.size.x = tw
 	story_root.visible = true
 
 ## 正文显示完毕后生成选项按钮（条件不足置灰）
@@ -673,8 +676,6 @@ func _show_options() -> void:
 
 func hide_story() -> void:
 	story_root.visible = false
-	story_bg.visible = false
-	story_dim.visible = false
 
 # ---------- 素材署名面板 ----------
 func set_credits_visible(v: bool) -> void:
@@ -839,7 +840,8 @@ func set_crew(members: Array) -> void:
 	if members.is_empty():
 		crew_rows.add_child(_label("车上还没有同伴", 15, TEXT_DIM))
 		return
-	crew_panel.offset_bottom = 70.0 + 24.0 + members.size() * 72.0
+	# 每行 72 头像 + 10 间距；内容高超 540 后固定面板高度，滚动查看
+	crew_panel.offset_bottom = 70.0 + 24.0 + minf(members.size() * 82.0, 540.0)
 	for m in members:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
