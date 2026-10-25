@@ -3331,7 +3331,7 @@ func _make_scenery(z: float) -> Node3D:
 		cross.material_override = _mat(Color(0.22, 0.21, 0.19))
 		root.add_child(cross)
 	elif roll < 0.70:
-		# 废墟楼：近处矮楼 + 远处玻璃幕墙高楼天际线
+		# 废墟楼：近处矮楼 + 远处玻璃幕墙高楼天际线（程序化窗格立面，不再是素盒）
 		var far := randf() < 0.55
 		var b := MeshInstance3D.new()
 		var bm := BoxMesh.new()
@@ -3341,18 +3341,43 @@ func _make_scenery(z: float) -> Node3D:
 			bm.size = Vector3(randf_range(5.0, 10.0), randf_range(6.0, 14.0), randf_range(5.0, 10.0))
 		b.mesh = bm
 		b.position.y = bm.size.y * 0.5
+		# 立面纹理按楼身尺寸配窗格行列；近楼混凝土/砖/米色旧楼，远楼蓝灰玻璃幕墙
+		var cols := int(clampf(bm.size.x / 2.4, 2.0, 7.0))
+		var rows := int(clampf(bm.size.y / 3.0, 2.0, 22.0))
+		var base: Color
+		var win: Color
 		if far:
-			# 玻璃幕墙：低粗糙、微蓝、反射天光，晴天里明亮挺拔
-			var glass := StandardMaterial3D.new()
-			glass.albedo_color = Color(0.52, 0.66, 0.78)
-			glass.metallic = 0.35
-			glass.roughness = 0.22
-			b.material_override = glass
+			base = Color(0.55, 0.68, 0.79)
+			win = Color(0.3, 0.42, 0.55)
 		else:
-			b.material_override = _mat(Color(0.3, 0.3, 0.31))
+			base = [Color(0.62, 0.58, 0.52), Color(0.55, 0.44, 0.36), Color(0.48, 0.48, 0.49)][randi() % 3]
+			win = Color(0.16, 0.18, 0.2)
+		var facade := StandardMaterial3D.new()
+		facade.albedo_texture = _facade_tex(cols, rows, base, win)
+		if far:
+			facade.metallic = 0.3
+			facade.roughness = 0.25
+		b.material_override = facade
 		root.add_child(b)
 		_solid_box(root, bm.size, b.position)
-		# 楼顶破损女儿墙/天线，强化废墟感
+		# 女儿墙 + 电梯机房：屋顶轮廓不再一刀切
+		var roof_mat := _mat(base.darkened(0.3))
+		var parap := MeshInstance3D.new()
+		var pm3 := BoxMesh.new()
+		pm3.size = Vector3(bm.size.x + 0.3, 0.6, bm.size.z + 0.3)
+		parap.mesh = pm3
+		parap.position.y = bm.size.y + 0.15
+		parap.material_override = roof_mat
+		root.add_child(parap)
+		if randf() < 0.7:
+			var hut := MeshInstance3D.new()
+			var hm3 := BoxMesh.new()
+			hm3.size = Vector3(bm.size.x * randf_range(0.25, 0.4), randf_range(1.2, 2.2), bm.size.z * randf_range(0.25, 0.4))
+			hut.mesh = hm3
+			hut.position = Vector3(randf_range(-bm.size.x * 0.2, bm.size.x * 0.2), bm.size.y + hm3.size.y * 0.5, randf_range(-bm.size.z * 0.2, bm.size.z * 0.2))
+			hut.material_override = roof_mat
+			root.add_child(hut)
+		# 楼顶天线，强化废墟感
 		if far and randf() < 0.5:
 			var antenna := MeshInstance3D.new()
 			var am2 := CylinderMesh.new()
@@ -3501,6 +3526,33 @@ func _mat(col: Color) -> StandardMaterial3D:
 	m.albedo_color = col
 	m.roughness = 1.0
 	return m
+
+var _facade_cache: Dictionary = {}
+
+## 程序化楼立面纹理：base 底 + cols×rows 窗格（少量亮窗/旧窗），同参数缓存共用
+func _facade_tex(cols: int, rows: int, base: Color, win: Color) -> Texture2D:
+	var key := "%d_%d_%s_%s" % [cols, rows, base.to_html(), win.to_html()]
+	if _facade_cache.has(key):
+		return _facade_cache[key]
+	var px := 16
+	var img := Image.create(cols * px, rows * px, false, Image.FORMAT_RGBA8)
+	img.fill(base)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(key)
+	for cx in cols:
+		for ry in rows:
+			var c := win
+			var roll2 := rng.randf()
+			if roll2 < 0.06:
+				c = Color(0.95, 0.85, 0.55) # 极少量亮窗，废墟里一点人气
+			elif roll2 < 0.5:
+				c = win.lerp(base, 0.35) # 半旧窗
+			for x in range(cx * px + 3, (cx + 1) * px - 3):
+				for y in range(ry * px + 3, (ry + 1) * px - 3):
+					img.set_pixel(x, y, c)
+	var tex := ImageTexture.create_from_image(img)
+	_facade_cache[key] = tex
+	return tex
 
 ## 给景物加实心碰撞（layer 1 默认层：房车/玩家/丧尸都会撞上），随 consumable 一并回收；report=true 时进 obstacle_hard 组（撞上有伤害/提示反馈）
 func _solid_box(parent: Node3D, size: Vector3, pos: Vector3, report := false) -> void:
