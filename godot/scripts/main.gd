@@ -110,6 +110,7 @@ var _world_seed := 1               # 确定性世界种子（data/world.json）
 var _places: Array = []            # 沿途地点（km 升序，data/world.json）
 var _detours: Array = []           # 可探索支路 POI 类型表（data/world.json）
 var _hamlet_cfg: Dictionary = {}   # 小聚落填充配置（data/world.json hamlets）
+var _time_rates := Vector2(0.03, 0.15)  # 时间流速（现实秒→游戏小时）：x=行驶 y=驻车（data/world.json time）
 var _hamlet_km := 0.0              # 下一个小聚落里程（0=未初始化/已结束）
 var _place_idx := 0                # 下一个待生成地点
 var _place_sign_idx := 0           # 下一个待出预告牌的地点（预告牌在地点前 1.5km）
@@ -310,6 +311,8 @@ func _load_world() -> void:
 		_places = parsed.get("places", [])
 		_detours = parsed.get("detours", [])
 		_hamlet_cfg = parsed.get("hamlets", {})
+		var tm: Dictionary = parsed.get("time", {})
+		_time_rates = Vector2(float(tm.get("drive_rate", 0.03)), float(tm.get("park_rate", 0.15)))
 		if not _hamlet_cfg.is_empty():
 			var kr: Array = _hamlet_cfg.get("km_range", [3.0, 5.0])
 			_hamlet_km = lerpf(float(kr[0]), float(kr[1]), _jh(31))
@@ -812,26 +815,24 @@ func _build_sky() -> void:
 	lamp_mat.emission_energy_multiplier = 0.0
 
 func _update_time(delta: float) -> void:
-	hour += delta * (0.4 if parked else 0.05)
+	hour += delta * (_time_rates.y if parked else _time_rates.x)
 	if hour >= 24.0:
 		hour -= 24.0
 		day += 1
 
 func _update_sun() -> void:
-	var deg := -100.0 + (hour / 24.0) * 160.0
+	# 太阳 24h 连续转一整圈：6 点日出、12 点正午、18 点日落、0 点午夜（hour 回绕无跳变）
+	var deg := 90.0 - hour * 15.0
 	sun.rotation_degrees = Vector3(deg, 24, 0)
-	if deg > -15.0 or deg < -165.0:
-		sun.light_energy = 0.15
-		sun.light_color = Color(0.5, 0.58, 0.8)
-		sky_mat.sky_top_color = Color(0.04, 0.05, 0.1)
-		sky_mat.sky_horizon_color = Color(0.1, 0.11, 0.16)
-	else:
-		var p := clampf(1.0 - absf(deg + 60.0) / 70.0, 0.0, 1.0)
-		sun.light_energy = 0.5 + p * 1.4
-		sun.light_color = Color(1.0, 0.98, 0.92).lerp(Color(1.0, 0.72, 0.5), 1.0 - p)
-		# 明媚末日：正午饱和蓝天，晨昏只在近日落处留一抹暖橙
-		sky_mat.sky_top_color = Color(0.27, 0.5, 0.82).lerp(Color(0.42, 0.34, 0.32), (1.0 - p) * 0.6)
-		sky_mat.sky_horizon_color = Color(0.62, 0.78, 0.92).lerp(Color(0.92, 0.58, 0.36), (1.0 - p) * 0.7)
+	# 太阳高度 elev=-sin(deg)：rotation.x=-90 正午直射为 1，0/180 地平线为 0，90 午夜为 -1；晨昏带 ±0.12（约 55 游戏分钟）内昼夜平滑过渡
+	var elev := -sin(deg_to_rad(deg))
+	var day_t := smoothstep(-0.12, 0.12, elev)
+	var noon := clampf(elev, 0.0, 1.0)  # 正午度：日色在晨昏暖橙与正午蓝白间插值
+	sun.light_energy = lerpf(0.15, 0.55 + noon * 1.35, day_t)
+	sun.light_color = Color(0.5, 0.58, 0.8).lerp(Color(1.0, 0.72, 0.5).lerp(Color(1.0, 0.98, 0.92), noon), day_t)
+	# 明媚末日：正午饱和蓝天，晨昏暖橙，深夜墨蓝——随太阳高度连续过渡
+	sky_mat.sky_top_color = Color(0.04, 0.05, 0.1).lerp(Color(0.42, 0.34, 0.32).lerp(Color(0.27, 0.5, 0.82), noon), day_t)
+	sky_mat.sky_horizon_color = Color(0.1, 0.11, 0.16).lerp(Color(0.92, 0.58, 0.36).lerp(Color(0.62, 0.78, 0.92), noon), day_t)
 	# 天气调制：雾=白茫茫能见度低，雨=阴沉
 	match weather:
 		"fog":
