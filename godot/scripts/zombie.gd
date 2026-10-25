@@ -37,7 +37,9 @@ func setup(main: Node3D) -> void:
 	hp = 2.0 + clampf(main.dist_km / 150.0, 0.0, 2.0)  # 后期更耐打：150km 后 3、300km 后 4
 	mass = 70.0
 	linear_damp = 1.2
-	# mask=层1(地面/障碍/玩家)+层2(房车)：平时能贴身拦车；被撞飞/击毙后清第2位不再挡车
+	# layer=层3(丧尸独占)：房车不再与丧尸物理互撞（碾压由房车触发区接管），子弹射线仍正常命中
+	collision_layer = 4
+	# mask=层1(地面/障碍/玩家)+层2(房车)：平时能贴身围车；被撞飞/击毙后清第2位不再蹭车
 	collision_mask = 3
 	# 锁死物理旋转：否则胶囊体受地面/碰撞扭矩会整体乱转，朝向只由 AI 脚本控制
 	lock_rotation = true

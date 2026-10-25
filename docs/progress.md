@@ -1,5 +1,11 @@
 # 开发日志
 
+## 2026-10-25 · n72 引擎换重型柴油机 loop + 碾压改触发区无顿帧
+
+- 引擎仍嫌噪音：domasx2 0.67s 赛车 loop 整体替换为 Nayckron「engine_heavy_loop_0」（CC-BY 3.0，重型柴油机 4 秒 loop），ffmpeg 转 44.1kHz 单声道 + 0.2s 头尾交叉淡化，署名入 credits.json cc_by 组
+- 碾压卡顿根因：丧尸在碰撞层 1 ∈ 房车 mask，move_and_slide 把 70kg RigidBody 当无限质量墙整堵一帧。修复：丧尸挪层 3（独占）、房车挂 Area3D（mask=4）碾压触发区，进区即撞飞，物理层完全不挡车；保留质量比动量衰减与 hit_cd/速度门槛
+- 验证：无头回归 EXIT=0 零 SCRIPT ERROR
+
 ## 2026-10-25 · n71 引擎接缝咔哒修复 + 碾压/拾取音再换柔
 
 - 「开车滴滴滴」根因：engine.wav 循环首尾电平跳变 -14207（峰值一半），0.67s 周期咔哒被 pitch 拉成滴滴声。Python 一次性脚本做 0.2s 头尾交叉淡化，缝差降至 137（不可闻），循环缩至 0.47s

@@ -19,8 +19,21 @@ var _wheels: Array[Node3D] = []   # 车轴轮一体网格（滚动动画）
 
 func _ready() -> void:
 	main_node = get_parent()
-	# 独占碰撞层 2：被撞飞的丧尸清掉 mask 第 2 位后不再挡车，消除碾压顿帧
+	# 独占碰撞层 2 + 仅撞层1（地面/障碍）：丧尸在层3 不参与物理碰撞，碾压由触发区接管，消除顿帧
 	collision_layer = 2
+	collision_mask = 1
+	# 碾压触发区：覆盖车头与车身，进区的丧尸直接撞飞
+	var kill := Area3D.new()
+	kill.collision_layer = 0
+	kill.collision_mask = 4
+	var kshape := CollisionShape3D.new()
+	var kbox := BoxShape3D.new()
+	kbox.size = Vector3(2.6, 2.0, 5.4)
+	kshape.shape = kbox
+	kshape.position = Vector3(0.0, 1.0, -0.6)
+	kill.add_child(kshape)
+	kill.body_entered.connect(_on_zombie_area)
+	add_child(kill)
 	# 收集车轮：横贯车宽、贴底、截面近圆的圆柱网格（车轴+双轮一体件）
 	for mi in main_node.rv_model.find_children("*", "MeshInstance3D", true, false):
 		var aabb: AABB = mi.get_aabb()
@@ -96,6 +109,16 @@ func _physics_process(delta: float) -> void:
 	rotation.x = lerpf(rotation.x, pitch + slope, delta * 3.0)
 	rotation.z = lerpf(rotation.z, steer_in * 0.035 * (speed_kmh / main_node.MAX_KMH), delta * 4.0)
 
+## 碾压：触发区内的丧尸直接撞飞（车速 >8 才触发，停车时丧尸仍可围车）；动量按质量比衰减
+func _on_zombie_area(body: Node) -> void:
+	if speed_kmh <= 8.0 or parked:
+		return
+	if body is RigidBody3D and body.has_method("on_hit_by_rv") and not body.dead:
+		body.on_hit_by_rv(speed_kmh, Vector3.UP)
+		# 动量衰减：房车 ~4 吨 vs 丧尸 70kg，单个几乎无感，尸群累积才拖慢
+		speed_kmh *= 4000.0 / 4070.0
+		main_node.on_zombie_run_over()
+
 ## 车轮滚动：ω=v/r（半径 0.378），绕本地 X 轴正转即前进滚动
 func _spin_wheels(delta: float) -> void:
 	if speed_kmh < 0.05:
@@ -118,12 +141,7 @@ func _report_collisions() -> void:
 		var other: Object = col.get_collider()
 		if other == null:
 			continue
-		if other is RigidBody3D and other.has_method("on_hit_by_rv"):
-			other.on_hit_by_rv(speed_kmh, col.get_normal())
-			# 动量衰减：房车 ~4 吨 vs 丧尸 70kg，单个几乎无感，尸群累积才拖慢
-			speed_kmh *= 4000.0 / 4070.0
-			main_node.on_zombie_run_over()
-		elif other.is_in_group("obstacle_hard"):
+		if other.is_in_group("obstacle_hard"):
 			main_node.on_obstacle_hit(true, speed_kmh, other)
 		elif other.is_in_group("obstacle_soft"):
 			# 已撞飞的解冻残骸：推着走不当墙，避免房车被自己的战利品卡死
