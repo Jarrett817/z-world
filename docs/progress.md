@@ -1,5 +1,11 @@
 # 开发日志
 
+## 2026-10-25 · n68 动作库调研：契约已齐全，KayKit 重定向管线验证备用
+
+- 起因：计划引入外部动作包补跑/走/受击/死亡。盘点发现**三角色动作契约已齐全**：hero 12 个（idle×3/sit×2/aim/walk/run/crouch/drive/jump/T-Pose），role1/2 各 9 个；player/mate/survivor/main 引用的全部动作名零缺口；手烘 walk/run Workbench 目检质量合格（run 抬膝摆臂到位、walk 外套不帐篷）
+- 动作源调研结论：VRM 官方仓库只有模型无动作包；BOOTH 需登录无法自动化；万代南梦宫动捕数据集 CC BY-NC 4.0 非商用排除；**KayKit Adventurers（CC0、GitHub 免登录、75 动作 GLB 内嵌）可用**
+- 重定向管线验证可行：KayKit chibi 骨架→VRM J_Bip 世界空间 delta 旋转法烘 walk，肢体方向向量逐骨 <5° 数值验收通过（方法见 art-pipeline.md 第 24 条）。因现有动作已齐全且合格，**不批量替换、不引入未引用动作**（避免死代码与外套帐篷化回归），管线存档备用
+
 ## 2026-10-25 · n67 昼夜循环修复：360° 连续太阳 + 晨昏平滑带 + 流速放慢挪 world.json
 
 - 用户报「黑夜白天切换太快了」。双层根因：流速硬编码过快（行驶 8 分钟/驻车 1 分钟一昼夜）+ 太阳只扫 160° 致 hour 回绕时午夜跳白天 + 昼夜 if/else 硬切无黄昏
