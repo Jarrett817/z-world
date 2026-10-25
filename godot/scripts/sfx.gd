@@ -1,6 +1,6 @@
 class_name Sfx
 extends Node
-## 音效中心：程序化合成 SFX 统一播放。2D 池（UI/枪声/拾取）+ 3D 池（丧尸方位衰减）+ 引擎循环。
+## 音效中心：外部 CC0/CC-BY 素材统一播放（署名见 data/credits.json）。2D 池（UI/枪声/拾取）+ 3D 池（丧尸方位衰减）+ 引擎循环。
 
 const DIR := "res://assets/sfx/"
 const KEYS := ["gunshot", "reload", "zombie_die", "zombie_growl", "zombie_bite", "run_over", "pickup", "story_open", "engine"]

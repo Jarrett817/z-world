@@ -1,8 +1,8 @@
 # 开发日志
 
-## 2026-10-25 · n70 音效重合成 + 废墟楼立面改造
+## 2026-10-25 · n70 音效换真实素材 + 废墟楼立面改造
 
-- 用户嫌撞丧尸/捡物资音效难听：两者原为早期程序化合成。重合成（Python 一次性脚本，用后删）：`run_over.wav` = 70→42Hz 下滑闷击 + 低通碎裂噪声（0.42s）；`pickup.wav` = E6→A6 上行双音拨弦（0.38s，带 2/3 次谐波）
+- 用户嫌撞丧尸/捡物资音效难听并**禁止程序化合成音效**：从 OpenGameArt 下载 CC0 包「Various Sound Effects」（Spring Spring）——碾压用 `snd_splathit.wav`（湿击溅射 0.46s）、拾取用 `get_important_item.wav`（道具获取音 1.19s），ffmpeg 转 44.1kHz 单声道覆盖。其余 7 个音效本就走 credits.json 的外部 CC0/CC-BY 素材，不重复替换；sfx.gd 头注释改为「外部素材」；credits.json 合并「枪声/碾压音/拾取音」为 Spring Spring 一条（去掉 WobbleBoxx）
 - 用户嫌大楼不真实：`_make_scenery` 废墟楼原是纯 BoxMesh 灰盒/蓝盒。改造（ca7d95f）：新增 `_facade_tex` 程序化窗格立面纹理（base 底 + cols×rows 窗格，6% 亮窗/44% 半旧窗，按参数缓存），近楼随机混凝土/砖红/米色三色、远楼保留蓝灰玻璃幕墙（metallic 0.3）；楼顶加女儿墙 + 70% 概率电梯机房，轮廓不再一刀切
 - 白模盘点（备查）：农舍/售票亭/观景台/加油站/营地帐篷篝火/残骸车/广告牌/电线杆均为 BoxMesh 组合但带细节件，风格化可接受；山段石头（`_spawn_rock`）是纯灰盒，优先级最低
 - 验证：无头回归 EXIT=0 零 SCRIPT ERROR
