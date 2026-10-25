@@ -1,5 +1,12 @@
 # 开发日志
 
+## 2026-10-25 · n69 四连修：废墟挡路根治 + HUD 面板加宽/成员滚动/立绘回框
+
+- 用户报「遇到一个废墟开不过去」「车子开不上山坡」。根因：`_place_scenery` 楼模型宽高比约 2.3:1，随机旋转后半对角线可达 ~21m，突破 hamlet 22-27m / city 23-32m / _town 25m 全部放置安全距离压到主路；且楼/集装箱/树干/石头的 StaticBody3D **不在 obstacle_hard 组**——静默墙，撞上零伤害零提示，全速顶着走不动（rv.gd 坡度只影响视觉俯仰，物理上坡度不可能挡车，排除坡度阻力假设）
+- 修复（main.gd）：① `_place_scenery` 加底面半对角线封顶（楼 9.5m / 集装箱 3.0m，超限缩 scale，从构造上保证走廊可通行）② `_solid_box` 加 `report := false` 参数，景物三调用点传 true 进 obstacle_hard（撞上有伤害+toast+横推反馈），营地设施等其余 11 处保持静默 ③ `_town` junk perp 5.5-8.0 → 7.0-10.0 保支路 ≥4m 通道
+- HUD（hud.gd）：左上状态面板 276→348、BAR_W 168→240；成员列表 crew_rows 包 ScrollContainer、面板高度封顶（minf(n×82, 540)）；剧情立绘从全屏方案（story_bg/story_dim 已删）改回对话框内左侧 150×200 缩略图，有立绘时正文/选项右移让位（190/724）
+- 验证：无头回归 EXIT=0 零 SCRIPT ERROR；commit 6da0c72，push 遇 SNI 阻断待 VPN
+
 ## 2026-10-25 · n68 动作库调研：契约已齐全，KayKit 重定向管线验证备用
 
 - 起因：计划引入外部动作包补跑/走/受击/死亡。盘点发现**三角色动作契约已齐全**：hero 12 个（idle×3/sit×2/aim/walk/run/crouch/drive/jump/T-Pose），role1/2 各 9 个；player/mate/survivor/main 引用的全部动作名零缺口；手烘 walk/run Workbench 目检质量合格（run 抬膝摆臂到位、walk 外套不帐篷）
