@@ -27,7 +27,7 @@ func _ready() -> void:
 		p.unit_size = 7.0
 		add_child(p)
 		_pool3d.append(p)
-	# 引擎循环：WAV 首尾已按整数周期对齐，LOOP_FORWARD 无缝
+	# 引擎循环：WAV 首尾已交叉淡化为无缝接缝，LOOP_FORWARD 无咔哒
 	var eng: AudioStreamWAV = _streams["engine"]
 	eng.loop_mode = AudioStreamWAV.LOOP_FORWARD
 	eng.loop_begin = 0

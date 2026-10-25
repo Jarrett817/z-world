@@ -1,5 +1,11 @@
 # 开发日志
 
+## 2026-10-25 · n71 引擎接缝咔哒修复 + 碾压/拾取音再换柔
+
+- 「开车滴滴滴」根因：engine.wav 循环首尾电平跳变 -14207（峰值一半），0.67s 周期咔哒被 pitch 拉成滴滴声。Python 一次性脚本做 0.2s 头尾交叉淡化，缝差降至 137（不可闻），循环缩至 0.47s
+- 碾压/拾取音仍嫌刺耳：换同 CC0 包（Spring Spring「Various Sound Effects」）更柔的 `crush.wav`（0.74s）与 `pop.wav`（1.01s），署名不变
+- 验证：无头回归 EXIT=0
+
 ## 2026-10-25 · n70 音效换真实素材 + 废墟楼立面改造
 
 - 用户嫌撞丧尸/捡物资音效难听并**禁止程序化合成音效**：从 OpenGameArt 下载 CC0 包「Various Sound Effects」（Spring Spring）——碾压用 `snd_splathit.wav`（湿击溅射 0.46s）、拾取用 `get_important_item.wav`（道具获取音 1.19s），ffmpeg 转 44.1kHz 单声道覆盖。其余 7 个音效本就走 credits.json 的外部 CC0/CC-BY 素材，不重复替换；sfx.gd 头注释改为「外部素材」；credits.json 合并「枪声/碾压音/拾取音」为 Spring Spring 一条（去掉 WobbleBoxx）
