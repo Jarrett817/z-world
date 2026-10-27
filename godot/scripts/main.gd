@@ -29,6 +29,7 @@ const KMH_FACTOR := 250.0   # 世界米 → 里程公里（1440 旧值，调快�
 const GOAL_KM := 680.0      # 方舟集结点里程，抵达触发终章
 const SAVE_PATH := "user://save.json"
 const SAVE_INTERVAL := 40.0  # 自动存档间隔（秒）
+const SETTINGS_PATH := "user://settings.cfg"
 const ROAD_HALF := 7.0
 const MAX_KMH := 140.0
 const VIEW_AHEAD := 260.0
@@ -151,6 +152,7 @@ var _shot_walk := false  # --shotrvwalk：截帧前先进车内行走
 var _shot_combat := false  # --shotcombat：截帧前先进下车战斗
 var _shot_fps := false     # --fps：配合 --shotcombat 切第一人称截帧
 var _shot_credits := false  # --shotcredits：截帧前先打开署名面板
+var _shot_settings := false  # --shotsettings：截帧前先打开设置面板
 var _shot_cab := false      # --shotcab：截帧前切车内视角看驾驶座
 var _shot_cab_cam := false  # --shotcab：截帧专用近距离侧拍驾驶座相机
 var _shot_seat := false     # --shotseat：截帧前切车内视角看副驾队友
@@ -162,8 +164,10 @@ var _dump := false          # --dump：截帧时刻打印房车周边节点并�
 var _save_t := 0.0          # 自动存档计时
 var _saved_parked := false  # 上次存档时的驻车状态（变化即存）
 var _no_save := false       # 从头开始重载时禁止旧实例在 _exit_tree 回写存档
+var settings: Dictionary = {"master": 1.0, "music": 0.85, "sfx": 1.0, "fullscreen": false, "res_w": 1280, "res_h": 720}
 
 func _ready() -> void:
+	_init_settings()
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--shot="):
 			_shot_path = a.trim_prefix("--shot=")
@@ -176,6 +180,8 @@ func _ready() -> void:
 			_shot_fps = true
 		elif a == "--shotcredits":
 			_shot_credits = true
+		elif a == "--shotsettings":
+			_shot_settings = true
 		elif a == "--shotcab":
 			_shot_cab = true
 		elif a == "--shotseat":
@@ -352,6 +358,8 @@ func _facility(id: String) -> Dictionary:
 func _build_music() -> void:
 	music_a = AudioStreamPlayer.new()
 	music_b = AudioStreamPlayer.new()
+	music_a.bus = "Music"
+	music_b.bus = "Music"
 	music_a.volume_db = -60.0
 	music_b.volume_db = -60.0
 	add_child(music_a)
@@ -383,6 +391,7 @@ func play_music(key: String) -> void:
 ## 退出时释放音轨引用，避免根部残留资源
 func _exit_tree() -> void:
 	save_game()
+	save_settings()
 	music_a.stream = null
 	music_b.stream = null
 
@@ -409,6 +418,67 @@ func _zombies_hunting() -> bool:
 			if z.global_position.distance_to(rv.global_position) < 55.0:
 				return true
 	return false
+
+# ---------- 设置 ----------
+## 音频独立总线（Master 总音量 / Music 音乐 / SFX 音效）+ ConfigFile 持久化
+func _init_settings() -> void:
+	for bn in ["Music", "SFX"]:
+		if AudioServer.get_bus_index(bn) == -1:
+			AudioServer.add_bus()
+			var idx := AudioServer.bus_count - 1
+			AudioServer.set_bus_name(idx, bn)
+			AudioServer.set_bus_send(idx, "Master")
+	var cfg := ConfigFile.new()
+	cfg.load(SETTINGS_PATH)
+	for k in ["master", "music", "sfx"]:
+		settings[k] = clampf(float(cfg.get_value("audio", k, settings[k])), 0.0, 1.0)
+	settings["fullscreen"] = bool(cfg.get_value("video", "fullscreen", false))
+	settings["res_w"] = int(cfg.get_value("video", "res_w", 1280))
+	settings["res_h"] = int(cfg.get_value("video", "res_h", 720))
+	_apply_volume("master")
+	_apply_volume("music")
+	_apply_volume("sfx")
+	_apply_video_settings()
+
+func _apply_volume(key: String) -> void:
+	var bus: String = {"master": "Master", "music": "Music", "sfx": "SFX"}[key]
+	var idx := AudioServer.get_bus_index(bus)
+	if idx == -1:
+		return
+	var v := float(settings[key])
+	AudioServer.set_bus_mute(idx, v <= 0.01)
+	AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(v, 0.01)))
+
+func _apply_video_settings() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	if bool(settings["fullscreen"]):
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		return
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	var ws := Vector2i(int(settings["res_w"]), int(settings["res_h"]))
+	DisplayServer.window_set_size(ws)
+	var screen := DisplayServer.screen_get_usable_rect()
+	DisplayServer.window_set_position(screen.position + (screen.size - ws) / 2)
+
+## HUD 设置面板即时生效；落盘在面板关闭与退出游戏时
+func apply_setting(key: String, value: Variant) -> void:
+	settings[key] = value
+	if key in ["master", "music", "sfx"]:
+		_apply_volume(key)
+	else:
+		_apply_video_settings()
+
+func save_settings() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	var cfg := ConfigFile.new()
+	for k in ["master", "music", "sfx"]:
+		cfg.set_value("audio", k, settings[k])
+	cfg.set_value("video", "fullscreen", settings["fullscreen"])
+	cfg.set_value("video", "res_w", settings["res_w"])
+	cfg.set_value("video", "res_h", settings["res_h"])
+	cfg.save(SETTINGS_PATH)
 
 # ---------- 相机（追尾 / 驾驶舱 / 车内） ----------
 func _process(delta: float) -> void:
@@ -452,6 +522,13 @@ func _process(delta: float) -> void:
 				# --shotcredits：打开署名面板，稳定 1.5s 后截帧
 				_shot_credits = false
 				hud.set_credits_visible(true)
+				_shot_at = 1.5
+				_shot_t = 0.0
+				return
+			if _shot_settings:
+				# --shotsettings：打开设置面板，稳定 1.5s 后截帧
+				_shot_settings = false
+				hud.set_settings_visible(true)
 				_shot_at = 1.5
 				_shot_t = 0.0
 				return

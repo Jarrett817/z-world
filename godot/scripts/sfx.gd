@@ -19,10 +19,12 @@ func _ready() -> void:
 		_streams[k] = load(DIR + k + ".wav")
 	for i in POOL_2D:
 		var p := AudioStreamPlayer.new()
+		p.bus = "SFX"
 		add_child(p)
 		_pool2d.append(p)
 	for i in POOL_3D:
 		var p := AudioStreamPlayer3D.new()
+		p.bus = "SFX"
 		p.max_distance = 55.0
 		p.unit_size = 7.0
 		add_child(p)
@@ -33,6 +35,7 @@ func _ready() -> void:
 	eng.loop_begin = 0
 	eng.loop_end = eng.get_data().size() / 2
 	_engine = AudioStreamPlayer.new()
+	_engine.bus = "SFX"
 	_engine.stream = eng
 	add_child(_engine)
 

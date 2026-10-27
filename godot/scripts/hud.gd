@@ -6,6 +6,7 @@ const ACCENT := Color("e8862e")
 const TEXT_MAIN := Color("e8ded2")
 const TEXT_DIM := Color("8a7d6d")
 const BAR_W := 240.0
+const RESOLUTIONS: Array = [[1280, 720], [1600, 900], [1920, 1080], [2560, 1440]]
 
 ## 虚拟摇杆：手游战斗移动输入，输出 -1..1 向量（推满自动奔跑由 player 判定）
 class Joystick:
@@ -62,6 +63,11 @@ var facilities_title: Label
 var credits_root: Panel
 var credits_rows: VBoxContainer
 var pause_root: ColorRect
+var settings_root: ColorRect
+var _setting_sliders: Dictionary = {}         # key -> HSlider
+var _setting_value_labels: Dictionary = {}   # key -> 百分比 Label
+var _fullscreen_btn: Button
+var _res_opt: OptionButton
 var drive_buttons: Array[Button] = []
 var drive_misc_buttons: Array[Button] = []   # 视角/驻车/天窗/下车/车内（战斗时连同驾驶键一起收起）
 var combat_fire_buttons: Array[Button] = []   # 车内行走时要藏起来的开火类按钮
@@ -397,6 +403,14 @@ func build(rv_node: Node) -> void:
 	presume.add_theme_font_size_override("font_size", 26)
 	presume.pressed.connect(func() -> void: set_pause_visible(false))
 	pvb.add_child(presume)
+	var pset := Button.new()
+	pset.text = "设置"
+	pset.custom_minimum_size = Vector2(260, 48)
+	pset.add_theme_font_size_override("font_size", 20)
+	pset.pressed.connect(func() -> void:
+		pause_root.visible = false
+		set_settings_visible(true))
+	pvb.add_child(pset)
 	var psave := Button.new()
 	psave.text = "保存并退出"
 	psave.custom_minimum_size = Vector2(260, 48)
@@ -412,6 +426,78 @@ func build(rv_node: Node) -> void:
 	pnew.pressed.connect(func() -> void: rv.main_node.new_game())
 	pvb.add_child(pnew)
 	root.add_child(pause_root)
+
+	# 设置面板（暂停菜单 → 设置）：三档音量 + 显示模式 + 分辨率
+	settings_root = ColorRect.new()
+	settings_root.color = Color(0.05, 0.03, 0.02, 0.9)
+	settings_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	settings_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	settings_root.visible = false
+	var stcc := CenterContainer.new()
+	stcc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	stcc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	settings_root.add_child(stcc)
+	var sp := Panel.new()
+	sp.custom_minimum_size = Vector2(600, 470)
+	var spsb := StyleBoxFlat.new()
+	spsb.bg_color = Color(0.105, 0.085, 0.07, 0.97)
+	spsb.set_border_width_all(2)
+	spsb.border_color = Color(0.91, 0.53, 0.18, 0.75)
+	spsb.set_corner_radius_all(12)
+	sp.add_theme_stylebox_override("panel", spsb)
+	stcc.add_child(sp)
+	var sm := MarginContainer.new()
+	sm.set_anchors_preset(Control.PRESET_FULL_RECT)
+	sm.add_theme_constant_override("margin_left", 32)
+	sm.add_theme_constant_override("margin_right", 32)
+	sm.add_theme_constant_override("margin_top", 20)
+	sm.add_theme_constant_override("margin_bottom", 20)
+	sp.add_child(sm)
+	var svb := VBoxContainer.new()
+	svb.add_theme_constant_override("separation", 16)
+	sm.add_child(svb)
+	var stitle := _label("设置", 34, ACCENT)
+	stitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	svb.add_child(stitle)
+	_add_setting_slider(svb, "master", "总音量")
+	_add_setting_slider(svb, "music", "音乐")
+	_add_setting_slider(svb, "sfx", "音效")
+	var drow := HBoxContainer.new()
+	drow.add_theme_constant_override("separation", 12)
+	svb.add_child(drow)
+	var dl := _label("显示", 19, TEXT_MAIN, Vector2.ZERO)
+	dl.custom_minimum_size.x = 96
+	dl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	drow.add_child(dl)
+	_fullscreen_btn = Button.new()
+	_fullscreen_btn.custom_minimum_size = Vector2(200, 42)
+	_fullscreen_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_fullscreen_btn.add_theme_font_size_override("font_size", 19)
+	_fullscreen_btn.pressed.connect(_on_fullscreen_toggle)
+	drow.add_child(_fullscreen_btn)
+	var rrow := HBoxContainer.new()
+	rrow.add_theme_constant_override("separation", 12)
+	svb.add_child(rrow)
+	var rl := _label("分辨率", 19, TEXT_MAIN, Vector2.ZERO)
+	rl.custom_minimum_size.x = 96
+	rl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	rrow.add_child(rl)
+	_res_opt = OptionButton.new()
+	_res_opt.custom_minimum_size = Vector2(200, 42)
+	_res_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_res_opt.add_theme_font_size_override("font_size", 18)
+	for r in RESOLUTIONS:
+		_res_opt.add_item("%d × %d" % [r[0], r[1]])
+	_res_opt.item_selected.connect(_on_res_selected)
+	rrow.add_child(_res_opt)
+	var sback := Button.new()
+	sback.text = "返回"
+	sback.custom_minimum_size = Vector2(200, 48)
+	sback.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	sback.add_theme_font_size_override("font_size", 20)
+	sback.pressed.connect(func() -> void: set_settings_visible(false))
+	svb.add_child(sback)
+	root.add_child(settings_root)
 
 	_build_combat(root)
 	_build_story(root)
@@ -730,7 +816,9 @@ func hide_story() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("ui_cancel"):
 		return
-	if pause_root.visible:
+	if settings_root.visible:
+		set_settings_visible(false)
+	elif pause_root.visible:
 		set_pause_visible(false)
 	elif rv.main_node != null and not rv.main_node.story_active and not rv.main_node.game_over:
 		set_pause_visible(true)
@@ -743,6 +831,77 @@ func set_pause_visible(v: bool) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif rv.main_node != null and rv.main_node.combat_active:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+# ---------- 设置面板 ----------
+func set_settings_visible(v: bool) -> void:
+	settings_root.visible = v
+	if v:
+		_sync_settings_ui()
+	else:
+		rv.main_node.save_settings()
+		if get_tree().paused:
+			pause_root.visible = true
+
+## 即时生效的音量滑条（值域 0-100，写入 0..1 到 main.settings）
+func _add_setting_slider(parent: VBoxContainer, key: String, text: String) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	parent.add_child(row)
+	var l := _label(text, 19, TEXT_MAIN, Vector2.ZERO)
+	l.custom_minimum_size.x = 96
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(l)
+	var s := HSlider.new()
+	s.max_value = 100.0
+	s.step = 1.0
+	s.custom_minimum_size.y = 26
+	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(0.26, 0.22, 0.18, 0.95)
+	track.set_corner_radius_all(4)
+	track.content_margin_top = 5
+	track.content_margin_bottom = 5
+	s.add_theme_stylebox_override("slider", track)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color(0.91, 0.53, 0.18, 0.85)
+	fill.set_corner_radius_all(4)
+	fill.content_margin_top = 5
+	fill.content_margin_bottom = 5
+	s.add_theme_stylebox_override("grabber_area", fill)
+	s.add_theme_stylebox_override("grabber_area_highlight", fill)
+	row.add_child(s)
+	var vl := _label("100%", 17, TEXT_DIM, Vector2.ZERO)
+	vl.custom_minimum_size.x = 56
+	vl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	vl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(vl)
+	_setting_sliders[key] = s
+	_setting_value_labels[key] = vl
+	s.value_changed.connect(func(v: float) -> void:
+		vl.text = "%d%%" % int(v)
+		rv.main_node.apply_setting(key, v / 100.0))
+
+func _sync_settings_ui() -> void:
+	var st: Dictionary = rv.main_node.settings
+	for key in _setting_sliders:
+		var pct := float(st[key]) * 100.0
+		_setting_sliders[key].set_value_no_signal(pct)
+		_setting_value_labels[key].text = "%d%%" % int(pct)
+	var fs := bool(st["fullscreen"])
+	_fullscreen_btn.text = "全屏" if fs else "窗口"
+	_res_opt.disabled = fs
+	_res_opt.select(maxi(RESOLUTIONS.find([int(st["res_w"]), int(st["res_h"])]), 0))
+
+func _on_fullscreen_toggle() -> void:
+	var on := not bool(rv.main_node.settings["fullscreen"])
+	rv.main_node.apply_setting("fullscreen", on)
+	_fullscreen_btn.text = "全屏" if on else "窗口"
+	_res_opt.disabled = on
+
+func _on_res_selected(i: int) -> void:
+	rv.main_node.apply_setting("res_w", int(RESOLUTIONS[i][0]))
+	rv.main_node.apply_setting("res_h", int(RESOLUTIONS[i][1]))
 
 # ---------- 素材署名面板 ----------
 func set_credits_visible(v: bool) -> void:

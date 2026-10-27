@@ -1,5 +1,15 @@
 # 开发日志
 
+## 2026-10-27 · n74 设置菜单（音量/显示/分辨率）+ 总线架构
+
+- 音频从单 Master 拆三条总线：`_init_settings()` 运行时 `AudioServer.add_bus()` 建 `Music`/`SFX` 并 send 到 Master；`music_a/b` 挂 Music，sfx.gd 全部播放器（2D/3D/引擎）挂 SFX
+- 设置面板（hud.gd）：暂停菜单「设置」进入，总音量/音乐/音效三条 HSlider（0-100 即时生效）+ 全屏/窗口切换 + 四档分辨率（1280×720 / 1600×900 / 1920×1080 / 2560×1440）；Esc 层级 settings > pause > 打开暂停
+- 持久化 `user://settings.cfg`（`[audio] master/music/sfx`，`[video] fullscreen/res_w/res_h`）：启动 `_init_settings` 读取并应用，面板关闭与 `_exit_tree` 写盘；headless 下跳过显示操作与写盘
+- `apply_setting(key, value)` 作为 HUD 唯写入口，main 仍是唯一状态源
+- 顺手清理 credits.json 失效项（`ui_click.wav` 已移除，Kenney 界面点击音署名无对应资产）
+- 踩坑：窗口截帧 `--shot` 需 `--quit-after 1500`（4.5s 游戏时间 ≈ 560 帧），`120`/`600` 帧会早退导致无截图
+- 验证：无头回归 EXIT=0 零报错；设置面板截图目检 ✓；伪造 cfg（music=0.3 / 1600×900）重启后面板显示 30% / 1600×900 且窗口实际 1600×900 ✓；测试 settings.cfg/save.json 与临时截图均已清理
+
 ## 2026-10-27 · n73 存档系统 + Esc 暂停菜单
 
 - 新增 `user://save.json`（version 1）：只存生存/车辆/队伍/设施/剧情进度（durability/fuel/food/morale/parts/crew/crew_ids/dist_km/day/hour/facility_levels/story_fired），战斗/丧尸/天气/驻车等瞬时状态不入档
