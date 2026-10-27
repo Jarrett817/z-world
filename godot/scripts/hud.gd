@@ -61,6 +61,7 @@ var facilities_rows: VBoxContainer
 var facilities_title: Label
 var credits_root: Panel
 var credits_rows: VBoxContainer
+var pause_root: ColorRect
 var drive_buttons: Array[Button] = []
 var drive_misc_buttons: Array[Button] = []   # 视角/驻车/天窗/下车/车内（战斗时连同驾驶键一起收起）
 var combat_fire_buttons: Array[Button] = []   # 车内行走时要藏起来的开火类按钮
@@ -95,6 +96,8 @@ var morale_fill: ColorRect
 
 func build(rv_node: Node) -> void:
 	rv = rv_node
+	# Esc 暂停菜单需要暂停期间仍能响应点击
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	var theme := Theme.new()
 	var f := SystemFont.new()
 	f.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "sans-serif"])
@@ -122,7 +125,7 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 车内走动 · E 设施 · V 射击视角 · Tab 队伍", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 车内走动 · E 设施 · V 射击视角 · Tab 队伍 · Esc 菜单", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	hint.offset_left = -958
 	hint.offset_right = -308
@@ -332,6 +335,12 @@ func build(rv_node: Node) -> void:
 	retry.add_theme_font_size_override("font_size", 26)
 	retry.pressed.connect(func() -> void: get_tree().reload_current_scene())
 	vb.add_child(retry)
+	var over_new := Button.new()
+	over_new.text = "从头开始"
+	over_new.custom_minimum_size = Vector2(260, 48)
+	over_new.add_theme_font_size_override("font_size", 20)
+	over_new.pressed.connect(func() -> void: rv.main_node.new_game())
+	vb.add_child(over_new)
 	root.add_child(over_root)
 
 	# 通关遮罩（隐藏）：暖金色调
@@ -358,12 +367,51 @@ func build(rv_node: Node) -> void:
 	victory_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vvb.add_child(victory_stats)
 	var vretry := Button.new()
-	vretry.text = "重新出发"
+	vretry.text = "再来一局"
 	vretry.custom_minimum_size = Vector2(260, 64)
 	vretry.add_theme_font_size_override("font_size", 26)
-	vretry.pressed.connect(func() -> void: get_tree().reload_current_scene())
+	vretry.pressed.connect(func() -> void: rv.main_node.new_game())
 	vvb.add_child(vretry)
 	root.add_child(victory_root)
+
+	# 暂停菜单（Esc）：继续 / 保存并退出 / 从头开始
+	pause_root = ColorRect.new()
+	pause_root.color = Color(0.05, 0.03, 0.02, 0.82)
+	pause_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pause_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	pause_root.visible = false
+	var pcc := CenterContainer.new()
+	pcc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pcc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pause_root.add_child(pcc)
+	var pvb := VBoxContainer.new()
+	pvb.alignment = BoxContainer.ALIGNMENT_CENTER
+	pvb.add_theme_constant_override("separation", 14)
+	pcc.add_child(pvb)
+	var ptitle := _label("暂停", 46, ACCENT)
+	ptitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pvb.add_child(ptitle)
+	var presume := Button.new()
+	presume.text = "继续游戏"
+	presume.custom_minimum_size = Vector2(260, 60)
+	presume.add_theme_font_size_override("font_size", 26)
+	presume.pressed.connect(func() -> void: set_pause_visible(false))
+	pvb.add_child(presume)
+	var psave := Button.new()
+	psave.text = "保存并退出"
+	psave.custom_minimum_size = Vector2(260, 48)
+	psave.add_theme_font_size_override("font_size", 20)
+	psave.pressed.connect(func() -> void:
+		rv.main_node.save_game()
+		get_tree().quit())
+	pvb.add_child(psave)
+	var pnew := Button.new()
+	pnew.text = "从头开始"
+	pnew.custom_minimum_size = Vector2(260, 48)
+	pnew.add_theme_font_size_override("font_size", 20)
+	pnew.pressed.connect(func() -> void: rv.main_node.new_game())
+	pvb.add_child(pnew)
+	root.add_child(pause_root)
 
 	_build_combat(root)
 	_build_story(root)
@@ -676,6 +724,25 @@ func _show_options() -> void:
 
 func hide_story() -> void:
 	story_root.visible = false
+
+# ---------- 暂停菜单 ----------
+## Esc 开关暂停菜单（HUD 常驻处理：暂停时本体收不到输入，HUD 才能关）
+func _unhandled_input(event: InputEvent) -> void:
+	if not event.is_action_pressed("ui_cancel"):
+		return
+	if pause_root.visible:
+		set_pause_visible(false)
+	elif rv.main_node != null and not rv.main_node.story_active and not rv.main_node.game_over:
+		set_pause_visible(true)
+	get_viewport().set_input_as_handled()
+
+func set_pause_visible(v: bool) -> void:
+	pause_root.visible = v
+	get_tree().paused = v
+	if v:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif rv.main_node != null and rv.main_node.combat_active:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 # ---------- 素材署名面板 ----------
 func set_credits_visible(v: bool) -> void:

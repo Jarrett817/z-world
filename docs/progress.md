@@ -1,5 +1,15 @@
 # 开发日志
 
+## 2026-10-27 · n73 存档系统 + Esc 暂停菜单
+
+- 新增 `user://save.json`（version 1）：只存生存/车辆/队伍/设施/剧情进度（durability/fuel/food/morale/parts/crew/crew_ids/dist_km/day/hour/facility_levels/story_fired），战斗/丧尸/天气/驻车等瞬时状态不入档
+- 自动存档 40s 一次 + 驻车状态变化即存；`_exit_tree` 兜底写档；通关清档；死亡回到最近检查点
+- 续档复用 `--jump` 游标对齐：读档只把 dist_km 塞进 `_jump_km`，rv/terrain/obs/pick/surv/lamp/scenery/pole/place/hamlet 游标全部走既有 jump 分支，数值初始化末尾 `_apply_save` 恢复
+- Esc 暂停菜单（hud.gd，`PROCESS_MODE_ALWAYS`）：继续 / 保存并退出 / 从头开始；死亡结算加「从头开始」，通关结算改「再来一局」
+- 竞态与污染防护：`new_game()` 先置 `_no_save` 再 reload，避免旧实例 `_exit_tree` 回写覆盖已删存档；任意调试命令行（`--shot/--jump/--dump`）与无头回归（`DisplayServer.get_name()=="headless"`）既不读也不写档
+- story.gd 序章定时器加 `fired.has("intro")` 守卫，续档不再重播 intro
+- 验证：无头回归 EXIT=0 零报错；窗口实跑写档 ✓；伪造存档（12.5km/双队员/设施 2 级/剧情标记）续档后全部保留且里程不回退 ✓；测试存档已清理
+
 ## 2026-10-25 · n72 引擎换重型柴油机 loop + 碾压改触发区无顿帧
 
 - 引擎仍嫌噪音：domasx2 0.67s 赛车 loop 整体替换为 Nayckron「engine_heavy_loop_0」（CC-BY 3.0，重型柴油机 4 秒 loop），ffmpeg 转 44.1kHz 单声道 + 0.2s 头尾交叉淡化，署名入 credits.json cc_by 组

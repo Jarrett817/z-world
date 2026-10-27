@@ -27,6 +27,8 @@ const JUNK_SCENE := preload("res://assets/props/scene_models/container/scene.glt
 const GROUND_Y := -1.56
 const KMH_FACTOR := 250.0   # 世界米 → 里程公里（1440 旧值，调快后一局实际驾驶 ~15 分钟走完序章的 680km 目标）
 const GOAL_KM := 680.0      # 方舟集结点里程，抵达触发终章
+const SAVE_PATH := "user://save.json"
+const SAVE_INTERVAL := 40.0  # 自动存档间隔（秒）
 const ROAD_HALF := 7.0
 const MAX_KMH := 140.0
 const VIEW_AHEAD := 260.0
@@ -157,6 +159,9 @@ var _shot_seat_cam := false # --shotseat：截帧专用近距离侧拍副驾相�
 var _jump_km := 0.0         # --jump=KM：直达指定里程（配合 --shot 截帧验收）
 var _debug_crew := 0        # --crew=N：调试直接补 N 名队友（配合截帧验收座位角色）
 var _dump := false          # --dump：截帧时刻打印房车周边节点并退出（验收定位异常物）
+var _save_t := 0.0          # 自动存档计时
+var _saved_parked := false  # 上次存档时的驻车状态（变化即存）
+var _no_save := false       # 从头开始重载时禁止旧实例在 _exit_tree 回写存档
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
@@ -185,6 +190,10 @@ func _ready() -> void:
 			_dump = true
 			_shot_at = 3.0
 	_load_survivors()
+	# 有存档则续档：里程直接走 --jump 同一套游标对齐逻辑，数值在初始化末尾恢复（调试命令行/无头回归不读写档）
+	var sv := {} if not OS.get_cmdline_user_args().is_empty() or DisplayServer.get_name() == "headless" else _read_save()
+	if _jump_km <= 0.0:
+		_jump_km = float(sv.get("dist_km", 0.0))
 	_load_facilities()
 	_load_zones()
 	_load_world()
@@ -243,6 +252,7 @@ func _ready() -> void:
 		# 小聚落游标同步（带 180m 预告牌提前量，跳过牌身位已在身后的点）
 		while _hamlet_km > 0.0 and _hamlet_km - DETOUR_SIGN_LEAD / KMH_FACTOR <= _jump_km:
 			_hamlet_km = _next_hamlet_km(_hamlet_km)
+	_apply_save(sv)
 
 func _physics_process(delta: float) -> void:
 	_update_time(delta)
@@ -251,6 +261,12 @@ func _physics_process(delta: float) -> void:
 		if Input.is_physical_key_pressed(KEY_R):
 			get_tree().reload_current_scene()
 		return
+	# 自动存档：定时 + 驻车状态变化即存
+	_save_t += delta
+	if _save_t >= SAVE_INTERVAL or parked != _saved_parked:
+		_save_t = 0.0
+		_saved_parked = parked
+		save_game()
 	# 剧情对话框打开：冻结世界逻辑（时间/太阳继续走，车由 rv.gd 自动刹停）
 	if story_active:
 		return
@@ -366,6 +382,7 @@ func play_music(key: String) -> void:
 
 ## 退出时释放音轨引用，避免根部残留资源
 func _exit_tree() -> void:
+	save_game()
 	music_a.stream = null
 	music_b.stream = null
 
@@ -763,7 +780,76 @@ func _do_win() -> void:
 	game_over = true
 	won = true
 	rv.engine_dead = true
+	_delete_save()   # 通关清档：下次启动不再停在终点前
 	hud.show_victory(self)
+
+# ---------- 存档 ----------
+## 自动存档：只存生存/车辆/队伍/剧情进度，战斗与丧尸等瞬时状态不入档
+func save_game() -> void:
+	# 截帧/调试命令行/无头回归不写档，避免污染玩家存档
+	if game_over or story == null or _no_save or not OS.get_cmdline_user_args().is_empty() or DisplayServer.get_name() == "headless":
+		return
+	var ids: Array = []
+	for m in crew_members:
+		ids.append(String(m.get("id", "")))
+	var data := {
+		"version": 1,
+		"durability": durability, "fuel": fuel, "food": food,
+		"morale": morale, "parts": parts, "crew": crew,
+		"dist_km": dist_km, "day": day, "hour": hour,
+		"crew_ids": ids,
+		"facility_levels": facility_levels,
+		"story_fired": story.fired,
+	}
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify(data))
+	f.close()
+
+func _read_save() -> Dictionary:
+	if not FileAccess.file_exists(SAVE_PATH):
+		return {}
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
+	if parsed is Dictionary and int(parsed.get("version", 0)) == 1:
+		return parsed
+	return {}
+
+func _apply_save(sv: Dictionary) -> void:
+	if sv.is_empty():
+		return
+	durability = float(sv.get("durability", durability))
+	fuel = float(sv.get("fuel", fuel))
+	food = float(sv.get("food", food))
+	morale = float(sv.get("morale", morale))
+	parts = float(sv.get("parts", parts))
+	crew = int(sv.get("crew", crew))
+	day = int(sv.get("day", day))
+	hour = float(sv.get("hour", hour))
+	for id in sv.get("crew_ids", []):
+		var d: Dictionary = survivors_data.get(String(id), {})
+		if not d.is_empty():
+			crew_members.append(d)
+	var fl: Dictionary = sv.get("facility_levels", {})
+	for k in fl:
+		if facility_levels.has(k):
+			facility_levels[k] = int(fl[k])
+	story.fired = sv.get("story_fired", [])
+	_sync_crew()
+	hud.set_crew(crew_members)
+	hud.update_stats(self)
+
+## 从头开始：清档后重载场景（暂停菜单/结算界面共用）
+func new_game() -> void:
+	_no_save = true
+	get_tree().paused = false
+	_delete_save()
+	get_tree().reload_current_scene()
+
+func _delete_save() -> void:
+	var d := DirAccess.open("user://")
+	if d != null and d.file_exists("save.json"):
+		d.remove("save.json")
 
 # ---------- 昼夜 ----------
 func _build_sky() -> void:
