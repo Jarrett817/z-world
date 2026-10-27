@@ -4057,16 +4057,69 @@ func _merged_aabb(node: Node, xform := Transform3D.IDENTITY) -> AABB:
 				aabb = aabb.merge(ca)
 	return aabb
 
-## 山段灰岩（半埋更自然）
+var _rock_tex: Texture2D
+
+## 共用石纹：低频石斑双线性放大 + 高频颗粒（64² 一张，缓存复用）
+func _rock_texture() -> Texture2D:
+	if _rock_tex:
+		return _rock_tex
+	var px := 64
+	var img := Image.create(px, px, false, Image.FORMAT_RGBA8)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7713
+	var grid: Array = []
+	for gy in 9:
+		var row: Array = []
+		for gx in 9:
+			row.append(rng.randf())
+		grid.append(row)
+	for y in px:
+		for x in px:
+			var fx := float(x) * 8.0 / px
+			var fy := float(y) * 8.0 / px
+			var x0 := int(fx)
+			var y0 := int(fy)
+			var tx := fx - x0
+			var ty := fy - y0
+			var v: float = lerpf(
+				lerpf(float(grid[y0][x0]), float(grid[y0][x0 + 1]), tx),
+				lerpf(float(grid[y0 + 1][x0]), float(grid[y0 + 1][x0 + 1]), tx), ty)
+			v = v * 0.72 + rng.randf() * 0.28
+			img.set_pixel(x, y, Color(0.2, 0.21, 0.2).lerp(Color(0.62, 0.61, 0.56), v))
+	img.generate_mipmaps()
+	_rock_tex = ImageTexture.create_from_image(img)
+	return _rock_tex
+
+## 山段巨岩：低面数球体压成不规则椭球 + 程序化石纹，随机翻转半埋
 func _spawn_rock(x: float, z: float) -> void:
 	var rock := MeshInstance3D.new()
-	var mesh := BoxMesh.new()
-	var s := randf_range(1.2, 3.2)
-	mesh.size = Vector3(s * randf_range(1.0, 1.8), s, s * randf_range(1.0, 1.8))
+	var mesh := SphereMesh.new()
+	mesh.radius = 1.0
+	mesh.height = 2.0
+	mesh.radial_segments = 9
+	mesh.rings = 6
 	rock.mesh = mesh
-	rock.material_override = _mat(Color(0.52, 0.55, 0.56))
-	rock.position = Vector3(x, ground_height(x, z) + mesh.size.y * 0.3, z)
-	rock.rotation.y = randf() * TAU
-	_solid_box(rock, mesh.size * 0.85, Vector3.ZERO, true)
+	var s := randf_range(1.3, 2.9)
+	var sx := s * randf_range(1.0, 1.35)
+	var sy := s * randf_range(0.72, 1.12)
+	var sz := s * randf_range(0.9, 1.3)
+	rock.scale = Vector3(sx, sy, sz)
+	rock.rotation = Vector3(randf_range(-0.35, 0.35), randf() * TAU, randf_range(-0.35, 0.35))
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = _rock_texture()
+	m.uv1_scale = Vector3(2.0, 1.5, 1.0)
+	var t := randf_range(0.82, 1.12)
+	m.albedo_color = Color(t, t, t * 0.97)
+	m.roughness = 1.0
+	rock.material_override = m
+	# 侧面再叠一块小石，破掉光滑蛋形轮廓
+	var lump := MeshInstance3D.new()
+	lump.mesh = mesh
+	lump.material_override = m
+	lump.scale = Vector3(randf_range(0.45, 0.75), randf_range(0.4, 0.7), randf_range(0.45, 0.75))
+	lump.position = Vector3(randf_range(0.45, 0.8) * (1 if randf() < 0.5 else -1), randf_range(0.1, 0.5), randf_range(-0.6, 0.6))
+	rock.add_child(lump)
+	rock.position = Vector3(x, ground_height(x, z) + sy * randf_range(0.5, 0.7), z)
+	_solid_box(rock, Vector3(1.4, 1.45, 1.4), Vector3.ZERO, true)
 	rock.add_to_group("consumable")
 	add_child(rock)
