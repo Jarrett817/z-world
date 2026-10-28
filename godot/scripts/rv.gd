@@ -39,6 +39,36 @@ func _ready() -> void:
 		var aabb: AABB = mi.get_aabb()
 		if aabb.size.x > 1.8 and absf(aabb.size.y - aabb.size.z) < 0.15 and aabb.size.y < 1.2 and mi.position.y < -0.5:
 			_wheels.append(mi)
+			_add_hub_marker(mi)
+
+## 轮毂盖+偏心螺栓：轮面胎纹均匀时纯旋转视觉不可读，加可见标记让滚动看得出来
+func _add_hub_marker(axle: MeshInstance3D) -> void:
+	var hub_mat := StandardMaterial3D.new()
+	hub_mat.albedo_color = Color(0.58, 0.58, 0.62)
+	hub_mat.metallic = 0.6
+	hub_mat.roughness = 0.4
+	var bolt_mat := StandardMaterial3D.new()
+	bolt_mat.albedo_color = Color(0.16, 0.16, 0.18)
+	for side in [-1.0, 1.0]:
+		var hub := MeshInstance3D.new()
+		var hm := CylinderMesh.new()
+		hm.top_radius = 0.26
+		hm.bottom_radius = 0.26
+		hm.height = 0.04
+		hm.radial_segments = 12
+		hub.mesh = hm
+		hub.rotation.z = PI * 0.5   # 圆柱默认 Y 轴，转到 X 轴贴轮端面
+		hub.position = Vector3(side * 1.13, 0.0, 0.0)
+		hub.material_override = hub_mat
+		axle.add_child(hub)
+		# 偏心螺栓：轮轴转动时它绕轴公转，滚动最直接的视觉锚点
+		var bolt := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.05, 0.11, 0.11)
+		bolt.mesh = bm
+		bolt.position = Vector3(side * 1.16, 0.14, 0.0)
+		bolt.material_override = bolt_mat
+		axle.add_child(bolt)
 
 func _physics_process(delta: float) -> void:
 	_spin_wheels(delta)
