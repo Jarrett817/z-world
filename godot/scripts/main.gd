@@ -4012,7 +4012,9 @@ func _spawn_scenery(z: float) -> void:
 			tree_p = 0.22
 	for i in range(tree_n):
 		if randf() < tree_p:
-			_place_scenery(TREE_SCENE, rx + _side() * randf_range(23.0, 65.0), z + randf_range(-6.0, 6.0), randf_range(7.0, 13.0))
+			# coast 段右侧是海（水面 10~170m），树只生左岸
+			var ts: float = -1.0 if zone == "coast" else _side()
+			_place_scenery(TREE_SCENE, rx + ts * randf_range(23.0, 65.0), z + randf_range(-6.0, 6.0), randf_range(7.0, 13.0))
 
 ## 实例化景物：按 AABB 缩放到目标高度、脚底落地（外部资产尺寸不可控）
 func _place_scenery(scene: PackedScene, x: float, z: float, target_h: float) -> void:

@@ -204,8 +204,9 @@ func _water(start_z: float, side: float) -> Array:
 		match _main.zone_at(zz):
 			"coast":
 				if side > 0.0:
-					center = 150.0
-					half = maxf(half, 120.0 * zw)
+					# 海面收窄贴岸（10~170m）：车载视角下清晰可见，否则 150m 外被透视压成细线融进远山
+					center = 90.0
+					half = maxf(half, 80.0 * zw)
 					sink = maxf(sink, 1.5 * zw)
 			"lake":
 				center = side * 95.0
