@@ -111,7 +111,7 @@ func _process(delta: float) -> void:
 				rotation.y = lerp_angle(rotation.y, 0.0, delta * 3.0)
 		St.BOARD:
 			# 被招募：跑向房车，到车门即上车消失；车已开远（结算已完成）直接退场
-			var door := _main.rv.global_position
+			var door: Vector3 = _main.rv.global_position
 			var flat := Vector2(position.x - door.x, position.z - door.z).length()
 			if flat < 1.4 or flat > 40.0:
 				queue_free()
