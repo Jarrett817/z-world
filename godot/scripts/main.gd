@@ -190,6 +190,9 @@ func _ready() -> void:
 			_shot_cabin = true
 		elif a.begins_with("--jump="):
 			_jump_km = float(a.trim_prefix("--jump="))
+		elif a.begins_with("--hour="):
+			# --hour=H：设定开局时刻（截帧验收昼夜光照）
+			hour = float(a.trim_prefix("--hour="))
 		elif a.begins_with("--crew="):
 			_debug_crew = int(a.trim_prefix("--crew="))
 		elif a == "--dump":
