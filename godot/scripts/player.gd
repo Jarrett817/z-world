@@ -414,6 +414,8 @@ func _aim_and_camera(delta: float) -> void:
 	else:
 		# MOBA 式斜背后高位俯视：玩家居画面下方，准星指向远处战场，宏观感知敌我态势
 		cam.global_position = global_position + Vector3(0, 3.6, 0) + back * 4.5
+		# 坡地防穿：身后是上坡时 3.6m 高可能埋进土里，抬到地面以上
+		cam.global_position.y = maxf(cam.global_position.y, main_node.ground_height(cam.global_position.x, cam.global_position.z) + 0.35)
 	var look_dir := (cam_basis * Vector3(0, 0, -1)).rotated(right, aim_pitch)
 	cam.look_at(cam.global_position + look_dir * 10.0, Vector3.UP)
 	# 枪身随俯仰角指向瞄点，开火瞬间后坐上抬；sway/蹲姿下放统一在 _apply_gun
