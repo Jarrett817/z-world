@@ -67,8 +67,8 @@ func _make_mesh(start_z: float) -> ArrayMesh:
 	# 1/2 两侧路肩土带
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -ROAD_HALF - 16.0, -ROAD_HALF, -0.05, false, 2))
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, ROAD_HALF, ROAD_HALF + 16.0, -0.05, false, 2))
-	# 3 柏油路面
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -ROAD_HALF, ROAD_HALF, 0.0, false, 3))
+	# 3 柏油路面（横向 8 细分：顶点色才能呈现车轮磨损双暗带与修补斑块；mottle 开关必须打开，否则 _mottle 里的轮迹/补丁逻辑不生效）
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -ROAD_HALF, ROAD_HALF, 0.0, true, 8))
 	# 4/5 边缘实线（发旧白）
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -ROAD_HALF + 0.35, -ROAD_HALF + 0.65, 0.02, false))
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, ROAD_HALF - 0.65, ROAD_HALF - 0.35, 0.02, false))
@@ -173,11 +173,19 @@ func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool, nx 
 	return arr
 
 ## 确定性多频噪声：0.78~1.12 亮度调制并带轻微绿相漂移，重建时同位置颜色不变
+## 公路带内叠加车轮磨损双暗带（轮迹 1.2~2.9m）与低频修补斑块，柏油路面不再一片新
 func _mottle(x: float, z: float) -> Color:
 	var n := sin(x * 0.91 + z * 0.37) * 0.5 + sin(x * 2.3 - z * 1.7) * 0.3 + sin(z * 4.7 + x * 0.4) * 0.2
 	var v: float = clampf(0.95 + n * 0.09, 0.78, 1.12)
 	# 枯草/裸土斑块：低频噪声把部分草地带向黄绿，避免整片塑料绿
 	var dry: float = sin(x * 0.05 + z * 0.031) * 0.5 + sin(x * 0.013 - z * 0.017) * 0.5
+	var dx: float = absf(x - _main.road_x(z))
+	if dx < ROAD_HALF:
+		var wear: float = smoothstep(1.1, 1.7, dx) * (1.0 - smoothstep(2.6, 3.2, dx))
+		v *= 1.0 - wear * 0.22
+		# 修补斑块：沿路的低频深色矩形感（两频相乘出断续块）
+		if sin(z * 0.023 + 1.7) * sin(z * 0.11) > 0.72:
+			v *= 0.88
 	return Color(v * (1.0 + dry * 0.05), v, v * (1.0 - dry * 0.07))
 
 ## 路边河湖：沿 z 的确定性包络让水面一段段出现/消失，宽度平滑收缩到零

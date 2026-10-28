@@ -17,6 +17,7 @@ const ZOMBIE_SCRIPT := preload("res://scripts/zombie.gd")
 const HUD_SCRIPT := preload("res://scripts/hud.gd")
 const PICKUP_SCRIPT := preload("res://scripts/pickup.gd")
 const SURVIVOR_SCRIPT := preload("res://scripts/survivor.gd")
+const DUTY_MOTION := preload("res://scripts/duty_motion.gd")
 const STORY_SCRIPT := preload("res://scripts/story.gd")
 const PLAYER_SCRIPT := preload("res://scripts/player.gd")
 const MATE_SCRIPT := preload("res://scripts/mate.gd")
@@ -1209,6 +1210,87 @@ func _build_duty_props() -> void:
 		hole.material_override = hole_mat
 		hole.position = Vector3(side * 1.29, 0.62, 1.3)
 		rv.add_child(hole)
+	_build_life_props()
+
+## 生活道具：床铺/吊柜/地毯/水壶/罐头/盆栽/吊灯罩/照片墙/储物箱（纯装饰，随内饰显隐；坐标为 rv 本地，地板顶 y=-0.4）
+func _build_life_props() -> void:
+	var box := func(size: Vector3, pos: Vector3, color: Color, rough := 0.95) -> void:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = size
+		mi.mesh = bm
+		var m := StandardMaterial3D.new()
+		m.albedo_color = color
+		m.roughness = rough
+		mi.material_override = m
+		mi.position = pos
+		interior.add_child(mi)
+	var cyl := func(top_r: float, bot_r: float, h: float, pos: Vector3, color: Color, rough := 0.9) -> MeshInstance3D:
+		var mi := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = top_r
+		cm.bottom_radius = bot_r
+		cm.height = h
+		mi.mesh = cm
+		var m := StandardMaterial3D.new()
+		m.albedo_color = color
+		m.roughness = rough
+		mi.material_override = m
+		mi.position = pos
+		interior.add_child(mi)
+		return mi
+	# 车尾单人铺（贴左墙）：床架+床垫+枕头+毯子，末日里的体面
+	var wood := Color(0.42, 0.33, 0.24)
+	box.call(Vector3(0.62, 0.22, 0.85), Vector3(-0.95, -0.29, 2.25), wood)
+	box.call(Vector3(0.58, 0.10, 0.80), Vector3(-0.95, -0.13, 2.25), Color(0.72, 0.70, 0.62))
+	box.call(Vector3(0.30, 0.07, 0.18), Vector3(-0.95, -0.05, 2.56), Color(0.85, 0.82, 0.72))
+	box.call(Vector3(0.56, 0.035, 0.45), Vector3(-0.95, -0.055, 2.10), Color(0.30, 0.34, 0.42))
+	# 左墙吊柜 ×3（灶台/货架上方，储物感）
+	for i in 3:
+		box.call(Vector3(0.40, 0.48, 0.55), Vector3(-1.08, 1.32, -0.3 + float(i) * 0.65), wood.darkened(0.15), 0.85)
+	# 生活舱地毯（暗红棕做旧）
+	box.call(Vector3(1.20, 0.02, 1.60), Vector3(0.05, -0.39, 0.40), Color(0.35, 0.18, 0.14), 1.0)
+	# 灶台边水壶 ×2 + 囤货罐头 ×3（床尾地板）
+	cyl.call(0.07, 0.08, 0.22, Vector3(-0.92, -0.29, -0.62), Color(0.62, 0.64, 0.66), 0.45)
+	cyl.call(0.06, 0.07, 0.18, Vector3(-0.74, -0.31, -0.66), Color(0.55, 0.52, 0.45), 0.6)
+	for i in 3:
+		cyl.call(0.045, 0.045, 0.11, Vector3(-0.62 + float(i) * 0.11, -0.345, 2.62), Color(0.65, 0.55, 0.30), 0.4)
+	# 吊柜顶小盆栽（末日生机）
+	cyl.call(0.06, 0.075, 0.10, Vector3(-1.08, 1.61, 1.0), Color(0.45, 0.28, 0.18))
+	var leaf := MeshInstance3D.new()
+	var lm := SphereMesh.new()
+	lm.radius = 0.10
+	lm.height = 0.20
+	leaf.mesh = lm
+	var lmat := StandardMaterial3D.new()
+	lmat.albedo_color = Color(0.24, 0.45, 0.20)
+	lmat.roughness = 1.0
+	leaf.material_override = lmat
+	leaf.position = Vector3(-1.08, 1.74, 1.0)
+	interior.add_child(leaf)
+	# 吊灯罩（cab_light 同位，暖光有了看得见的来源）
+	var shade: MeshInstance3D = cyl.call(0.05, 0.16, 0.14, Vector3(0, 1.80, 0.4), Color(0.85, 0.70, 0.45), 0.6)
+	(shade.material_override as StandardMaterial3D).emission_enabled = true
+	(shade.material_override as StandardMaterial3D).emission = Color(1.0, 0.75, 0.45)
+	(shade.material_override as StandardMaterial3D).emission_energy_multiplier = 0.9
+	cyl.call(0.012, 0.012, 0.14, Vector3(0, 1.92, 0.4), Color(0.2, 0.2, 0.2), 0.6)
+	# 左墙照片板（旅途记忆）
+	box.call(Vector3(0.02, 0.30, 0.40), Vector3(-1.29, 1.0, 0.5), Color(0.85, 0.80, 0.70), 1.0)
+	# 右后角储物箱堆 + 帆布袋
+	box.call(Vector3(0.45, 0.34, 0.50), Vector3(0.88, -0.23, 2.30), wood.darkened(0.1))
+	box.call(Vector3(0.35, 0.26, 0.40), Vector3(0.88, 0.07, 2.32), Color(0.50, 0.42, 0.30))
+	var sack := MeshInstance3D.new()
+	var sm2 := SphereMesh.new()
+	sm2.radius = 0.17
+	sm2.height = 0.34
+	sack.mesh = sm2
+	var smat := StandardMaterial3D.new()
+	smat.albedo_color = Color(0.38, 0.40, 0.28)
+	smat.roughness = 1.0
+	sack.material_override = smat
+	sack.scale = Vector3(1.0, 0.72, 1.0)
+	sack.position = Vector3(0.50, -0.28, 2.52)
+	interior.add_child(sack)
 
 ## 队员加入/刷新时：按 id 实例化对应 VRM 基底（播 sit/idle）并更新名牌
 func _sync_crew() -> void:
@@ -1233,6 +1315,9 @@ func _sync_crew() -> void:
 			var char: Node3D = made["node"]
 			char.name = "Char"
 			f.add_child(char)
+			# 做饭/收拾：挂岗位程序化微动，不再死站着
+			if duty == "cook" or duty == "tidy":
+				char.add_child(DUTY_MOTION.new(duty, char))
 			# 射手持枪：枪口节点供 _update_port_gunners 取世界坐标
 			if duty == "gun":
 				var gun := CharUtil.build_gun()
@@ -1619,8 +1704,10 @@ func start_rv_walk() -> void:
 	if driver_figure != null:
 		driver_figure.visible = false   # 主角起身，驾驶位空出
 	if not parked:
-		# 队友代驾：首位队友（副驾坐姿）挪到主驾位
+		# 队友代驾：首位队友（副驾坐姿）挪到主驾位，名牌切「代驾」
 		crew_figures[0].position = Vector3(-0.55, -0.4, -2.85)
+		var lb0: Label3D = crew_figures[0].get_meta("label")
+		lb0.text = "%s · 代驾" % crew_members[0].get("name", "")
 	p.aim_yaw = 0.0    # 面朝车头（车内 -Z）
 	p.aim_pitch = 0.0
 	p._enter()
@@ -1650,8 +1737,10 @@ func end_rv_walk() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	cam.make_current()
 	if not parked and not crew_members.is_empty():
-		# 代驾结束：队友挪回副驾位
-		crew_figures[0].position = Vector3(0.55, -0.4, -2.85)
+		# 代驾结束：队友挪回副驾岗位（-3.18 与岗位表一致），名牌还原
+		crew_figures[0].position = Vector3(0.55, -0.4, -3.18)
+		var lb0: Label3D = crew_figures[0].get_meta("label")
+		lb0.text = "%s · %s" % [crew_members[0].get("name", ""), crew_figures[0].get_meta("duty_label")]
 	# 回驾驶座：驻车回车内视角，行驶回追尾视角
 	view_mode = 2 if parked else 0
 	rv_model.visible = true
@@ -2791,6 +2880,8 @@ func on_zombie_run_over() -> void:
 	durability = maxf(0.0, durability - dmg)
 	add_trauma(0.08)
 	sfx.play("run_over")
+	# 闷闷的肉体撞击声（低频 thud，叠加在碾轧声下）
+	sfx.play("zombie_thud", randf_range(0.85, 1.05), 0.05, 2.0)
 
 func on_pickup(kind: String, boost := 1.0) -> void:
 	if game_over:
@@ -3965,7 +4056,7 @@ func _elev_at(z: float) -> float:
 		var len: float = float(zn.get("len", 400.0))
 		var off := zz - acc
 		if off < len:
-			var trans := maxf(90.0, absf(e - prev_e) * 6.0)
+			var trans := maxf(110.0, absf(e - prev_e) * 7.5)
 			var t := smoothstep(0.0, 1.0, clampf(off / trans, 0.0, 1.0))
 			return lerpf(prev_e, e, t)
 		prev_e = e

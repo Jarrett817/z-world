@@ -47,7 +47,10 @@ func _physics_process(delta: float) -> void:
 	# 剧情对话期间：世界冻结，强制刹停并贴地（忽略一切驾驶输入）
 	if main_node.story_active:
 		speed_kmh = maxf(speed_kmh - BRAKE * delta, 0.0)
-		velocity = -global_transform.basis.z * (speed_kmh * KMH_TO_UNITS)
+		# 水平化速度：y 分量由贴地逻辑接管，带坡度会被 move_and_slide 当碰撞损耗（爬坡难的根因）
+		var fwd0 := -global_transform.basis.z
+		fwd0.y = 0.0
+		velocity = fwd0.normalized() * (speed_kmh * KMH_TO_UNITS)
 		move_and_slide()
 		position.y = main_node.ground_height(position.x, position.z) + main_node.RV_MODEL_FOOT
 		rotation.x = lerpf(rotation.x, slope, delta * 3.0)
@@ -67,7 +70,9 @@ func _physics_process(delta: float) -> void:
 				var d: float = 0.6
 				var bx: float = main_node.road_x(position.z + d) - main_node.road_x(position.z - d)
 				rotation.y = lerp_angle(rotation.y, atan2(bx, 2.0 * d), delta * 1.2)
-			velocity = -global_transform.basis.z * (speed_kmh * KMH_TO_UNITS)
+			var fwd1 := -global_transform.basis.z
+			fwd1.y = 0.0
+			velocity = fwd1.normalized() * (speed_kmh * KMH_TO_UNITS)
 			move_and_slide()
 		position.y = main_node.ground_height(position.x, position.z) + main_node.RV_MODEL_FOOT
 		rotation.x = lerpf(rotation.x, slope, delta * 3.0)
@@ -79,14 +84,18 @@ func _physics_process(delta: float) -> void:
 
 	if not engine_dead and gas:
 		var grip := 0.78 if main_node.weather == "rain" else 1.0
-		speed_kmh = minf(speed_kmh + ACCEL * grip * delta, main_node.MAX_KMH)
+		# 爬坡动力补偿：坡度越陡油门加成越大，陡坡不再爬不动
+		var climb := 1.0 + maxf(slope, 0.0) * 2.2
+		speed_kmh = minf(speed_kmh + ACCEL * grip * climb * delta, main_node.MAX_KMH)
 	elif brake:
 		var braking := 0.85 if main_node.weather == "rain" else 1.0
 		speed_kmh = maxf(speed_kmh - BRAKE * braking * delta, 0.0)
 	else:
 		speed_kmh = maxf(speed_kmh - DRAG * delta, 0.0)
 
-	velocity = -global_transform.basis.z * (speed_kmh * KMH_TO_UNITS)
+	var fwd := -global_transform.basis.z
+	fwd.y = 0.0
+	velocity = fwd.normalized() * (speed_kmh * KMH_TO_UNITS)
 	if absf(speed_kmh) > 1.0:
 		# 高速转向迟滞：速度越快打舵越缓，避免掉头打转
 		var ratio: float = speed_kmh / main_node.MAX_KMH

@@ -77,6 +77,7 @@ var _toast_tween: Tween
 # 下车/天窗战斗层
 var combat_root: Control
 var crosshair: Label
+var combat_hint: Label
 var ammo_label: Label
 var gun_label: Label
 var _cur_gun_name := ""
@@ -519,6 +520,15 @@ func _build_combat(root: Control) -> void:
 	crosshair.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	crosshair.pivot_offset = Vector2(16, 16)  # 击杀放大时绕中心缩放
 	combat_root.add_child(crosshair)
+	# 常驻操作提示（准星下方）：手雷等按键不再只靠入场 toast 一闪而过
+	combat_hint = _label("左键 开火 · R 换弹 · X 手雷 · 1-4 换枪 · C 下蹲 · V 视角 · G 上车", 14, TEXT_DIM)
+	combat_hint.set_anchors_preset(Control.PRESET_CENTER)
+	combat_hint.offset_left = -220
+	combat_hint.offset_right = 220
+	combat_hint.offset_top = 26
+	combat_hint.offset_bottom = 50
+	combat_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	combat_root.add_child(combat_hint)
 	# 右下：弹匣 + 枪名（左侧按钮列上方，避免与跳跃/下蹲按钮重叠）
 	ammo_label = _label("12/12", 30, ACCENT)
 	ammo_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
@@ -601,6 +611,7 @@ func set_rv_walk_active(v: bool) -> void:
 		b.visible = not v
 	ammo_label.visible = not v
 	gun_label.visible = not v
+	combat_hint.visible = not v
 
 ## 瞄准数据（相机已直接朝向，准星居中即可；保留接口）
 func set_combat_aim(_dir: Vector3, _pos: Vector3) -> void:

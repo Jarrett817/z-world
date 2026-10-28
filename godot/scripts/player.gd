@@ -159,6 +159,7 @@ func _enter() -> void:
 	_airborne = false
 	cam.current = true
 	if mode == Mode.RV_WALK:
+		cam.fov = 80.0   # 车内广角：狭长空间显大
 		main_node.hud.set_rv_walk_active(true)
 	else:
 		main_node.hud.set_combat_active(true, ammo(), hp)
@@ -167,6 +168,7 @@ func _enter() -> void:
 func _exit() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	cam.current = false
+	cam.fov = 68.0
 	_firing = false
 	if fps:
 		toggle_fps()
@@ -278,8 +280,8 @@ func _move_rv(delta: float) -> void:
 	if dir.length() > 0.01:
 		position += dir.normalized() * WALK_SPEED * 0.55 * delta
 	# 活动范围：仪表台后到尾壁前（内饰实测尾壁 z=3.07），两侧舱壁内
-	position.x = clampf(position.x, -1.0, 1.0)
-	position.z = clampf(position.z, -2.7, 2.6)
+	position.x = clampf(position.x, -1.06, 1.06)
+	position.z = clampf(position.z, -2.72, 2.68)
 	position.y = -0.4
 	# 车内行走恒第一人称：锁端枪姿势，避免手臂摆动脱离枪挂点
 	if _cur_anim != "aim":
