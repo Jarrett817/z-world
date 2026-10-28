@@ -1,5 +1,14 @@
 # 开发日志
 
+## 2026-10-28 · n77 发行包三区域截帧验收 + 海岸段海面贴岸 + survivor 编译修复
+
+- exe 实机截帧验收发现 `--jump=KM` 语义是里程（`KMH_FACTOR=250`，1km=250 世界米），此前按世界米选点导致截帧全落在错误区域；正确映射：mountain≈6.6km、city≈13.7km、coast≈15.6km（zones 循环 4560m=18.24km）
+- 截帧被「车载电台」弹窗挡住：story.gd 早有现成 `--nostory` 调试参数，截帧命令补上即可，非 bug
+- coast 段海面原 center=150m/half=120m，车载视角下被透视压成细线融进远山，开全程看不到海；收窄至 center=90/half=80（10~170m 贴岸铺开），截帧可见大片蓝色水面
+- coast 段右侧树（23~65m 随机带）会泡水，改为该段树只生左岸；lake 段维持现状
+- 修复 bcc9178 引入的 headless 编译错误：survivor.gd `var door := _main.rv.global_position`——`_main: Node3D` 无 `rv` 静态属性，`:=` 对 Variant 推断失败，需显式 `var door: Vector3`。教训：**EXIT=0 不代表编译通过**，回归必须查 stderr 的 SCRIPT ERROR
+- 验证：无头回归 EXIT=0 且 stderr 零错误；三区域窗口截帧目检 coast 海面/山地集市/城市废墟均达标
+
 ## 2026-10-28 · n76 军用路障署名考据 + Windows 导出管线打通
 
 - credits.json `pending` 组清零：从 barricade.glb 的 GLB JSON chunk 提取 Sketchfab UID `91e4783d...`（已 404 下架），按 8 材质名/面数/部件命名反查到作者重传版本——「Military Barricades / Walls」by A_W（CC-BY 4.0），补署进 cc_by 组
