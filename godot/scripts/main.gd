@@ -92,6 +92,7 @@ var last_z := 0.0
 var cam_pos: Vector3
 var weather := "clear"
 var weather_timer := 45.0
+var _sun_tick := 0.0
 var lamp_mat: StandardMaterial3D
 var lamp_z := -30.0
 var lamp_side := 1.0
@@ -264,7 +265,7 @@ func _ready() -> void:
 		dist_km = _jump_km
 		last_z = rv.global_position.z
 		terrain_front = rv.global_position.z + 100.0
-		terrain.rebuild(terrain_front)   # jump 后原条带留在原地，必须按新位置重建
+		terrain.rebuild(terrain_front, true)   # jump 后原条带留在原地，必须按新位置同步重建
 		obs_z = rv.global_position.z - 30.0
 		pick_z = rv.global_position.z - 20.0
 		surv_z = rv.global_position.z - 180.0
@@ -285,7 +286,11 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_update_time(delta)
-	_update_sun()
+	# 太阳与天气光照变化很慢，10Hz 更新足够平滑，避免每物理帧重复写渲染属性
+	_sun_tick -= delta
+	if _sun_tick <= 0.0:
+		_sun_tick = 0.1
+		_update_sun()
 	if game_over:
 		if Input.is_physical_key_pressed(KEY_R):
 			get_tree().reload_current_scene()
@@ -1096,9 +1101,11 @@ func _recycle_world() -> void:
 	if rvz - VIEW_AHEAD < terrain_front - terrain.SPAN + 60.0:
 		terrain_front = rvz + 100.0
 		terrain.rebuild(terrain_front)
-	# 路肩景物回收
-	for p in props:
+	# 路肩景物回收：原地反向清理，避免每帧 filter 分配新数组
+	for i in range(props.size() - 1, -1, -1):
+		var p = props[i]
 		if not is_instance_valid(p):
+			props.remove_at(i)
 			continue
 		if p.global_position.z > rvz + 30.0:
 			var nz: float = p.global_position.z - 700.0
@@ -1114,7 +1121,6 @@ func _recycle_world() -> void:
 					nx,
 					ground_height(nx, nz) + float(p.get_meta("y_off", 0.0)),
 					nz)
-	props = props.filter(func(p): return is_instance_valid(p))
 
 # ---------- 房车 ----------
 func _build_rv() -> void:
@@ -1700,26 +1706,24 @@ func _build_hud() -> void:
 # ---------- 丧尸 ----------
 func _update_zombies(delta: float) -> void:
 	zombie_timer -= delta
-	# 最后 1.5km 进入方舟防区，不再刷怪
+	# 最后 1.5km 进入方舟防区，只停止刷怪，旧丧尸仍须正常回收
 	if dist_km >= GOAL_KM - 1.5:
 		zombie_timer = 2.0
-		return
-	if zombie_timer <= 0.0 and zombies.size() < 34:
+	elif zombie_timer <= 0.0 and zombies.size() < 34:
 		var difficulty: float = clampf(dist_km * 0.8 + (rv.speed_kmh / MAX_KMH) * 1.5, 0.0, 2.8)
 		zombie_timer = clampf(2.2 - difficulty * 0.6, 0.7, 2.2)
 		_spawn_zombie()
-	# 引擎声推送：半径随车速；怠速停车只有贴脸才惊动游荡尸群
+	# 引擎声推送与回收合并为一次原地反向遍历
 	var engine_radius: float = lerpf(6.0, 34.0, clampf(rv.speed_kmh / MAX_KMH, 0.0, 1.0))
-	for z in zombies:
-		if is_instance_valid(z):
-			z.on_engine_noise(rv.global_position, engine_radius)
-	zombies = zombies.filter(func(z):
+	for i in range(zombies.size() - 1, -1, -1):
+		var z = zombies[i]
 		if not is_instance_valid(z):
-			return false
-		if z.should_free:
+			zombies.remove_at(i)
+		elif z.should_free:
 			z.queue_free()
-			return false
-		return true)
+			zombies.remove_at(i)
+		else:
+			z.on_engine_noise(rv.global_position, engine_radius)
 
 func _spawn_zombie() -> void:
 	# 成批生成在车前各处：路面、路肩、远处野地都有踱步的丧尸，靠声音才被惊动
@@ -1970,6 +1974,8 @@ func spawn_muzzle_flash(muzzle_ws: Vector3) -> void:
 # ---------- 实弹弹道 ----------
 ## 弹丸按真实弹速飞行：扫掠射线防穿透、重力下坠、曳光长亮条，命中延迟结算
 var _bullets: Array = []
+var _trail_mesh: BoxMesh
+var _trail_mat: StandardMaterial3D
 
 ## 发射一发实弹（exclude：不参与的碰撞 RID，如射手自身与房车）
 func spawn_bullet(from: Vector3, dir: Vector3, speed: float, exclude: Array, dmg := 1.0) -> void:
@@ -1977,12 +1983,15 @@ func spawn_bullet(from: Vector3, dir: Vector3, speed: float, exclude: Array, dmg
 	add_child(root)
 	root.global_position = from
 	root.look_at(from + dir, Vector3.UP)
-	# 曳光轨迹：从枪口向弹头生长的亮线；出生帧长度≈0，否则枪口后方会亮出一帧反向短棍
+	# 全部弹迹共享单位网格和材质；仅缩放节点，避免每帧修改 PrimitiveMesh 触发重建
+	if _trail_mesh == null:
+		_trail_mesh = BoxMesh.new()
+		_trail_mesh.size = Vector3(0.03, 0.03, 1.0)
+		_trail_mat = _emis_mat(Color(1.0, 0.85, 0.5), 4.0)
 	var trail := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = Vector3(0.03, 0.03, 0.02)
-	trail.mesh = bm
-	trail.material_override = _emis_mat(Color(1.0, 0.85, 0.5), 4.0)
+	trail.mesh = _trail_mesh
+	trail.material_override = _trail_mat
+	trail.scale.z = 0.02
 	trail.position.z = 0.01
 	root.add_child(trail)
 	_bullets.append({
@@ -2014,9 +2023,8 @@ func _update_bullets(delta: float) -> void:
 			var hnode: Node3D = b["node"]
 			hnode.global_position = hit_pos
 			hnode.look_at(hit_pos + b["vel"].normalized(), Vector3.UP)
-			var hbm := (b["trail"] as MeshInstance3D).mesh as BoxMesh
 			var hlen: float = clampf((hit_pos - b["muzzle"]).length(), 0.02, 40.0)
-			hbm.size.z = hlen
+			(b["trail"] as MeshInstance3D).scale.z = hlen
 			(b["trail"] as MeshInstance3D).position.z = hlen * 0.5
 			get_tree().create_timer(0.05).timeout.connect(hnode.queue_free)
 			_bullets.remove_at(i)
@@ -2028,9 +2036,8 @@ func _update_bullets(delta: float) -> void:
 		node.global_position = b["pos"]
 		node.look_at(b["pos"] + b["vel"].normalized(), Vector3.UP)
 		# 轨迹线随飞行拉长：后端固定在枪口，前端跟随弹头
-		var bm := (b["trail"] as MeshInstance3D).mesh as BoxMesh
 		var len: float = clampf((b["pos"] - b["muzzle"]).length(), 0.7, 40.0)
-		bm.size.z = len
+		(b["trail"] as MeshInstance3D).scale.z = len
 		(b["trail"] as MeshInstance3D).position.z = len * 0.5
 		if b["dist"] <= 0.0:
 			node.queue_free()
@@ -4297,10 +4304,19 @@ func _spawn_scenery(z: float) -> void:
 			var ts: float = -1.0 if zone == "coast" else _side()
 			_place_scenery(TREE_SCENE, rx + ts * randf_range(23.0, 65.0), z + randf_range(-6.0, 6.0), randf_range(7.0, 13.0))
 
-## 实例化景物：按 AABB 缩放到目标高度、脚底落地（外部资产尺寸不可控）
+var _scene_aabbs: Dictionary = {}
+
+## 实例化景物：按 AABB 缩放到目标高度、脚底落地（源资产包围盒只计算一次）
 func _place_scenery(scene: PackedScene, x: float, z: float, target_h: float) -> void:
+	var aabb: AABB
+	if _scene_aabbs.has(scene):
+		aabb = _scene_aabbs[scene]
+	else:
+		var source: Node3D = scene.instantiate()
+		aabb = _merged_aabb(source)
+		source.free()
+		_scene_aabbs[scene] = aabb
 	var node: Node3D = scene.instantiate()
-	var aabb := _merged_aabb(node)
 	if aabb.size.y > 0.01:
 		var s := target_h / aabb.size.y
 		if scene == BUILDING_SCENE or scene == JUNK_SCENE:

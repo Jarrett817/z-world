@@ -14,12 +14,21 @@ const RAIL_SEG := 4.0
 var _main: Node3D
 var _mats: Array[StandardMaterial3D] = []
 var _col_shape: CollisionShape3D
+var _build_active := false
+var _pending_mesh: ArrayMesh
+var _pending_start := 0.0
+var _pending_surface := 0
+var _col_map := PackedFloat32Array()
+var _col_row := 0
+var _col_z0 := 0.0
 
 # 碰撞高度图：x ∈ ±400m 步长 2.5，z 覆盖条带前后各留余量（与视觉地面同一高度函数）
 const COL_HALF_X := 400.0
 const COL_STEP := 2.5
 const COL_BACK := 40.0    # 条带起点向后（+Z）覆盖
 const COL_FWD := 900.0    # 向前（-Z）覆盖
+const SURFACE_COUNT := 17
+const COL_ROWS_PER_FRAME := 12
 
 func _ready() -> void:
 	# 静态碰撞体常驻，shape 随 rebuild 换新（真实地形高度，丧尸/车/人贴地）
@@ -28,10 +37,57 @@ func _ready() -> void:
 	col.add_child(_col_shape)
 	add_child(col)
 
-func rebuild(start_z: float) -> void:
+func rebuild(start_z: float, immediate := false) -> void:
 	_main = get_parent()
-	mesh = _make_mesh(start_z)
-	_rebuild_collision(start_z)
+	# 开局与里程跳转没有可保留的就近地形，必须同步完成；常规行驶重建分帧执行
+	if immediate or mesh == null:
+		_build_active = false
+		_pending_mesh = null
+		_col_map = PackedFloat32Array()
+		mesh = _make_mesh(start_z)
+		_rebuild_collision(start_z)
+		return
+	_pending_start = start_z
+	_pending_mesh = ArrayMesh.new()
+	_pending_surface = 0
+	_col_row = 0
+	_col_map = PackedFloat32Array()
+	_ensure_materials()
+	_build_active = true
+
+## 每帧只生成一个视觉 surface 或一段碰撞行，旧网格与旧碰撞保留到新地形完整就绪
+func _process(_delta: float) -> void:
+	if not _build_active:
+		return
+	if _pending_surface < SURFACE_COUNT:
+		var index := _pending_surface
+		_pending_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _surface_arrays(index, _pending_start))
+		_pending_mesh.surface_set_material(index, _mats[index])
+		_pending_surface += 1
+		return
+	var w := int(COL_HALF_X * 2.0 / COL_STEP) + 1
+	var d := int((COL_BACK + COL_FWD) / COL_STEP) + 1
+	if _col_map.is_empty():
+		_col_map.resize(w * d)
+		_col_z0 = _pending_start + COL_BACK
+	var end_row := mini(_col_row + COL_ROWS_PER_FRAME, d)
+	while _col_row < end_row:
+		var z := _col_z0 - (d - 1 - _col_row) * COL_STEP
+		var gy: float = _main.ground_y(z)
+		var rx: float = _main.road_x(z)
+		var zone: String = _main.zone_at(z)
+		var base := _col_row * w
+		for xi in w:
+			var x := -COL_HALF_X + xi * COL_STEP
+			_col_map[base + xi] = _main.ground_height_c(x, z, gy, rx, zone)
+		_col_row += 1
+	if _col_row < d:
+		return
+	_apply_collision(_col_map, w, d, _col_z0)
+	mesh = _pending_mesh
+	_pending_mesh = null
+	_col_map = PackedFloat32Array()
+	_build_active = false
 
 ## 碰撞高度图：行缓存 gy/rx/zone，逐点取 ground_height_c，与视觉地面严格一致
 func _rebuild_collision(start_z: float) -> void:
@@ -39,9 +95,8 @@ func _rebuild_collision(start_z: float) -> void:
 	var d := int((COL_BACK + COL_FWD) / COL_STEP) + 1
 	var map := PackedFloat32Array()
 	map.resize(w * d)
-	var z0 := start_z + COL_BACK   # 高度图 +Z 端的世界 z
+	var z0 := start_z + COL_BACK
 	for zi in d:
-		# 高度图行沿 +Z 递增：第 zi 行世界 z = z0 - (d-1-zi)*STEP
 		var z := z0 - (d - 1 - zi) * COL_STEP
 		var gy: float = _main.ground_y(z)
 		var rx: float = _main.road_x(z)
@@ -50,79 +105,97 @@ func _rebuild_collision(start_z: float) -> void:
 		for xi in w:
 			var x := -COL_HALF_X + xi * COL_STEP
 			map[base + xi] = _main.ground_height_c(x, z, gy, rx, zone)
+	_apply_collision(map, w, d, z0)
+
+func _apply_collision(map: PackedFloat32Array, w: int, d: int, z0: float) -> void:
 	var hm := HeightMapShape3D.new()
 	hm.map_width = w
 	hm.map_depth = d
 	hm.map_data = map
 	_col_shape.shape = hm
-	# 高度图以自身原点为中心：x 跨 ±400（格距由 scale 扩到 2.5m），z 居中到条带中段
 	_col_shape.scale = Vector3(COL_STEP, 1.0, COL_STEP)
 	_col_shape.position = Vector3(0.0, 0.0, z0 - (d - 1) * COL_STEP * 0.5)
 
 func _make_mesh(start_z: float) -> ArrayMesh:
+	_ensure_materials()
 	var am := ArrayMesh.new()
-	# 0 超宽大地（含 24m 走廊平坦过渡断点；按景观段做山坡隆起/海床下沉）
-	var gxs := PackedFloat32Array([-600.0, -380.0, -220.0, -130.0, -80.0, -50.0, -34.0, -20.0, 20.0, 34.0, 50.0, 80.0, 130.0, 220.0, 380.0, 600.0])
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, 0.0, 0.0, -0.3, false, 1, gxs))
-	# 1/2 两侧路肩土带
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -ROAD_HALF - 16.0, -ROAD_HALF, -0.05, false, 2))
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, ROAD_HALF, ROAD_HALF + 16.0, -0.05, false, 2))
-	# 3 柏油路面（横向 8 细分：顶点色才能呈现车轮磨损双暗带与修补斑块；mottle 开关必须打开，否则 _mottle 里的轮迹/补丁逻辑不生效）
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -ROAD_HALF, ROAD_HALF, 0.0, true, 8))
-	# 4/5 边缘实线（发旧白）
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -ROAD_HALF + 0.35, -ROAD_HALF + 0.65, 0.02, false))
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, ROAD_HALF - 0.65, ROAD_HALF - 0.35, 0.02, false))
-	# 6 中央黄虚线
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _band(start_z, -0.12, 0.12, 0.02, true))
-	# 7/8 公路波形护栏（双横梁 + 立柱，沿弯路逐段挤出）
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _rail(start_z, -1.0))
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _rail(start_z, 1.0))
-	# 9/10 近层青山剪影（草木覆盖，大气透视偏青，双面）
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _ridge(start_z, -150.0))
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _ridge(start_z, 150.0))
-	# 11/12 远层青山（更矮更淡，拉出纵深）
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _ridge(start_z, -380.0, 280.0, 0.6))
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _ridge(start_z, 380.0, 280.0, 0.6))
-	# 13/14 路边河湖：顺弯路展开的条带水面，随重建位置固定（明媚风光）
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _water(start_z, -1.0))
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _water(start_z, 1.0))
-	# 15/16 岔路：土路支路（斜出收窄收尾）与沥青十字路口，车可真实拐入
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _side_roads(start_z, false))
-	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _side_roads(start_z, true))
-	if _mats.is_empty():
-		var rail_mat := _mat(Color(0.42, 0.43, 0.44), 0.55)
-		rail_mat.metallic = 0.35
-		var ridge_mat := _mat(Color(0.23, 0.34, 0.22), 1.0)
-		ridge_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		var ridge_far_mat := _mat(Color(0.42, 0.55, 0.45), 1.0)
-		ridge_far_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		var water_mat := StandardMaterial3D.new()
-		water_mat.albedo_color = Color(0.16, 0.36, 0.46)
-		water_mat.roughness = 0.12
-		water_mat.metallic = 0.25
-		water_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		_mats = [
-			_mat(Color(0.24, 0.33, 0.16), 1.0),
-			_mat(Color(0.31, 0.34, 0.20), 1.0),
-			_mat(Color(0.31, 0.34, 0.20), 1.0),
-			_mat(Color(0.115, 0.11, 0.105), 0.98),
-			_mat(Color(0.5, 0.48, 0.43), 0.9),
-			_mat(Color(0.5, 0.48, 0.43), 0.9),
-			_mat(Color(0.58, 0.44, 0.17), 0.9),
-			rail_mat,
-			rail_mat,
-			ridge_mat,
-			ridge_mat,
-			ridge_far_mat,
-			ridge_far_mat,
-			water_mat,
-			water_mat,
-			_mat(Color(0.29, 0.235, 0.155), 1.0),
-			_mat(Color(0.13, 0.125, 0.12), 0.98),
-		]
-	for i in _mats.size():
+	for i in SURFACE_COUNT:
+		am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _surface_arrays(i, start_z))
 		am.surface_set_material(i, _mats[i])
 	return am
+
+func _surface_arrays(index: int, start_z: float) -> Array:
+	match index:
+		0:
+			var gxs := PackedFloat32Array([-600.0, -380.0, -220.0, -130.0, -80.0, -50.0, -34.0, -20.0, 20.0, 34.0, 50.0, 80.0, 130.0, 220.0, 380.0, 600.0])
+			return _band(start_z, 0.0, 0.0, -0.3, false, 1, gxs)
+		1:
+			return _band(start_z, -ROAD_HALF - 16.0, -ROAD_HALF, -0.05, false, 2)
+		2:
+			return _band(start_z, ROAD_HALF, ROAD_HALF + 16.0, -0.05, false, 2)
+		3:
+			# 柏油必须连续；横向细分只用于车辙与修补斑块顶点色
+			return _band(start_z, -ROAD_HALF, ROAD_HALF, 0.0, false, 8)
+		4:
+			return _band(start_z, -ROAD_HALF + 0.35, -ROAD_HALF + 0.65, 0.02, false)
+		5:
+			return _band(start_z, ROAD_HALF - 0.65, ROAD_HALF - 0.35, 0.02, false)
+		6:
+			return _band(start_z, -0.12, 0.12, 0.02, true)
+		7:
+			return _rail(start_z, -1.0)
+		8:
+			return _rail(start_z, 1.0)
+		9:
+			return _ridge(start_z, -150.0)
+		10:
+			return _ridge(start_z, 150.0)
+		11:
+			return _ridge(start_z, -380.0, 280.0, 0.6)
+		12:
+			return _ridge(start_z, 380.0, 280.0, 0.6)
+		13:
+			return _water(start_z, -1.0)
+		14:
+			return _water(start_z, 1.0)
+		15:
+			return _side_roads(start_z, false)
+		_:
+			return _side_roads(start_z, true)
+
+func _ensure_materials() -> void:
+	if not _mats.is_empty():
+		return
+	var rail_mat := _mat(Color(0.42, 0.43, 0.44), 0.55)
+	rail_mat.metallic = 0.35
+	var ridge_mat := _mat(Color(0.23, 0.34, 0.22), 1.0)
+	ridge_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var ridge_far_mat := _mat(Color(0.42, 0.55, 0.45), 1.0)
+	ridge_far_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var water_mat := StandardMaterial3D.new()
+	water_mat.albedo_color = Color(0.16, 0.36, 0.46)
+	water_mat.roughness = 0.12
+	water_mat.metallic = 0.25
+	water_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_mats = [
+		_mat(Color(0.24, 0.33, 0.16), 1.0),
+		_mat(Color(0.31, 0.34, 0.20), 1.0),
+		_mat(Color(0.31, 0.34, 0.20), 1.0),
+		_mat(Color(0.115, 0.11, 0.105), 0.98),
+		_mat(Color(0.5, 0.48, 0.43), 0.9),
+		_mat(Color(0.5, 0.48, 0.43), 0.9),
+		_mat(Color(0.58, 0.44, 0.17), 0.9),
+		rail_mat,
+		rail_mat,
+		ridge_mat,
+		ridge_mat,
+		ridge_far_mat,
+		ridge_far_mat,
+		water_mat,
+		water_mat,
+		_mat(Color(0.29, 0.235, 0.155), 1.0),
+		_mat(Color(0.13, 0.125, 0.12), 0.98),
+	]
 
 ## 生成一条沿路弯曲的条带（x0/x1 为相对路中心的横向范围，nx 为横向细分数）
 ## 顶点叠加确定性多频噪声色，做出柏油/泥地旧化斑驳，避免纯色塑料感
@@ -136,9 +209,10 @@ func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool, nx 
 	var use_xs := xs.size() >= 2
 	var enx := xs.size() - 1 if use_xs else nx
 	for i in steps:
-		if dashed and fmod(i * SEG_LEN, DASH_PERIOD) > DASH_LEN:
-			continue
 		var za := start_z - i * SEG_LEN
+		# 虚线相位使用世界坐标，流式重建后图案不跳动
+		if dashed and fposmod(za, DASH_PERIOD) > DASH_LEN:
+			continue
 		var zb := start_z - (i + 1) * SEG_LEN
 		var cxa: float = _main.road_x(za)
 		var cxb: float = _main.road_x(zb)
