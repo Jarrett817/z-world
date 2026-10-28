@@ -41,6 +41,8 @@ func _ready() -> void:
 
 ## 2D 播放：pitch 基准 + var_ 随机浮动，避免重复感
 func play(key: String, pitch := 1.0, var_ := 0.07, vol := 0.0) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
 	var p := _pool2d[_i2d]
 	_i2d = (_i2d + 1) % POOL_2D
 	p.stream = _streams[key]
@@ -50,6 +52,8 @@ func play(key: String, pitch := 1.0, var_ := 0.07, vol := 0.0) -> void:
 
 ## 3D 播放：按世界坐标衰减（Sfx 父链无 3D 变换，global 即世界坐标）
 func play3d(key: String, pos: Vector3, pitch := 1.0, var_ := 0.07, vol := 0.0) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
 	var p := _pool3d[_i3d]
 	_i3d = (_i3d + 1) % POOL_3D
 	p.stream = _streams[key]
@@ -60,6 +64,8 @@ func play3d(key: String, pos: Vector3, pitch := 1.0, var_ := 0.07, vol := 0.0) -
 
 ## 引擎音随车速：speed01 = speed_kmh / 极速
 func set_engine(speed01: float) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
 	if speed01 <= 0.02:
 		if _engine.playing:
 			_engine.stop()
@@ -68,3 +74,14 @@ func set_engine(speed01: float) -> void:
 		_engine.play()
 	_engine.pitch_scale = 0.75 + speed01 * 0.85
 	_engine.volume_db = -21.0 + speed01 * 11.0
+
+func _exit_tree() -> void:
+	for p in _pool2d:
+		p.stop()
+		p.stream = null
+	for p in _pool3d:
+		p.stop()
+		p.stream = null
+	_engine.stop()
+	_engine.stream = null
+	_streams.clear()

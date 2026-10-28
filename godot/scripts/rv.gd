@@ -139,6 +139,9 @@ func _physics_process(delta: float) -> void:
 			rotation.y = lerp_angle(rotation.y, target, delta * 1.2 * (1.0 - 0.5 * ratio))
 	move_and_slide()
 	_report_collisions()
+	if is_on_wall():
+		# 顶住障碍时采用实际位移速度，避免表显/耗油/车轮仍按油门目标速度运行
+		speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd) / KMH_TO_UNITS))
 
 	# 贴地：直接跟随地形高度函数，避免起伏穿模
 	position.y = main_node.ground_height(position.x, position.z) + main_node.RV_MODEL_FOOT

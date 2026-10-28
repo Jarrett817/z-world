@@ -23,9 +23,9 @@ func _ready() -> void:
 	if OS.get_cmdline_user_args().has("--nostory"):
 		set_process(false)
 		return
-	# 开局序章：给玩家两秒看清场景后电台亮起（续档时 intro 已触发过，不再重播）
+	# 开局序章：给玩家两秒看清场景后电台亮起（兼容仅记录过 intro_2 的旧存档）
 	get_tree().create_timer(_intro_delay).timeout.connect(func() -> void:
-		if not fired.has("intro"):
+		if not fired.has("intro") and not fired.has("intro_2"):
 			_open("intro"))
 
 func _process(delta: float) -> void:
@@ -94,6 +94,7 @@ func choose(idx: int) -> void:
 	var opt: Dictionary = opts[idx]
 	# 分支事件链：goto 优先（无即时结算）
 	if opt.has("goto"):
+		fired.append(main.hud.story_event_id)
 		main.hud.hide_story()
 		_open(String(opt["goto"]))
 		return
@@ -106,6 +107,7 @@ func choose(idx: int) -> void:
 			main.hud.toast(String(branch["toast"]))
 		# 分支结算后跳转叙事节点（如垂死抢修成功续命）
 		if branch.has("goto"):
+			fired.append(main.hud.story_event_id)
 			main.hud.hide_story()
 			_open(String(branch["goto"]))
 			return
@@ -115,6 +117,7 @@ func choose(idx: int) -> void:
 			main.hud.toast(String(opt["toast"]))
 	# 顺序下一节
 	if opt.has("next"):
+		fired.append(main.hud.story_event_id)
 		main.hud.hide_story()
 		_open(String(opt["next"]))
 		return

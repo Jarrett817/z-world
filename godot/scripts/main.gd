@@ -153,6 +153,15 @@ var _shot_t := 0.0
 var _shot_walk := false  # --shotrvwalk：截帧前先进车内行走
 var _shot_combat := false  # --shotcombat：截帧前先进下车战斗
 var _shot_sunroof := false # --shotsunroof：截帧前进车顶卧姿射击
+var _gunner_test := false  # --gunnertest：驻车在射手射界内持续补怪，自动验证打空→换弹→复火
+var _gt_t := 0.0
+var _gt_supply := 0.0
+var _gt_parked := false
+var _gt_state: Dictionary = {}  # 射手figure -> {prev_ammo,fired,reloaded,refired,was_reloading,passed}
+var _gt_log := 0.0
+var _drive_test := false   # --drive：无头行驶 soak，首帧注入 W 油门保持按下
+var _drive_started := false
+var _drive_log := 0.0
 var _shot_fps := false     # --fps：配合 --shotcombat 切第一人称截帧
 var _shot_credits := false  # --shotcredits：截帧前先打开署名面板
 var _shot_settings := false  # --shotsettings：截帧前先打开设置面板
@@ -181,6 +190,10 @@ func _ready() -> void:
 			_shot_combat = true
 		elif a == "--shotsunroof":
 			_shot_sunroof = true
+		elif a == "--gunnertest":
+			_gunner_test = true
+		elif a == "--drive":
+			_drive_test = true
 		elif a == "--fps":
 			_shot_fps = true
 		elif a == "--shotcredits":
@@ -221,6 +234,8 @@ func _ready() -> void:
 	_build_hud()
 	_build_music()
 	# --crew=N 调试补员：配合截帧验收座位角色
+	if _gunner_test:
+		_debug_crew = maxi(_debug_crew, 5)   # gunnertest 需 5 名队友：岗位顺序副驾/做饭/收拾/左枪/右枪，满员才有双射手
 	if _debug_crew > 0:
 		for i in _debug_crew:
 			var m := _next_crew_member()
@@ -375,6 +390,8 @@ func _build_music() -> void:
 
 ## 双播放器交叉淡入淡出切换场景音乐
 func play_music(key: String) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
 	if key == music_key or not MUSIC_TRACKS.has(key):
 		return
 	var stream: AudioStream = load(MUSIC_TRACKS[key])
@@ -400,6 +417,8 @@ func play_music(key: String) -> void:
 func _exit_tree() -> void:
 	save_game()
 	save_settings()
+	music_a.stop()
+	music_b.stop()
 	music_a.stream = null
 	music_b.stream = null
 
@@ -490,6 +509,20 @@ func save_settings() -> void:
 
 # ---------- 相机（追尾 / 驾驶舱 / 车内） ----------
 func _process(delta: float) -> void:
+	if _drive_test and not _drive_started:
+		_drive_started = true
+		var ev := InputEventKey.new()
+		ev.physical_keycode = KEY_W
+		ev.pressed = true
+		Input.parse_input_event(ev)
+	if _drive_test:
+		_drive_log += delta
+		if _drive_log >= 60.0:
+			_drive_log = 0.0
+			print("DRIVE dist=", snappedf(dist_km, 0.01), "km speed=", snappedf(rv.speed_kmh, 0.1),
+				" weather=", weather, " zombies=", zombies.size(), " durability=", durability)
+	if _gunner_test:
+		_gunner_test_tick(delta)
 	if _shot_at > 0.0:
 		_shot_t += delta
 		if _shot_t >= _shot_at:
@@ -1511,6 +1544,97 @@ func _update_port_gunners(delta: float) -> void:
 			spawn_muzzle_flash(from)
 			sfx.play3d("gunshot", f.global_position, 0.9, 0.08)
 		f.set_meta("fire_cd", cd)
+
+## --gunnertest：无头实弹验证 NPC 射手弹匣/换弹。两侧射界内持续补怪，跟踪打空→换弹→复火，全过或超时自动退出
+func _gunner_test_tick(delta: float) -> void:
+	_gt_t += delta
+	if not _gt_parked:
+		_gt_parked = true
+		parked = true
+		rv.parked = true
+		rv.speed_kmh = 0.0
+		set_facilities_ui(false)
+		print("GUNNERTEST begin, gunners duty check...")
+	# 每秒补怪：保持每侧射界内至少 2 只活目标（远处刷新，走进射界才挨打）
+	_gt_supply -= delta
+	if _gt_supply <= 0.0:
+		_gt_supply = 1.0
+		for side in [-1.0, 1.0]:
+			var alive := 0
+			for z in zombies:
+				if not is_instance_valid(z) or z.dead:
+					continue
+				var lp: Vector3 = rv.to_local(z.global_position)
+				if signf(lp.x) == side and absf(lp.z - 1.3) < 3.0 and absf(lp.x) > 3.0:
+					alive += 1
+			if alive < 2:
+				for i in 2:
+					var body := _make_zombie_body()
+					body.position = rv.to_global(Vector3(side * randf_range(10.0, 14.0), 0.0, randf_range(0.3, 2.3)))
+					body.position.y = GROUND_Y + 0.5
+					add_child(body)
+					body.setup(self)
+					zombies.append(body)
+	# 跟踪每名射手：射弹数/换弹次数/换弹后复火数
+	var gunner_count := 0
+	var all_pass := true
+	for f in crew_figures:
+		if f.get_meta("duty", "") != "gun":
+			continue
+		gunner_count += 1
+		if not _gt_state.has(f):
+			_gt_state[f] = {"prev_ammo": -1, "fired": 0, "reloaded": 0, "refired": 0, "was_reloading": false, "passed": false}
+		var st: Dictionary = _gt_state[f]
+		var ammo_now: int = f.get_meta("npc_ammo", -1)
+		var reloading_now: bool = f.get_meta("reload_until", 0.0) > 0.0
+		if ammo_now >= 0 and st.prev_ammo >= 0 and ammo_now < st.prev_ammo:
+			st.fired += st.prev_ammo - ammo_now
+			if st.reloaded > 0:
+				st.refired += st.prev_ammo - ammo_now
+		if reloading_now and not st.was_reloading:
+			st.reloaded += 1
+		st.was_reloading = reloading_now
+		st.prev_ammo = ammo_now
+		if st.reloaded >= 1 and st.refired >= 3:
+			st.passed = true
+		if not st.passed:
+			all_pass = false
+	# 每 30 游戏秒打一次诊断：射手站位/模型/闲聊/冷却与本侧目标数
+	if _gt_t - _gt_log >= 30.0:
+		_gt_log = _gt_t
+		for f in _gt_state:
+			var side := signf(f.position.x)
+			var near := 0
+			var in_arc := 0
+			for z in zombies:
+				if not is_instance_valid(z) or z.dead:
+					continue
+				var rel: Vector3 = rv.to_local(z.global_position) - f.position
+				if signf(rel.x) != side:
+					continue
+				near += 1
+				if absf(atan2(rel.z, absf(rel.x))) <= 0.45:
+					in_arc += 1
+			print("GT diag t=", int(_gt_t), " ", f.name, " pos=", f.position, " Char=", f.has_node("Char"),
+				" banter=", f.get_meta("banter_until", 0.0) > Time.get_ticks_msec() / 1000.0,
+				" cd=", f.get_meta("fire_cd", 0.0), " side_zombies=", near, " in_arc=", in_arc)
+	if gunner_count == 0:
+		if _gt_t > 5.0:
+			print("GUNNERTEST FAIL: no gunners on duty")
+			get_tree().quit(1)
+		return
+	if all_pass:
+		for f in _gt_state:
+			var st: Dictionary = _gt_state[f]
+			print("GUNNERTEST gunner ", f.name, ": fired=", st.fired, " reloaded=", st.reloaded, " refired=", st.refired)
+		print("GUNNERTEST PASS t=", snappedf(_gt_t, 0.1), "s")
+		get_tree().quit(0)
+	elif _gt_t > 180.0:
+		for f in _gt_state:
+			var st: Dictionary = _gt_state[f]
+			print("GUNNERTEST gunner ", f.name, ": fired=", st.fired, " reloaded=", st.reloaded, " refired=", st.refired, " ammo=", st.prev_ammo)
+		print("GUNNERTEST FAIL: timeout")
+		get_tree().quit(1)
 
 func _build_camera() -> void:
 	cam = Camera3D.new()
