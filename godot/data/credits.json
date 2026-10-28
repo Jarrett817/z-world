@@ -9,11 +9,10 @@
 		{ "asset": "丧尸音效「ZombiePackSFX 3」", "author": "Colodical", "license": "CC-BY 3.0" },
 		{ "asset": "废弃轿车「Crashed Abandoned Car」与废弃卡车「Crashed Abandoned Truck」", "author": "Rashad Ibrahimli (rashad-brahimli)", "license": "CC-BY 4.0" },
 		{ "asset": "施工路障套装「Barrier & Traffic Cone Pack」", "author": "sabriayes", "license": "CC-BY 4.0" },
-		{ "asset": "引擎循环音（重型柴油机车）「Engine Heavy Loop」", "author": "Nayckron", "license": "CC-BY 3.0" }
+		{ "asset": "引擎循环音（重型柴油机车）「Engine Heavy Loop」", "author": "Nayckron", "license": "CC-BY 3.0" },
+		{ "asset": "军用路障套装「Military Barricades / Walls」（sketchfab.com/A_W）", "author": "A_W", "license": "CC-BY 4.0" }
 	],
-	"pending": [
-		{ "asset": "军用路障（barricade）", "note": "Sketchfab CC-BY 素材，作者信息在工程迁移中遗失，核实后补署" }
-	],
+	"pending": [],
 	"cc0": [
 		{ "asset": "丧尸模型「Zombie Apocalypse Kit」与人物动画库 UAL", "author": "Quaternius" },
 		{ "asset": "剧情纸张音", "author": "Luckius" },

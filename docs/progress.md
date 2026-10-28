@@ -1,5 +1,12 @@
 # 开发日志
 
+## 2026-10-28 · n76 军用路障署名考据 + Windows 导出管线打通
+
+- credits.json `pending` 组清零：从 barricade.glb 的 GLB JSON chunk 提取 Sketchfab UID `91e4783d...`（已 404 下架），按 8 材质名/面数/部件命名反查到作者重传版本——「Military Barricades / Walls」by A_W（CC-BY 4.0），补署进 cc_by 组
+- 导出模板从官方对象存储镜像（`godot-releases.nbg1.your-objectstorage.com`，GitHub 被 SNI 阻断的替代源）断点续传下载 1.28GB，安装到 `%APPDATA%\Godot\export_templates\4.7.2.stable\`（注意目录是点号不是连字符）
+- 新增 `godot/export_presets.cfg`（Windows Desktop 预设，pck 嵌入单 exe）；`--export-release` 出 321.5MB exe，`--headless --quit-after 120` 试跑 EXIT=0 仅基线噪声
+- 验证：无头回归 EXIT=0
+
 ## 2026-10-27 · n75 山段岩石去白模
 
 - `_spawn_rock()` 原为单一灰 BoxMesh（n70 白模盘点遗留项），改为低面数 SphereMesh（9 段 6 环）压成不规则椭球 + 侧面叠一块 0.4~0.75 倍小石破蛋形轮廓；随机三轴翻转、比例控制在 0.72~1.35 之间避免压成飞碟
