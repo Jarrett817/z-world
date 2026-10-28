@@ -2,7 +2,7 @@ extends Node3D
 ## 路边幸存者：从野地逃命（run）跑向路缘，据枪（aim）反击追兵，被贴身则应急反杀；
 ## 车辆驶入范围即招募。橙色求救光柱远距可见。
 
-enum St { FLEE, STAND, KITE }
+enum St { FLEE, STAND, KITE, BOARD }
 
 const RUN_SPEED := 4.8
 const FIRE_RANGE := 16.0
@@ -109,6 +109,20 @@ func _process(delta: float) -> void:
 			else:
 				# 无威胁时面向公路，朝驶来的房车示意
 				rotation.y = lerp_angle(rotation.y, 0.0, delta * 3.0)
+		St.BOARD:
+			# 被招募：跑向房车，到车门即上车消失；车已开远（结算已完成）直接退场
+			var door := _main.rv.global_position
+			var flat := Vector2(position.x - door.x, position.z - door.z).length()
+			if flat < 1.4 or flat > 40.0:
+				queue_free()
+			else:
+				_move_toward(door, delta)
+
+## 被招募上车：脱离战斗，收起求救光柱跑向房车
+func board() -> void:
+	_state = St.BOARD
+	_beam.visible = false
+	_play("run")
 
 ## 丧尸贴身啃咬钩子：应急反杀（幸存者都是见过世面的狠角色，本轮不设死亡）
 func on_bitten(z: Node3D) -> void:

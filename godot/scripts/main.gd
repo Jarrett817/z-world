@@ -2822,7 +2822,7 @@ func try_recruit(survivor: Node3D) -> void:
 		return
 	food -= cost
 	crew += 1
-	survivor.queue_free()
+	survivor.board()
 	var member := _next_crew_member()
 	if not member.is_empty():
 		crew_members.append(member)
