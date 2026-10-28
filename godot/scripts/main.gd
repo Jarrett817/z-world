@@ -134,6 +134,7 @@ var ark_spawned := false
 var survivors_data := {}
 var crew_members: Array = []
 var crew_figures: Array = []
+var _npc_gun_cfg: Dictionary = {}   # guns.json "npc_gunner" 节：射手弹匣/换弹/射界（首次用到时加载）
 var driver_figure: Node3D   # 主角驾驶位模型（坐姿 + 双手 IK 握方向盘）
 var crew_font: SystemFont
 
@@ -151,6 +152,7 @@ var _shot_path := ""
 var _shot_t := 0.0
 var _shot_walk := false  # --shotrvwalk：截帧前先进车内行走
 var _shot_combat := false  # --shotcombat：截帧前先进下车战斗
+var _shot_sunroof := false # --shotsunroof：截帧前进车顶卧姿射击
 var _shot_fps := false     # --fps：配合 --shotcombat 切第一人称截帧
 var _shot_credits := false  # --shotcredits：截帧前先打开署名面板
 var _shot_settings := false  # --shotsettings：截帧前先打开设置面板
@@ -177,6 +179,8 @@ func _ready() -> void:
 			_shot_walk = true
 		elif a == "--shotcombat":
 			_shot_combat = true
+		elif a == "--shotsunroof":
+			_shot_sunroof = true
 		elif a == "--fps":
 			_shot_fps = true
 		elif a == "--shotcredits":
@@ -517,6 +521,19 @@ func _process(delta: float) -> void:
 				rv.speed_kmh = 0.0
 				set_facilities_ui(false)
 				start_combat(0)
+				if _shot_fps:
+					get_player_body().toggle_fps()
+				_shot_at = 1.5
+				_shot_t = 0.0
+				return
+			if _shot_sunroof and not combat_active:
+				# --shotsunroof：驻车进车顶卧姿射击，稳定 1.5s 后截帧
+				_shot_sunroof = false
+				parked = true
+				rv.parked = true
+				rv.speed_kmh = 0.0
+				set_facilities_ui(false)
+				start_combat(1)
 				if _shot_fps:
 					get_player_body().toggle_fps()
 				_shot_at = 1.5
@@ -1130,8 +1147,8 @@ func _build_crew() -> void:
 		[Vector3(0.55, -0.4, -3.18), PI, "sit", "瞭望"],          # 副驾（坐姿朝车头，首位队友；座椅已前移贴方向盘）
 		[Vector3(-0.55, -0.4, -0.1), -PI * 0.5, "cook", "做饭"],  # 灶台前，朝 -X
 		[Vector3(0.55, -0.4, 0.4), PI * 0.5, "tidy", "收拾"],     # 货架前，朝 +X
-		[Vector3(-0.92, -0.4, 1.3), -PI * 0.5, "gun", "射手"],    # 左射击孔，贴左墙朝 -X
-		[Vector3(0.92, -0.4, 1.3), PI * 0.5, "gun", "射手"],      # 右射击孔，贴右墙朝 +X
+		[Vector3(-0.66, -0.4, 1.3), -PI * 0.5, "gun", "射手"],    # 左射击孔，离左墙 0.65：手臂/枪身不穿墙，枪管从孔位伸出
+		[Vector3(0.66, -0.4, 1.3), PI * 0.5, "gun", "射手"],      # 右射击孔，同左镜像
 	]
 	for st in stations:
 		var fig := Node3D.new()
@@ -1189,6 +1206,7 @@ func _build_duty_props() -> void:
 		steam.draw_pass_1 = q
 		interior.add_child(steam)
 	# 射击孔：生活舱后部两侧墙（sill 在 x≈±1.31），深色金属框 + 黑色孔洞
+	# 横向长条射界孔：孔心对齐枪管高度(y≈0.90)，射手 ±fire_arc 转枪时枪管始终在黑孔范围内，不穿墙
 	var frame_mat := StandardMaterial3D.new()
 	frame_mat.albedo_color = Color(0.22, 0.2, 0.18)
 	frame_mat.metallic = 0.5
@@ -1198,17 +1216,17 @@ func _build_duty_props() -> void:
 	for side in [-1.0, 1.0]:
 		var frame := MeshInstance3D.new()
 		var fm := BoxMesh.new()
-		fm.size = Vector3(0.06, 0.42, 0.42)
+		fm.size = Vector3(0.06, 0.42, 1.12)
 		frame.mesh = fm
 		frame.material_override = frame_mat
-		frame.position = Vector3(side * 1.3, 0.62, 1.3)
+		frame.position = Vector3(side * 1.3, 0.85, 1.3)
 		rv.add_child(frame)
 		var hole := MeshInstance3D.new()
 		var hm := BoxMesh.new()
-		hm.size = Vector3(0.08, 0.3, 0.3)
+		hm.size = Vector3(0.08, 0.3, 1.0)
 		hole.mesh = hm
 		hole.material_override = hole_mat
-		hole.position = Vector3(side * 1.29, 0.62, 1.3)
+		hole.position = Vector3(side * 1.29, 0.85, 1.3)
 		rv.add_child(hole)
 	_build_life_props()
 
@@ -1327,6 +1345,10 @@ func _sync_crew() -> void:
 				mz.position = Vector3(0, 0.0, 0.62)  # AKM 枪口（build_gun 变换后枪管末端）
 				gun.add_child(mz)
 				f.set_meta("muzzle", mz)
+				f.set_meta("gun_node", gun)   # 换弹时枪口下垂用
+				# 新队员满弹上岗：清掉上任射手遗留的弹药状态
+				f.remove_meta("npc_ammo")
+				f.remove_meta("reload_until")
 		else:
 			lb.text = ""
 
@@ -1410,10 +1432,17 @@ func _start_banter() -> void:
 		banter_busy = false
 	)
 
-## 射击孔射手：本侧 20m 内最近丧尸自动开火（CD 1.3s）；无目标回朝车外戒备；闲聊期间暂停
+## 射击孔射手：本侧射界锥内 20m 最近丧尸自动开火（CD 1.3s）；弹匣打空停火换弹（枪口下垂+名牌提示）；无目标回朝车外戒备；闲聊期间暂停
 func _update_port_gunners(delta: float) -> void:
 	if game_over or story_active:
 		return
+	if _npc_gun_cfg.is_empty():
+		var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/guns.json"))
+		if parsed is Dictionary:
+			_npc_gun_cfg = parsed.get("npc_gunner", {})
+	var mag_size := int(_npc_gun_cfg.get("mag_size", 30))
+	var reload_time := float(_npc_gun_cfg.get("reload_time", 2.4))
+	var fire_arc := float(_npc_gun_cfg.get("fire_arc", 0.45))
 	var now := Time.get_ticks_msec() / 1000.0
 	for f in crew_figures:
 		if f.get_meta("duty", "") != "gun" or not f.has_node("Char"):
@@ -1422,13 +1451,33 @@ func _update_port_gunners(delta: float) -> void:
 			continue
 		var cd: float = f.get_meta("fire_cd", 0.0) - delta
 		var side: float = signf(f.position.x)
+		# 换弹中：枪口下垂停火，到点补满弹匣、枪回平、名牌恢复
+		var reload_until: float = f.get_meta("reload_until", 0.0)
+		if reload_until > 0.0:
+			if reload_until > now:
+				var gn: Node3D = f.get_meta("gun_node", null)
+				if gn != null:
+					gn.rotation.x = lerpf(gn.rotation.x, 0.5, delta * 6.0)
+				f.set_meta("fire_cd", cd)
+				continue
+			f.set_meta("reload_until", 0.0)
+			f.set_meta("npc_ammo", mag_size)
+			var gn2: Node3D = f.get_meta("gun_node", null)
+			if gn2 != null:
+				gn2.rotation.x = 0.0
+			var ri := crew_figures.find(f)
+			if ri >= 0 and ri < crew_members.size():
+				(f.get_meta("label") as Label3D).text = "%s · %s" % [String(crew_members[ri].get("name", "")), f.get_meta("duty_label")]
 		var best: Node3D = null
 		var best_d := 20.0
 		for z in zombies:
 			if not is_instance_valid(z) or z.dead:
 				continue
-			# 只打本侧目标（rv 本地空间）
-			if signf(rv.to_local(z.global_position).x) != side:
+			var rel: Vector3 = rv.to_local(z.global_position) - f.position
+			# 只打本侧射界锥内的目标（锥外强行跟枪会让枪管扫穿车墙）
+			if signf(rel.x) != side:
+				continue
+			if absf(atan2(rel.z, absf(rel.x))) > fire_arc:
 				continue
 			var d: float = f.global_position.distance_to(z.global_position)
 			if d < best_d:
@@ -1439,9 +1488,23 @@ func _update_port_gunners(delta: float) -> void:
 			f.set_meta("fire_cd", cd)
 			continue
 		var to: Vector3 = rv.to_local(best.global_position) - f.position
-		f.rotation.y = lerp_angle(f.rotation.y, atan2(to.x, to.z), delta * 8.0)
+		# 朝向钳在射界锥内，枪管始终从射界孔伸出
+		var out_yaw := side * PI * 0.5
+		var target_yaw := out_yaw + clampf(angle_difference(out_yaw, atan2(to.x, to.z)), -fire_arc, fire_arc)
+		f.rotation.y = lerp_angle(f.rotation.y, target_yaw, delta * 8.0)
 		if cd <= 0.0:
 			cd = 1.3
+			var ammo_left: int = f.get_meta("npc_ammo", mag_size)
+			if ammo_left <= 0:
+				# 弹匣打空：开始换弹（期间停火）
+				f.set_meta("reload_until", now + reload_time)
+				sfx.play3d("reload", f.global_position, 1.0, 0.05)
+				var mi := crew_figures.find(f)
+				if mi >= 0 and mi < crew_members.size():
+					(f.get_meta("label") as Label3D).text = "%s · 换弹中" % String(crew_members[mi].get("name", ""))
+				f.set_meta("fire_cd", cd)
+				continue
+			f.set_meta("npc_ammo", ammo_left - 1)
 			var from: Vector3 = (f.get_meta("muzzle") as Node3D).global_position
 			var dir := (best.global_position + Vector3(0, 1.1, 0) - from).normalized()
 			spawn_bullet(from, dir, 600.0, [])
@@ -1648,7 +1711,7 @@ func start_combat(m: int) -> void:
 			mate.position.y = ground_height(mate.position.x, mate.position.z)
 			add_child(mate)
 			mates.append(mate)
-	hud.toast("天窗射击：鼠标瞄准 · 左键开火 · X 手雷 · G/T 返回" if m == 1 else "下车战斗：WASD 移动 · 鼠标瞄准 · 左键开火 · X 手雷 · 队友协同作战 · G 返回车内")
+	hud.toast("车顶卧姿射击：鼠标瞄准 · 左键开火 · X 手雷 · G/T 返回" if m == 1 else "下车战斗：WASD 移动 · 鼠标瞄准 · 左键开火 · X 手雷 · 队友协同作战 · G 返回车内")
 
 func end_combat() -> void:
 	if not combat_active:

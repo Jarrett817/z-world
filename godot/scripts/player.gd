@@ -14,6 +14,9 @@ const CROUCH_MUL := 0.45
 const GUN_POS := Vector3(-0.12, 1.30, 0.33)   # 枪挂点基准（下蹲时随手下放）
 const FPS_EYE := 1.62        # 站立眼高
 const FPS_EYE_CROUCH := 1.05 # 下蹲眼高
+const PRONE_ANGLE := 1.25    # 车顶卧姿：身体绕脚部前倒约 72°（手臂近似撑地前伸）
+const PRONE_LIFT := 0.22     # 趴下后躯干抬离车顶面，防穿模
+const FPS_EYE_PRONE := 0.78  # 卧姿眼高（前倒后头部位置）
 
 enum Mode { ON_FOOT, SUNROOF, RV_WALK }
 
@@ -193,9 +196,10 @@ func _on_pose_updated() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	var pitch_hi := 1.35 if fps else 0.35   # FPS 允许抬头看天
+	var pitch_lo := -0.55 if mode == Mode.SUNROOF else -1.35   # 车顶卧姿压低枪口有下限，防穿车顶
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		aim_yaw -= event.relative.x * MOUSE_SENS
-		aim_pitch = clampf(aim_pitch - event.relative.y * MOUSE_SENS, -1.35, pitch_hi)
+		aim_pitch = clampf(aim_pitch - event.relative.y * MOUSE_SENS, pitch_lo, pitch_hi)
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		_firing = event.pressed
 		if event.pressed:
@@ -203,7 +207,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventScreenDrag:
 		# 触屏右半屏拖动瞄准（摇杆区事件已被 HUD 消费，到不了这里）
 		aim_yaw -= event.relative.x * MOUSE_SENS * 1.6
-		aim_pitch = clampf(aim_pitch - event.relative.y * MOUSE_SENS * 1.6, -1.35, pitch_hi)
+		aim_pitch = clampf(aim_pitch - event.relative.y * MOUSE_SENS * 1.6, pitch_lo, pitch_hi)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		# 数字键 1-4 直选武器
 		if event.keycode >= KEY_1 and event.keycode <= KEY_4:
@@ -383,7 +387,8 @@ func _update_sway(delta: float) -> void:
 ## 统一写枪挂点姿态：后坐衰减 + sway 叠加 + 蹲姿下放
 func _apply_gun(delta: float) -> void:
 	_recoil = maxf(0.0, _recoil - delta * 6.0)
-	gun.rotation.x = -aim_pitch - _recoil * 0.22 + _look_sway.y
+	# 车顶卧姿：挂点随身体前倒，枪反向补回保持指向瞄准方向
+	gun.rotation.x = -aim_pitch - _recoil * 0.22 + _look_sway.y - (PRONE_ANGLE if mode == Mode.SUNROOF else 0.0)
 	gun.rotation.y = _look_sway.x
 	gun.rotation.z = _bob_roll + _look_sway.x * 0.3 + _breath_roll
 	gun.position.x = GUN_POS.x + _bob_x + _look_sway.x * 0.35
@@ -400,6 +405,9 @@ func _apply_gun(delta: float) -> void:
 func _aim_and_camera(delta: float) -> void:
 	# 身体随瞄准转身（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
 	model_root.rotation.y = aim_yaw + PI
+	# 车顶卧姿：绕脚部前倒趴向车顶（欧拉 YXZ 序：先转身再前倒），躯干微抬防穿车顶
+	model_root.rotation.x = PRONE_ANGLE if mode == Mode.SUNROOF else 0.0
+	model_root.position.y = PRONE_LIFT if mode == Mode.SUNROOF else 0.0
 	if mode == Mode.RV_WALK:
 		# 车内：aim_yaw 是 rv 本地朝向，相机直接用本地变换（车转弯不甩视角）
 		var eye := Vector3(0, FPS_EYE, 0)
@@ -410,12 +418,17 @@ func _aim_and_camera(delta: float) -> void:
 	var right := cam_basis.x
 	var back := cam_basis.z   # 瞄准基准 -Z，+Z 即玩家身后
 	if fps:
-		# 第一人称：相机贴眼位（下蹲降眼高），全身可见仅头骨缩零
+		# 第一人称：相机贴眼位（下蹲降眼高；车顶卧姿眼位移到前伸的头部），全身可见仅头骨缩零
 		var eye_h := FPS_EYE_CROUCH if _crouching else FPS_EYE
-		cam.global_position = global_position + Vector3(0, eye_h, 0) + back * 0.05
+		var eye_back := 0.05
+		if mode == Mode.SUNROOF:
+			eye_h = FPS_EYE_PRONE
+			eye_back = -1.45   # 眼位落在前伸头部（头骨已缩零，不挡视线）
+		cam.global_position = global_position + Vector3(0, eye_h, 0) + back * eye_back
 	else:
 		# MOBA 式斜背后高位俯视：玩家居画面下方，准星指向远处战场，宏观感知敌我态势
-		cam.global_position = global_position + Vector3(0, 3.6, 0) + back * 4.5
+		# 车顶卧姿：相机降到贴近车顶跟拍
+		cam.global_position = global_position + (Vector3(0, 2.2, 0) + back * 3.6 if mode == Mode.SUNROOF else Vector3(0, 3.6, 0) + back * 4.5)
 		# 坡地防穿：身后是上坡时 3.6m 高可能埋进土里，抬到地面以上
 		cam.global_position.y = maxf(cam.global_position.y, main_node.ground_height(cam.global_position.x, cam.global_position.z) + 0.35)
 	var look_dir := (cam_basis * Vector3(0, 0, -1)).rotated(right, aim_pitch)
