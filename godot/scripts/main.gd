@@ -1011,22 +1011,22 @@ func _build_sky() -> void:
 	environment.background_mode = Environment.BG_SKY
 	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_energy = 1.25
+	environment.ambient_light_energy = 0.75
 	environment.fog_enabled = true
-	environment.fog_light_color = Color(0.68, 0.78, 0.88)
-	environment.fog_density = 0.0011
-	environment.fog_sky_affect = 0.25
+	environment.fog_light_color = Color(0.58, 0.75, 0.9)
+	environment.fog_density = 0.00065
+	environment.fog_sky_affect = 0.12
 	environment.glow_enabled = true
-	environment.glow_intensity = 0.55
-	environment.glow_bloom = 0.12
-	environment.tonemap_mode = Environment.TONE_MAPPER_AGX
-	environment.tonemap_exposure = 1.08
-	# 画质：SSAO 接触阴影 + SSIL 间接光反弹 + 微色彩校正，提升立体感与通透度
+	environment.glow_intensity = 0.28
+	environment.glow_bloom = 0.06
+	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	environment.tonemap_exposure = 0.95
+	# 卡通明暗保留接触阴影与间接光，用清晰色块而不是灰雾统一环境
 	environment.ssao_enabled = true
 	environment.ssil_enabled = true
 	environment.adjustment_enabled = true
-	environment.adjustment_saturation = 1.06
-	environment.adjustment_contrast = 1.04
+	environment.adjustment_saturation = 1.08
+	environment.adjustment_contrast = 1.03
 	self.env = environment
 	get_viewport().world_3d.environment = environment
 	sun = DirectionalLight3D.new()
@@ -1059,11 +1059,11 @@ func _update_sun() -> void:
 	var elev := -sin(deg_to_rad(deg))
 	var day_t := smoothstep(-0.12, 0.12, elev)
 	var noon := clampf(elev, 0.0, 1.0)  # 正午度：日色在晨昏暖橙与正午蓝白间插值
-	sun.light_energy = lerpf(0.15, 0.55 + noon * 1.35, day_t)
-	sun.light_color = Color(0.5, 0.58, 0.8).lerp(Color(1.0, 0.72, 0.5).lerp(Color(1.0, 0.98, 0.92), noon), day_t)
-	# 明媚末日：正午饱和蓝天，晨昏暖橙，深夜墨蓝——随太阳高度连续过渡
-	sky_mat.sky_top_color = Color(0.04, 0.05, 0.1).lerp(Color(0.42, 0.34, 0.32).lerp(Color(0.27, 0.5, 0.82), noon), day_t)
-	sky_mat.sky_horizon_color = Color(0.1, 0.11, 0.16).lerp(Color(0.92, 0.58, 0.36).lerp(Color(0.62, 0.78, 0.92), noon), day_t)
+	sun.light_energy = lerpf(0.15, 0.45 + noon * 0.85, day_t)
+	sun.light_color = Color(0.5, 0.58, 0.8).lerp(Color(1.0, 0.72, 0.5).lerp(Color(1.0, 0.94, 0.82), noon), day_t)
+	# 明媚末日：正午清澈蓝天，晨昏暖橙，深夜墨蓝——随太阳高度连续过渡
+	sky_mat.sky_top_color = Color(0.04, 0.05, 0.1).lerp(Color(0.42, 0.34, 0.32).lerp(Color(0.16, 0.46, 0.84), noon), day_t)
+	sky_mat.sky_horizon_color = Color(0.1, 0.11, 0.16).lerp(Color(0.92, 0.58, 0.36).lerp(Color(0.56, 0.78, 0.95), noon), day_t)
 	# 天气调制：雾=白茫茫能见度低，雨=阴沉，雪=明亮冷色
 	match weather:
 		"fog":
@@ -1091,8 +1091,8 @@ func _update_sun() -> void:
 			env.fog_light_color = Color(0.67, 0.72, 0.78)
 			sun.light_energy *= 0.6
 		_:
-			env.fog_density = 0.0011
-			env.fog_light_color = Color(0.68, 0.78, 0.88)
+			env.fog_density = 0.00065
+			env.fog_light_color = Color(0.58, 0.75, 0.9)
 	# 夜间/低能见度天气自动开灯
 	var dark := deg > -15.0 or deg < -165.0
 	headlight.light_energy = 11.0 if dark or weather == "fog" else (4.0 if weather in ["heavy_rain", "snow"] else (2.6 if weather == "rain" else 0.0))
@@ -1105,7 +1105,7 @@ func _update_sun() -> void:
 		env.ambient_light_energy = 1.6
 	else:
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		env.ambient_light_energy = 1.25
+		env.ambient_light_energy = 0.75
 
 # ---------- 地形（无限重建） ----------
 func _build_terrain() -> void:
@@ -1155,6 +1155,7 @@ func _build_rv() -> void:
 	col.position = Vector3(0, 0.4, 0)
 	rv.add_child(col)
 	rv_model = RV_SCENE.instantiate()
+	_style_env_model(rv_model)
 	rv_model.rotation.y = PI   # GLB 车头朝 +Z，翻转对齐行进方向 -Z
 	# 装甲裙边/后保险杠比车壳宽一圈且颜色不搭，斜上方看像穿模，直接隐藏
 	for n in rv_model.find_children("*skirt*", "Node3D", true, false) + rv_model.find_children("*bumper*", "Node3D", true, false):
@@ -2931,6 +2932,7 @@ func _spawn_obstacle(z: float) -> void:
 	col.position = center
 	body.add_child(col)
 	var model := scene.instantiate()
+	_style_env_model(model)
 	model.scale = Vector3.ONE * scale_f
 	body.add_child(model)
 	var ox := road_x(z) + x_off
@@ -3952,9 +3954,10 @@ func _make_ruin_building(far: bool) -> Node3D:
 		win = Color(0.16, 0.18, 0.2)
 	var facade := StandardMaterial3D.new()
 	facade.albedo_texture = _facade_tex(cols, rows, base, win)
-	if far:
-		facade.metallic = 0.3
-		facade.roughness = 0.25
+	facade.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+	facade.specular_mode = BaseMaterial3D.SPECULAR_TOON
+	facade.metallic_specular = 0.15
+	facade.roughness = 0.85
 	b.material_override = facade
 	root.add_child(b)
 	_solid_box(root, bm.size, b.position)
@@ -4059,7 +4062,22 @@ func _mat(col: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = col
 	m.roughness = 1.0
+	m.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+	m.specular_mode = BaseMaterial3D.SPECULAR_TOON
 	return m
+
+## 环境 GLB 保留原贴图，只收敛写实金属高光并统一卡通明暗；角色材质不走这里
+func _style_env_model(root: Node3D) -> void:
+	for mi in root.find_children("*", "MeshInstance3D", true, false):
+		for si in mi.mesh.get_surface_count():
+			var m := mi.get_active_material(si) as StandardMaterial3D
+			if m == null:
+				continue
+			m.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+			m.specular_mode = BaseMaterial3D.SPECULAR_TOON
+			m.metallic = minf(m.metallic, 0.15)
+			m.metallic_specular = 0.25
+			m.roughness = maxf(m.roughness, 0.78)
 
 var _facade_cache: Dictionary = {}
 
@@ -4252,6 +4270,7 @@ func _wreck_solid(scene: PackedScene, scale_f: float, half: Vector3, center: Vec
 	col.position = center
 	body.add_child(col)
 	var model := scene.instantiate()
+	_style_env_model(model)
 	model.scale = Vector3.ONE * scale_f
 	if roll != 0.0:
 		# 侧翻：滚转绕原点，原 y∈[0,高] 翻成水平向，x 半宽变成垂直半高——按 center.y 抬回地面
@@ -4450,6 +4469,7 @@ func _place_scenery(scene: PackedScene, x: float, z: float, target_h: float) -> 
 		source.free()
 		_scene_aabbs[scene] = aabb
 	var node: Node3D = scene.instantiate()
+	_style_env_model(node)
 	if aabb.size.y > 0.01:
 		var s := target_h / aabb.size.y
 		if scene == BUILDING_SCENE or scene == JUNK_SCENE:

@@ -166,11 +166,11 @@ func _surface_arrays(index: int, start_z: float) -> Array:
 func _ensure_materials() -> void:
 	if not _mats.is_empty():
 		return
-	var rail_mat := _mat(Color(0.42, 0.43, 0.44), 0.55)
-	rail_mat.metallic = 0.35
-	var ridge_mat := _mat(Color(0.23, 0.34, 0.22), 1.0)
+	var rail_mat := _mat(Color(0.48, 0.55, 0.58), 0.8)
+	rail_mat.metallic = 0.15
+	var ridge_mat := _mat(Color(0.19, 0.36, 0.26), 1.0)
 	ridge_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var ridge_far_mat := _mat(Color(0.42, 0.55, 0.45), 1.0)
+	var ridge_far_mat := _mat(Color(0.36, 0.56, 0.52), 1.0)
 	ridge_far_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var water_mat := StandardMaterial3D.new()
 	water_mat.albedo_color = Color(0.16, 0.36, 0.46)
@@ -178,13 +178,13 @@ func _ensure_materials() -> void:
 	water_mat.metallic = 0.25
 	water_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_mats = [
-		_mat(Color(0.24, 0.33, 0.16), 1.0),
-		_mat(Color(0.31, 0.34, 0.20), 1.0),
-		_mat(Color(0.31, 0.34, 0.20), 1.0),
-		_mat(Color(0.115, 0.11, 0.105), 0.98),
-		_mat(Color(0.5, 0.48, 0.43), 0.9),
-		_mat(Color(0.5, 0.48, 0.43), 0.9),
-		_mat(Color(0.58, 0.44, 0.17), 0.9),
+		_mat(Color(0.20, 0.38, 0.17), 1.0),
+		_mat(Color(0.34, 0.43, 0.22), 1.0),
+		_mat(Color(0.34, 0.43, 0.22), 1.0),
+		_mat(Color(0.12, 0.145, 0.17), 0.95),
+		_mat(Color(0.75, 0.78, 0.72), 0.9),
+		_mat(Color(0.75, 0.78, 0.72), 0.9),
+		_mat(Color(0.95, 0.72, 0.25), 0.9),
 		rail_mat,
 		rail_mat,
 		ridge_mat,
@@ -246,21 +246,19 @@ func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool, nx 
 	arr[Mesh.ARRAY_INDEX] = indices
 	return arr
 
-## 确定性多频噪声：0.78~1.12 亮度调制并带轻微绿相漂移，重建时同位置颜色不变
-## 公路带内叠加车轮磨损双暗带（轮迹 1.2~2.9m）与低频修补斑块，柏油路面不再一片新
+## 低对比多频色块：保留手绘式明暗变化，不让高频脏噪声盖过卡通色板
+## 公路带内保留轻量轮迹与修补斑块，重建时同位置颜色不变
 func _mottle(x: float, z: float) -> Color:
 	var n := sin(x * 0.91 + z * 0.37) * 0.5 + sin(x * 2.3 - z * 1.7) * 0.3 + sin(z * 4.7 + x * 0.4) * 0.2
-	var v: float = clampf(0.95 + n * 0.09, 0.78, 1.12)
-	# 枯草/裸土斑块：低频噪声把部分草地带向黄绿，避免整片塑料绿
+	var v: float = clampf(0.98 + n * 0.045, 0.9, 1.06)
 	var dry: float = sin(x * 0.05 + z * 0.031) * 0.5 + sin(x * 0.013 - z * 0.017) * 0.5
 	var dx: float = absf(x - _main.road_x(z))
 	if dx < ROAD_HALF:
 		var wear: float = smoothstep(1.1, 1.7, dx) * (1.0 - smoothstep(2.6, 3.2, dx))
-		v *= 1.0 - wear * 0.22
-		# 修补斑块：沿路的低频深色矩形感（两频相乘出断续块）
+		v *= 1.0 - wear * 0.12
 		if sin(z * 0.023 + 1.7) * sin(z * 0.11) > 0.72:
-			v *= 0.88
-	return Color(v * (1.0 + dry * 0.05), v, v * (1.0 - dry * 0.07))
+			v *= 0.94
+	return Color(v * (1.0 + dry * 0.035), v, v * (1.0 - dry * 0.045))
 
 ## 路边河湖：沿 z 的确定性包络让水面一段段出现/消失，宽度平滑收缩到零
 ## 按景观段增强：海岸段右侧常在大海、湖泊段两侧大湖，宽度随段权重渐变
@@ -486,4 +484,6 @@ func _mat(col: Color, rough: float) -> StandardMaterial3D:
 	m.albedo_color = col
 	m.vertex_color_use_as_albedo = true
 	m.roughness = rough
+	m.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+	m.specular_mode = BaseMaterial3D.SPECULAR_TOON
 	return m
