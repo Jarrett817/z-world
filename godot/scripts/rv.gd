@@ -99,8 +99,9 @@ func _physics_process(delta: float) -> void:
 		velocity = fwd0.normalized() * (speed_kmh * KMH_TO_UNITS)
 		move_and_slide()
 		position.y = main_node.ground_height(position.x, position.z) + main_node.RV_MODEL_FOOT
-		rotation.x = lerpf(rotation.x, slope, delta * 3.0)
-		rotation.z = lerpf(rotation.z, 0.0, delta * 4.0)
+		_align_to_terrain()
+		main_node.rv_model.rotation.x = lerpf(main_node.rv_model.rotation.x, 0.0, delta * 3.0)
+		main_node.rv_model.rotation.z = lerpf(main_node.rv_model.rotation.z, 0.0, delta * 4.0)
 		return
 	if parked or combat_in or main_node.rv_walk_active:
 		if parked:
@@ -137,8 +138,9 @@ func _physics_process(delta: float) -> void:
 				if is_on_wall():
 					speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd1) / KMH_TO_UNITS))
 		position.y = main_node.ground_height(position.x, position.z) + main_node.RV_MODEL_FOOT
-		rotation.x = lerpf(rotation.x, slope, delta * 3.0)
-		rotation.z = lerpf(rotation.z, 0.0, delta * 4.0)
+		_align_to_terrain()
+		main_node.rv_model.rotation.x = lerpf(main_node.rv_model.rotation.x, 0.0, delta * 3.0)
+		main_node.rv_model.rotation.z = lerpf(main_node.rv_model.rotation.z, 0.0, delta * 4.0)
 		return
 	var gas := touch_gas or Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP)
 	var brake: bool = touch_brake or main_node._park_brake or Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN)
@@ -176,10 +178,11 @@ func _physics_process(delta: float) -> void:
 	# 贴地：直接跟随地形高度函数，避免起伏穿模
 	position.y = main_node.ground_height(position.x, position.z) + main_node.RV_MODEL_FOOT
 
-	# 姿态小动效：加速前倾 + 转向侧倾（叠加地形坡度）
+	# 物理车身只贴合地形坡度；加速俯仰/转向侧倾仅作用于外壳，避免平地加速时碰撞盒插入地面
 	var pitch := -0.05 if (gas and not engine_dead) else 0.0
-	rotation.x = lerpf(rotation.x, pitch + slope, delta * 3.0)
-	rotation.z = lerpf(rotation.z, steer_in * 0.035 * (speed_kmh / main_node.MAX_KMH), delta * 4.0)
+	_align_to_terrain()
+	main_node.rv_model.rotation.x = lerpf(main_node.rv_model.rotation.x, pitch, delta * 3.0)
+	main_node.rv_model.rotation.z = lerpf(main_node.rv_model.rotation.z, steer_in * 0.035 * (speed_kmh / main_node.MAX_KMH), delta * 4.0)
 
 ## 碾压：触发区内的丧尸直接撞飞（车速 >8 才触发，停车时丧尸仍可围车）；动量按质量比衰减
 func _on_zombie_area(body: Node) -> void:
@@ -206,6 +209,21 @@ func _key_steer() -> float:
 	if Input.is_physical_key_pressed(KEY_D) or Input.is_physical_key_pressed(KEY_RIGHT):
 		s -= 1.0
 	return s
+
+## 物理车身贴合局部地形平面：主路外的横坡也必须由俯仰和侧倾共同承担
+func _align_to_terrain() -> void:
+	var yaw_basis := Basis(Vector3.UP, rotation.y)
+	var forward := -yaw_basis.z
+	var right := yaw_basis.x
+	var front_h: float = main_node.ground_height(position.x + forward.x * 2.5, position.z + forward.z * 2.5)
+	var back_h: float = main_node.ground_height(position.x - forward.x * 2.5, position.z - forward.z * 2.5)
+	var right_h: float = main_node.ground_height(position.x + right.x * 1.6, position.z + right.z * 1.6)
+	var left_h: float = main_node.ground_height(position.x - right.x * 1.6, position.z - right.z * 1.6)
+	var gradient := forward * ((front_h - back_h) / 5.0) + right * ((right_h - left_h) / 3.2)
+	var up := (Vector3.UP - gradient).normalized()
+	var back := -(forward - up * forward.dot(up)).normalized()
+	var side := up.cross(back).normalized()
+	basis = Basis(side, up, back).orthonormalized()
 
 func _report_collisions() -> void:
 	for i in get_slide_collision_count():

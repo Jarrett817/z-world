@@ -92,12 +92,9 @@ func _ready() -> void:
 		_anim.get_animation(a).loop_mode = Animation.LOOP_LINEAR
 	_anim.get_animation("jump").loop_mode = Animation.LOOP_NONE
 	add_child(model_root)
-	# 长外套在俯卧时会铺开穿车顶；车顶第一人称隐藏自身网格，避免低机位身体与手臂侵入画面
+	# 第三人称保留完整服装；车顶第一人称再统一隐藏自身网格，避免低机位穿模
 	for mesh in model_root.find_children("*", "MeshInstance3D", true, false):
-		if mesh.name.begins_with("Cloth"):
-			mesh.visible = mode != Mode.SUNROOF
-		else:
-			_body_meshes.append(mesh)
+		_body_meshes.append(mesh)
 	# 武器数据
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/guns.json"))
 	_guns = parsed["guns"]
@@ -298,8 +295,8 @@ func _move_rv(delta: float) -> void:
 	if dir.length() > 0.01:
 		position += dir.normalized() * WALK_SPEED * 0.55 * delta
 	# 活动范围：仪表台后到尾壁前（内饰实测尾壁 z=3.07），两侧舱壁内
-	position.x = clampf(position.x, -1.06, 1.06)
-	position.z = clampf(position.z, -2.72, 2.68)
+	position.x = clampf(position.x, -1.06 * main_node.INTERIOR_SCALE.x, 1.06 * main_node.INTERIOR_SCALE.x)
+	position.z = clampf(position.z, -2.72 * main_node.INTERIOR_SCALE.z, 2.68 * main_node.INTERIOR_SCALE.z)
 	position.y = -0.4
 	# 车内行走恒第一人称：锁端枪姿势，避免手臂摆动脱离枪挂点
 	if _cur_anim != "aim":

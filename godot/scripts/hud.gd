@@ -134,7 +134,7 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 车内/队友代驾 · E 设施 · V 射击视角 · Tab 队伍 · Esc 菜单", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 点按车内/接管 · E 设施 · V 射击视角 · Tab 队伍 · Esc 菜单", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	hint.offset_left = -958
 	hint.offset_right = -308
@@ -190,7 +190,7 @@ func build(rv_node: Node) -> void:
 	drive_misc_buttons.append(_touch_button(root, "驻车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -222, 78, 56), "park"))
 	drive_misc_buttons.append(_touch_button(root, "天窗", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -284, 78, 56), "sunroof"))
 	drive_misc_buttons.append(_touch_button(root, "下车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -284, 78, 56), "exitveh"))
-	drive_misc_buttons.append(_touch_button(root, "车内·代驾", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -346, 78, 56), "rvwalk"))
+	drive_misc_buttons.append(_touch_button(root, "点按·车内", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -346, 78, 56), "rvwalk"))
 	# 右上：署名 / 队伍 / 设施（手游触屏替代 Tab/E 快捷键）
 	_touch_button(root, "署名", Control.PRESET_TOP_RIGHT, Rect2(-292, 14, 88, 46), "credits")
 	_touch_button(root, "队伍", Control.PRESET_TOP_RIGHT, Rect2(-196, 14, 88, 46), "crew")

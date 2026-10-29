@@ -37,6 +37,7 @@ const VIEW_AHEAD := 260.0
 const VIEW_BEHIND := 40.0
 const RV_MODEL_FOOT := 1.557   # GLB 轮底到模型原点的距离
 const RV_ROOF_Y := 2.077       # 实测 gs_001.glb 主车壳(Object_16)顶面局部高度，天窗站立用
+const INTERIOR_SCALE := Vector3(1.18, 1.0, 1.12)  # 实际扩大舱内宽度与长度，仍留在外壳包络内
 const CREW_ORDER := ["lin_wan", "shen_man", "ye_lan", "tang_tang", "ivory"]
 
 # 场景音乐（六种处境各一首，交叉淡入淡出切换）
@@ -545,10 +546,6 @@ func _process(delta: float) -> void:
 				_dump_nodes()
 				get_tree().quit()
 				return
-			if story != null and story.active:
-				story.active = false
-				story_active = false
-				hud.hide_story()
 			if _shot_walk and not rv_walk_active:
 				# --shotrvwalk：先驻车再起身车内行走，稳定 1.5s 后截帧
 				_shot_walk = false
@@ -623,6 +620,12 @@ func _process(delta: float) -> void:
 				_shot_at = 1.5
 				_shot_t = 0.0
 				return
+			# 剧情可能在截帧准备阶段再次触发，保存前始终收起，避免挡住验收画面
+			if story != null:
+				story.set_process(false)
+				story.active = false
+				story_active = false
+				hud.hide_story()
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(_shot_path)
 			get_tree().quit()
@@ -693,12 +696,12 @@ func _process(delta: float) -> void:
 		driver_figure.visible = view_mode == 2 and not combat_active
 	_update_banter(delta)
 	if view_mode == 1:
-		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -1.9))
-		cam.look_at(rv.to_global(Vector3(-0.55, 0.9, -30.0)))
+		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -1.9) * INTERIOR_SCALE)
+		cam.look_at(rv.to_global(Vector3(-0.55, 0.9, -30.0) * INTERIOR_SCALE))
 		cam.fov = 72.0
 	elif view_mode == 2:
 		# 后铺上方俯拍：餐桌当前景，灶台/货架队友为中景，副驾在车头；后移+抬视线+宽 fov 保证后舱两人完整入镜
-		cam.global_position = rv.to_global(Vector3(0.0, 1.66, 2.6))
+		cam.global_position = rv.to_global(Vector3(0.0, 1.66, 2.6) * INTERIOR_SCALE)
 		# 自由视角：按住右键拖动环顾舱内（默认朝车头的略俯视线为基准）
 		var base_dir := Vector3(0.0, -0.148, -0.989)
 		var look_dir := Basis(Vector3.UP, _fv_yaw) * Basis(Vector3.RIGHT, _fv_pitch) * base_dir
@@ -706,13 +709,13 @@ func _process(delta: float) -> void:
 		cam.fov = 72.0
 		if _shot_cab_cam:
 			# --shotcab：主驾正侧面近拍，验收坐姿穿模
-			cam.global_position = rv.to_global(Vector3(0.5, 0.95, -2.85))
-			cam.look_at(rv.to_global(Vector3(-0.55, 0.5, -2.85)), Vector3.UP)
+			cam.global_position = rv.to_global(Vector3(0.5, 0.95, -2.85) * INTERIOR_SCALE)
+			cam.look_at(rv.to_global(Vector3(-0.55, 0.5, -2.85) * INTERIOR_SCALE), Vector3.UP)
 			cam.fov = 55.0
 		if _shot_seat_cam:
 			# --shotseat：副驾正侧面近拍，验收座位队友
-			cam.global_position = rv.to_global(Vector3(-0.5, 0.95, -2.85))
-			cam.look_at(rv.to_global(Vector3(0.55, 0.5, -2.85)), Vector3.UP)
+			cam.global_position = rv.to_global(Vector3(-0.5, 0.95, -2.85) * INTERIOR_SCALE)
+			cam.look_at(rv.to_global(Vector3(0.55, 0.5, -2.85) * INTERIOR_SCALE), Vector3.UP)
 			cam.fov = 55.0
 	else:
 		var target := rv.global_position + Vector3(0, 3.5, 11.0)
@@ -1152,7 +1155,8 @@ func _build_rv() -> void:
 	var box := BoxShape3D.new()
 	box.size = Vector3(3.8, 3.9, 10.0)
 	col.shape = box
-	col.position = Vector3(0, 0.4, 0)
+	# 车根每帧手动贴地；碰撞盒底部留出离地间隙，避免上坡/姿态滞后时盒角插地把车堵停
+	col.position = Vector3(0, 0.75, 0)
 	rv.add_child(col)
 	rv_model = RV_SCENE.instantiate()
 	_style_env_model(rv_model)
@@ -1180,6 +1184,7 @@ func _build_interior() -> void:
 	# 精模内饰 GLB（Blender 建模，rv 本地空间：地板顶 y=-0.4、车头 -Z）；队友站位兼容见 _build_crew
 	interior = RV_INTERIOR_SCENE.instantiate()
 	interior.name = "Interior"
+	interior.scale = INTERIOR_SCALE
 	# GLB 里 steer_col 生成的 StaticBody 与房车碰撞盒重叠会把车头顶走：内饰纯装饰，剥掉物理体
 	for n in interior.find_children("*", "CollisionObject3D", true, false):
 		n.free()  # 未入树，立即删除避免延迟一帧的推挤
@@ -1205,11 +1210,11 @@ func _build_crew() -> void:
 	# 地板顶面 y=-0.4：所有站位 root 均落地板；坐姿髋部下沉约 0.44，落在坐垫顶(y=0.0)上
 	var stations := [
 		# sit 动画髋部在 root 后方约 0.324：副驾 root 需再靠前 0.33，髋才落在坐垫(z -3.04..-2.50)后 1/3 处
-		[Vector3(0.55, -0.4, -3.18), PI, "sit", "瞭望"],          # 副驾（坐姿朝车头，首位队友；座椅已前移贴方向盘）
-		[Vector3(-0.55, -0.4, -0.1), -PI * 0.5, "cook", "做饭"],  # 灶台前，朝 -X
-		[Vector3(0.55, -0.4, 0.4), PI * 0.5, "tidy", "收拾"],     # 货架前，朝 +X
-		[Vector3(-0.66, -0.4, 1.3), -PI * 0.5, "gun", "射手"],    # 左射击孔，离左墙 0.65：手臂/枪身不穿墙，枪管从孔位伸出
-		[Vector3(0.66, -0.4, 1.3), PI * 0.5, "gun", "射手"],      # 右射击孔，同左镜像
+		[Vector3(0.55, -0.4, -3.18) * INTERIOR_SCALE, PI, "sit", "瞭望"],          # 副驾（坐姿朝车头，首位队友；座椅已前移贴方向盘）
+		[Vector3(-0.55, -0.4, -0.1) * INTERIOR_SCALE, -PI * 0.5, "cook", "做饭"],  # 灶台前，朝 -X
+		[Vector3(0.55, -0.4, 0.4) * INTERIOR_SCALE, PI * 0.5, "tidy", "收拾"],     # 货架前，朝 +X
+		[Vector3(-0.66, -0.4, 1.3) * INTERIOR_SCALE, -PI * 0.5, "gun", "射手"],    # 左射击孔，离左墙 0.65：手臂/枪身不穿墙，枪管从孔位伸出
+		[Vector3(0.66, -0.4, 1.3) * INTERIOR_SCALE, PI * 0.5, "gun", "射手"],      # 右射击孔，同左镜像
 	]
 	for st in stations:
 		var fig := Node3D.new()
@@ -1280,14 +1285,14 @@ func _build_duty_props() -> void:
 		fm.size = Vector3(0.06, 0.42, 1.12)
 		frame.mesh = fm
 		frame.material_override = frame_mat
-		frame.position = Vector3(side * 1.3, 0.85, 1.3)
+		frame.position = Vector3(side * 1.3, 0.85, 1.3) * INTERIOR_SCALE
 		rv.add_child(frame)
 		var hole := MeshInstance3D.new()
 		var hm := BoxMesh.new()
 		hm.size = Vector3(0.08, 0.3, 1.0)
 		hole.mesh = hm
 		hole.material_override = hole_mat
-		hole.position = Vector3(side * 1.29, 0.85, 1.3)
+		hole.position = Vector3(side * 1.29, 0.85, 1.3) * INTERIOR_SCALE
 		rv.add_child(hole)
 	_build_life_props()
 
@@ -1417,7 +1422,7 @@ func _sync_crew() -> void:
 func _build_driver() -> void:
 	var fig := Node3D.new()
 	# 主驾坐垫后部（座椅已前移贴方向盘：坐垫 z -3.04..-2.50）；drive 动画髋部已前移 13cm 够到方向盘
-	fig.position = Vector3(-0.55, -0.42, -2.85)
+	fig.position = Vector3(-0.55, -0.42, -2.85) * INTERIOR_SCALE
 	fig.rotation.y = PI  # 朝车头
 	var lb := Label3D.new()
 	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -1783,9 +1788,9 @@ func _update_zombies(delta: float) -> void:
 	# 最后 1.5km 进入方舟防区，只停止刷怪，旧丧尸仍须正常回收
 	if dist_km >= GOAL_KM - 1.5:
 		zombie_timer = 2.0
-	elif zombie_timer <= 0.0 and zombies.size() < 34:
+	elif zombie_timer <= 0.0 and zombies.size() < 48:
 		var difficulty: float = clampf(dist_km * 0.8 + (rv.speed_kmh / MAX_KMH) * 1.5, 0.0, 2.8)
-		zombie_timer = clampf(2.2 - difficulty * 0.6, 0.7, 2.2)
+		zombie_timer = clampf(1.5 - difficulty * 0.35, 0.5, 1.5)
 		_spawn_zombie()
 	# 引擎声推送与回收合并为一次原地反向遍历
 	var engine_radius: float = lerpf(6.0, 34.0, clampf(rv.speed_kmh / MAX_KMH, 0.0, 1.0))
@@ -1802,20 +1807,21 @@ func _update_zombies(delta: float) -> void:
 func _spawn_zombie() -> void:
 	# 成批生成在车前各处：路面、路肩、远处野地都有踱步的丧尸，靠声音才被惊动
 	var rvz := rv.global_position.z
-	var count := randi_range(1, 4)
+	var count := randi_range(3, 6)
 	# 刷在车前 12~90m：保持在无雾视野内，远处太散既看不见也构不成威胁
 	var base_z := rvz - 12.0 - randf() * 78.0
 	for i in count:
 		var zz := base_z - i * randf_range(3.0, 10.0)
-		# 65% 在道路附近（行驶主威胁），35% 散布到两侧野地（最远约 35m，作氛围）
+		# 80% 在道路附近（行驶主威胁），20% 散布到两侧野地（最远约 35m，作氛围）
 		var off: float
-		if randf() < 0.65:
+		if randf() < 0.8:
 			off = (randf() - 0.5) * 13.0
 		else:
 			var side2 := 1.0 if randf() > 0.5 else -1.0
 			off = side2 * randf_range(ROAD_HALF + 3.0, 35.0)
 		var body := _make_zombie_body()
-		body.position = Vector3(road_x(zz) + off, GROUND_Y + 0.5, zz)
+		var x := road_x(zz) + off
+		body.position = Vector3(x, ground_height(x, zz) + 0.03, zz)
 		add_child(body)
 		body.setup(self)
 		zombies.append(body)
@@ -1957,7 +1963,7 @@ func start_rv_walk() -> void:
 	var p := CharacterBody3D.new()
 	p.set_script(PLAYER_SCRIPT)
 	p.setup(self, 2)   # Mode.RV_WALK
-	p.position = Vector3(0.0, -0.4, -1.2)   # 驾驶座旁起身点（rv 本地，地板顶 y=-0.4）
+	p.position = Vector3(0.0, -0.4, -1.2) * INTERIOR_SCALE   # 驾驶座旁起身点（rv 本地，地板顶 y=-0.4）
 	rv.add_child(p)
 	player_body = p
 	rv_walk_active = true
@@ -1971,7 +1977,7 @@ func start_rv_walk() -> void:
 	if not parked:
 		# 队友代驾：首位队友挪到主驾，切换双手握方向盘的驾驶动作
 		crew_driving = true
-		crew_figures[0].position = Vector3(-0.55, -0.42, -2.85)
+		crew_figures[0].position = Vector3(-0.55, -0.42, -2.85) * INTERIOR_SCALE
 		crew_figures[0].rotation.y = PI
 		var driver_anim := crew_figures[0].find_child("AnimationPlayer", true, false) as AnimationPlayer
 		driver_anim.play("drive", 0.15)
@@ -2008,7 +2014,7 @@ func end_rv_walk() -> void:
 	if crew_driving:
 		crew_driving = false
 		# 代驾结束：队友挪回副驾岗位（-3.18 与岗位表一致），坐姿与名牌还原
-		crew_figures[0].position = Vector3(0.55, -0.4, -3.18)
+		crew_figures[0].position = Vector3(0.55, -0.4, -3.18) * INTERIOR_SCALE
 		var driver_anim := crew_figures[0].find_child("AnimationPlayer", true, false) as AnimationPlayer
 		driver_anim.play("sit", 0.15)
 		var lb0: Label3D = crew_figures[0].get_meta("label")
@@ -2426,7 +2432,7 @@ func _loot_and_zombies(center: Vector3, r: float, c: int, zn: int) -> void:
 	for i in range(zn):
 		var zp: Vector3 = center + Vector3(randf_range(-r, r), 0, randf_range(-r, r))
 		var zb := _make_zombie_body()
-		zb.position = Vector3(zp.x, ground_height(zp.x, zp.z) + 0.5, zp.z)
+		zb.position = Vector3(zp.x, ground_height(zp.x, zp.z) + 0.03, zp.z)
 		add_child(zb)
 		zb.setup(self)
 		zombies.append(zb)
@@ -4150,14 +4156,18 @@ func ground_height(x: float, z: float) -> float:
 ## 行缓存版：批量采样（碰撞高度图重建）时传入预算的 gy/rx/zone
 func ground_height_c(x: float, z: float, gy: float, rx: float, zone: String) -> float:
 	var d := absf(x - rx)
-	if d <= ROAD_HALF:
-		return gy
-	if d <= 21.0:
-		return gy - 0.05
-	var field := gy - 0.3 + side_elev(z, d, zone)
-	if d < 25.0:
-		return lerpf(gy - 0.05, field, smoothstep(0.0, 1.0, (d - 21.0) / 4.0))
-	return field
+	var height := gy
+	if d > ROAD_HALF and d <= 21.0:
+		height = gy - 0.05
+	elif d > 21.0:
+		var field := gy - 0.3 + side_elev(z, d, zone)
+		height = field if d >= 25.0 else lerpf(gy - 0.05, field, smoothstep(0.0, 1.0, (d - 21.0) / 4.0))
+	if d > ROAD_HALF:
+		# 探索支路不是贴在陡坡上的装饰条：路廊内横向压平，5~9m 渐接原地形
+		var road_d := loop_road_distance(x, z)
+		if road_d < 9.0:
+			height = lerpf(gy - 0.05, height, smoothstep(5.0, 9.0, road_d))
+	return height
 
 # ---------- 岔路/路口（确定性生成，护栏缺口与地形条带共用） ----------
 const JUNCTION_EVERY := 170.0   # 岔路间距基准（米）
@@ -4166,6 +4176,44 @@ const DETOUR_SIGN_LEAD := 180.0 # 支路预告锈牌提前量（米）：牌入 
 ## 岔路哈希：同 index 恒定
 func _jh(n: int) -> float:
 	return fposmod(sin(float(n) * 127.1) * 43758.5453, 1.0)
+
+## 到探索支路中心线的平面距离：直出段与回接贝塞尔和 terrain.gd 使用同一组参数
+func loop_road_distance(x: float, z: float) -> float:
+	var point := Vector2(x, z)
+	var nearest := INF
+	var grid_n := int(floor(-z / JUNCTION_EVERY))
+	for n in range(maxi(grid_n - 1, 1), grid_n + 2):
+		if _jh(n) > 0.75 or _jh(n + 2000) < 0.28 or _jh(n + 5000) >= 0.35:
+			continue
+		var zj := -n * JUNCTION_EVERY
+		var side := 1.0 if _jh(n + 1000) < 0.5 else -1.0
+		var ang := lerpf(0.5, 1.0, _jh(n + 3000))
+		var len := lerpf(60.0, 120.0, _jh(n + 4000))
+		var dir := Vector3(side * sin(ang), 0, -cos(ang)).normalized()
+		var org := Vector3(road_x(zj) + side * (ROAD_HALF - 0.8), 0, zj)
+		var p0 := org + dir * len
+		var p1 := p0 + dir * 18.0
+		var rejoin_z := zj - JUNCTION_EVERY
+		var p3 := Vector3(road_x(rejoin_z) + side * (ROAD_HALF - 0.8), 0, rejoin_z)
+		var p2 := p3 + Vector3(0, 0, 22.0)
+		var min_x := minf(minf(org.x, p0.x), minf(minf(p1.x, p2.x), p3.x)) - 20.0
+		var max_x := maxf(maxf(org.x, p0.x), maxf(maxf(p1.x, p2.x), p3.x)) + 20.0
+		var min_z := minf(minf(org.z, p0.z), minf(minf(p1.z, p2.z), p3.z)) - 20.0
+		var max_z := maxf(maxf(org.z, p0.z), maxf(maxf(p1.z, p2.z), p3.z)) + 20.0
+		if x < min_x or x > max_x or z < min_z or z > max_z:
+			continue
+		var a := Vector2(org.x, org.z)
+		var b := Vector2(p0.x, p0.z)
+		nearest = minf(nearest, point.distance_to(Geometry2D.get_closest_point_to_segment(point, a, b)))
+		var return_steps := maxi(12, int((p0.distance_to(p1) + p1.distance_to(p2) + p2.distance_to(p3)) / 3.0))
+		for i in range(1, return_steps + 1):
+			var t := float(i) / return_steps
+			var u := 1.0 - t
+			var next := p0 * (u * u * u) + p1 * (3.0 * u * u * t) + p2 * (3.0 * u * t * t) + p3 * (t * t * t)
+			b = Vector2(next.x, next.z)
+			nearest = minf(nearest, point.distance_to(Geometry2D.get_closest_point_to_segment(point, a, b)))
+			a = b
+	return nearest
 
 ## 聚落专属岔路（town/gas）：由地点 km 哈希确定参数（确定性），车沿支路可驶达镇区/油站
 ## 返回 {km, side, ang, len}；非 town/gas 返回 {}。kind 恒 0（土路支路），ang 小=接近垂直主路
@@ -4199,12 +4247,16 @@ func junctions_in(z0: float, z1: float) -> Array:
 		if _jh(n) > 0.75:
 			continue
 		var cross := _jh(n + 2000) < 0.28
+		var is_loop := not cross and _jh(n + 5000) < 0.35
+		var zj := -n * JUNCTION_EVERY
 		out.append({
-			"z": -n * JUNCTION_EVERY,
+			"z": zj,
 			"side": 1.0 if _jh(n + 1000) < 0.5 else -1.0,
 			"kind": 1 if cross else 0,
 			"ang": lerpf(0.5, 1.0, _jh(n + 3000)),
 			"len": lerpf(60.0, 120.0, _jh(n + 4000)),
+			"loop": is_loop,
+			"rejoin_z": zj - JUNCTION_EVERY if is_loop else zj,
 		})
 	for p in _places:
 		var pj := _place_junction(p)
@@ -4218,8 +4270,16 @@ func junctions_in(z0: float, z1: float) -> Array:
 ## 护栏缺口查询：z 附近 ±12m 内有岔路且在该侧（十字两侧都断；含聚落专属岔路）
 func junction_gap(z: float, side: float) -> bool:
 	var n := int(round(-z / JUNCTION_EVERY))
-	if n >= 1 and absf(-n * JUNCTION_EVERY - z) <= 12.0 and _jh(n) <= 0.75:
-		if _jh(n + 2000) < 0.28 or signf(side) == (1.0 if _jh(n + 1000) < 0.5 else -1.0):
+	if n >= 1 and _jh(n) <= 0.75:
+		var junction_side := 1.0 if _jh(n + 1000) < 0.5 else -1.0
+		if absf(-n * JUNCTION_EVERY - z) <= 12.0:
+			if _jh(n + 2000) < 0.28 or signf(side) == junction_side:
+				return true
+	# 回接口按上一条岔路编号查找；即使下一网格本身没有岔路，也必须留口
+	var prev := n - 1
+	if prev >= 1 and _jh(prev) <= 0.75 and _jh(prev + 2000) >= 0.28 and _jh(prev + 5000) < 0.35:
+		var origin_side := 1.0 if _jh(prev + 1000) < 0.5 else -1.0
+		if signf(side) == origin_side and absf(-n * JUNCTION_EVERY - z) <= 12.0:
 			return true
 	for p in _places:
 		var pj := _place_junction(p)
@@ -4239,28 +4299,34 @@ func _spawn_detour(n: int, zj: float) -> void:
 	var dir := Vector3(side * sin(ang), 0, -cos(ang)).normalized()
 	var org := Vector3(road_x(zj) + side * (ROAD_HALF - 0.8), 0, zj)
 	var end := org + dir * (len * randf_range(0.85, 1.0))
+	var across := Vector3(-dir.z, 0, dir.x)
+	var poi := end + across * 10.0
 	var d: Dictionary = _detours[randi() % _detours.size()]
 	match String(d.get("id", "")):
 		"wrecks":
 			for i in range(2 + randi() % 2):
-				var wp := end + Vector3(randf_range(-7.0, 7.0), 0, randf_range(-7.0, 7.0))
+				var wp := poi + dir * randf_range(-6.0, 6.0) + across * randf_range(-2.0, 4.0)
 				_wreck_solid(WCAR_SCENE, 1.0, Vector3(2.8, 1.75, 4.05), Vector3(0, 1.43, 0), wp, randf() * TAU)
-			_loot_and_zombies(end, 9.0, 2, 1 + randi() % 3)
+			_loot_and_zombies(poi, 9.0, 2, 1 + randi() % 3)
 		"camp":
 			for i in range(2):
-				var bp := end + Vector3(randf_range(-6.0, 6.0), 0, randf_range(-6.0, 6.0))
+				var bp := poi + dir * randf_range(-5.0, 5.0) + across * randf_range(-1.0, 3.0)
 				_wreck_solid(BARRICADE_SCENE, 0.55, Vector3(5.7, 0.95, 0.35), Vector3(0, 0.95, 0), bp, randf() * TAU)
-			_place_scenery(JUNK_SCENE, end.x + randf_range(-5.0, 5.0), end.z + randf_range(-5.0, 5.0), randf_range(2.4, 3.2))
-			_loot_and_zombies(end, 8.0, 2, randi() % 3)
+			var cp := poi + dir * randf_range(-4.0, 4.0) + across * randf_range(0.0, 3.0)
+			_place_scenery(JUNK_SCENE, cp.x, cp.z, randf_range(2.4, 3.2))
+			_loot_and_zombies(poi, 8.0, 2, randi() % 3)
 		"truck":
 			# 侧翻大货车：绕长轴滚转 90°，碰撞盒高宽互换；center.y = 新半高 3.3 - 下沉 0.4
-			_wreck_solid(WTRUCK_SCENE, 0.28, Vector3(2.0, 3.3, 5.0), Vector3(0, 2.9, 0), end, randf() * TAU, PI / 2.0)
-			_place_scenery(JUNK_SCENE, end.x + randf_range(-6.0, 6.0), end.z + randf_range(-6.0, 6.0), randf_range(2.4, 3.2))
-			_loot_and_zombies(end, 8.0, 1 + randi() % 2, randi() % 2)
+			_wreck_solid(WTRUCK_SCENE, 0.28, Vector3(2.0, 3.3, 5.0), Vector3(0, 2.9, 0), poi, randf() * TAU, PI / 2.0)
+			var jp := poi + dir * randf_range(-4.0, 4.0) + across * randf_range(0.0, 3.0)
+			_place_scenery(JUNK_SCENE, jp.x, jp.z, randf_range(2.4, 3.2))
+			_loot_and_zombies(poi, 8.0, 1 + randi() % 2, randi() % 2)
 	_place_detour_sign(String(d.get("name", "")), zj + DETOUR_SIGN_LEAD, side)
 
 ## 支路 POI 实心残骸：StaticBody + 碰撞盒 + 模型（撞不动，与 BARRICADE 同类）
 func _wreck_solid(scene: PackedScene, scale_f: float, half: Vector3, center: Vector3, pos: Vector3, yaw: float, roll := 0.0) -> void:
+	if loop_road_distance(pos.x, pos.z) < maxf(half.x, half.z) + 3.0:
+		return
 	var body := StaticBody3D.new()
 	body.add_to_group("consumable")
 	var col := CollisionShape3D.new()
@@ -4390,12 +4456,13 @@ func _spawn_scenery(z: float) -> void:
 			if randf() < 0.75:
 				var side := _side()
 				var bx: float = rx + side * randf_range(26.0, 42.0)
-				var building := _make_ruin_building(false)
-				building.scale = Vector3(1.15, randf_range(1.1, 1.6), 1.15)
-				building.position = Vector3(bx, ground_height(bx, z), z)
-				building.rotation.y = -side * PI * 0.5 + randf_range(-0.12, 0.12)
-				building.add_to_group("consumable")
-				add_child(building)
+				if loop_road_distance(bx, z) >= 11.0:
+					var building := _make_ruin_building(false)
+					building.scale = Vector3(1.15, randf_range(1.1, 1.6), 1.15)
+					building.position = Vector3(bx, ground_height(bx, z), z)
+					building.rotation.y = -side * PI * 0.5 + randf_range(-0.12, 0.12)
+					building.add_to_group("consumable")
+					add_child(building)
 			if randf() < 0.22:
 				_place_scenery(BUILDING_SCENE, rx + _side() * randf_range(24.0, 34.0), z, randf_range(9.0, 16.0))
 			if randf() < 0.25:
@@ -4428,6 +4495,8 @@ func _spawn_scenery(z: float) -> void:
 		var ts: float = -1.0 if zone == "coast" else _side()
 		var tx: float = rx + ts * randf_range(23.0, 65.0)
 		var tz: float = z + randf_range(-6.0, 6.0)
+		if loop_road_distance(tx, tz) < 3.0:
+			continue
 		if randf() > green_p:
 			_place_scenery(TREE_SCENE, tx, tz, randf_range(7.0, 13.0))
 			continue
@@ -4480,6 +4549,12 @@ func _place_scenery(scene: PackedScene, x: float, z: float, target_h: float) -> 
 				s *= max_hd / hd
 		node.scale = Vector3.ONE * s
 		node.position.y = -aabb.position.y * s
+	var radius := 0.0
+	if scene == BUILDING_SCENE or scene == JUNK_SCENE:
+		radius = Vector2(aabb.size.x * node.scale.x, aabb.size.z * node.scale.z).length() * 0.5
+	if loop_road_distance(x, z) < radius + 3.0:
+		node.free()
+		return
 	node.position = Vector3(x, ground_height(x, z) + node.position.y, z)
 	node.rotation.y = randf() * TAU
 	if scene == BUILDING_SCENE or scene == JUNK_SCENE:
@@ -4544,6 +4619,8 @@ func _rock_texture() -> Texture2D:
 
 ## 山段巨岩：低面数球体压成不规则椭球 + 程序化石纹，随机翻转半埋
 func _spawn_rock(x: float, z: float, size_scale := 1.0) -> void:
+	if loop_road_distance(x, z) < 14.0:
+		return
 	var rock := MeshInstance3D.new()
 	var mesh := SphereMesh.new()
 	mesh.radius = 1.0

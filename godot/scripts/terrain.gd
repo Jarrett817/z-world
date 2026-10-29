@@ -127,7 +127,10 @@ func _make_mesh(start_z: float) -> ArrayMesh:
 func _surface_arrays(index: int, start_z: float) -> Array:
 	match index:
 		0:
-			var gxs := PackedFloat32Array([-600.0, -380.0, -220.0, -130.0, -80.0, -50.0, -34.0, -20.0, 20.0, 34.0, 50.0, 80.0, 130.0, 220.0, 380.0, 600.0])
+			var gxs := PackedFloat32Array([-600.0, -380.0, -220.0, -180.0])
+			for xi in range(-52, 53):
+				gxs.append(float(xi) * COL_STEP)
+			gxs.append_array(PackedFloat32Array([180.0, 220.0, 380.0, 600.0]))
 			return _band(start_z, 0.0, 0.0, -0.3, false, 1, gxs)
 		1:
 			return _band(start_z, -ROAD_HALF - 16.0, -ROAD_HALF, -0.05, false, 2)
@@ -216,19 +219,23 @@ func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool, nx 
 		var zb := start_z - (i + 1) * SEG_LEN
 		var cxa: float = _main.road_x(za)
 		var cxb: float = _main.road_x(zb)
-		var ya: float = _main.ground_y(za) + y_off
-		var yb: float = _main.ground_y(zb) + y_off
+		var gya: float = _main.ground_y(za)
+		var gyb: float = _main.ground_y(zb)
+		var ya: float = gya + y_off
+		var yb: float = gyb + y_off
+		var zone_a: String = _main.zone_at(za) if use_xs else ""
+		var zone_b: String = _main.zone_at(zb) if use_xs else ""
 		var row_a: int = verts.size()
 		for j in enx + 1:
 			var xx: float = xs[j] if use_xs else lerpf(x0, x1, float(j) / nx)
-			var sy: float = _main.side_elev(za, absf(xx)) if use_xs else 0.0
-			verts.append(Vector3(cxa + xx, ya + sy, za))
+			var height: float = _main.ground_height_c(cxa + xx, za, gya, cxa, zone_a) - 0.02 if use_xs else ya
+			verts.append(Vector3(cxa + xx, height, za))
 			normals.append(Vector3.UP)
 			colors.append(_mottle(cxa + xx, za))
 		for j in enx + 1:
 			var xx: float = xs[j] if use_xs else lerpf(x0, x1, float(j) / nx)
-			var sy: float = _main.side_elev(zb, absf(xx)) if use_xs else 0.0
-			verts.append(Vector3(cxb + xx, yb + sy, zb))
+			var height: float = _main.ground_height_c(cxb + xx, zb, gyb, cxb, zone_b) - 0.02 if use_xs else yb
+			verts.append(Vector3(cxb + xx, height, zb))
 			normals.append(Vector3.UP)
 			colors.append(_mottle(cxb + xx, zb))
 		for j in enx:
@@ -345,21 +352,48 @@ func _side_roads(start_z: float, cross: bool) -> Array:
 	arr[Mesh.ARRAY_INDEX] = indices
 	return arr
 
-## 土路支路：从主路边缘斜出，2.6m 半宽，末端 15% 收窄收尾没入草地
+## 土路支路：普通岔路末端收窄；探索支线经过 POI 后以平滑弯道回接下一处主路
 func _branch_road(verts: PackedVector3Array, normals: PackedVector3Array,
 		colors: PackedColorArray, indices: PackedInt32Array, j: Dictionary) -> void:
 	var zj: float = j["z"]
 	var side: float = j["side"]
 	var dir := Vector3(side * sin(j["ang"]), 0, -cos(j["ang"])).normalized()
-	var perp := Vector3(-dir.z, 0, dir.x)
 	var org := Vector3(_main.road_x(zj) + side * (ROAD_HALF - 0.8), 0, zj)
 	var seg := 3.0
 	var steps := int(j["len"] / seg)
+	var is_loop := bool(j.get("loop", false))
+	var points: Array[Vector3] = []
 	for i in steps + 1:
-		var p := org + dir * (i * seg)
+		points.append(org + dir * (i * seg))
+	if is_loop:
+		# 三次贝塞尔：出发方向沿支路，回接方向顺主路，避免 POI 后出现锐角掉头
+		var p0: Vector3 = points[-1]
+		var p1 := p0 + dir * 18.0
+		var rejoin_z: float = j["rejoin_z"]
+		var p3 := Vector3(_main.road_x(rejoin_z) + side * (ROAD_HALF - 0.8), 0, rejoin_z)
+		var p2 := p3 + Vector3(0, 0, 22.0)
+		var return_steps := maxi(12, int((p0.distance_to(p1) + p1.distance_to(p2) + p2.distance_to(p3)) / seg))
+		for i in range(1, return_steps + 1):
+			var t := float(i) / return_steps
+			var u := 1.0 - t
+			points.append(p0 * (u * u * u) + p1 * (3.0 * u * u * t) + p2 * (3.0 * u * t * t) + p3 * (t * t * t))
+	for i in points.size():
+		var p: Vector3 = points[i]
+		var tangent: Vector3
+		if i == 0:
+			tangent = points[1] - p
+		elif i == points.size() - 1:
+			tangent = p - points[i - 1]
+		else:
+			tangent = points[i + 1] - points[i - 1]
+		tangent.y = 0.0
+		tangent = tangent.normalized()
+		var perp := Vector3(-tangent.z, 0, tangent.x)
 		var t := float(i) / steps
-		var half := 2.6 * (1.0 if t < 0.85 else maxf(0.15, (1.0 - t) / 0.15))
-		var y: float = _main.ground_y(p.z) + 0.015
+		var half := 2.6
+		if not is_loop and t >= 0.85:
+			half *= maxf(0.15, (1.0 - t) / 0.15)
+		var y: float = _main.ground_height(p.x, p.z) + 0.015
 		var row: int = verts.size()
 		verts.append(Vector3(p.x - perp.x * half, y, p.z - perp.z * half))
 		verts.append(Vector3(p.x + perp.x * half, y, p.z + perp.z * half))
@@ -398,7 +432,7 @@ func _rail(start_z: float, side: float) -> Array:
 	for i in steps:
 		var za := start_z - i * RAIL_SEG
 		var zb := za - RAIL_SEG
-		# 每 15 段留一处缺口（损毁护栏，末世感），岔路口断开让车辆拐入，立柱照旧
+		# 每 15 段留一处缺口（损毁护栏，末世感）；岔口与回接口的横梁、立柱一起断开
 		var broken: bool = fmod(float(i) + (1.0 if side > 0.0 else 7.0), 15.0) == 0.0 \
 			or _main.junction_gap((za + zb) * 0.5, side)
 		var xa: float = _main.road_x(za) + side * RAIL_OFFSET
@@ -407,10 +441,10 @@ func _rail(start_z: float, side: float) -> Array:
 			_extrude_box(verts, normals, indices,
 				Vector3(xa, _main.ground_y(za) + 0.72, za),
 				Vector3(xb, _main.ground_y(zb) + 0.72, zb), 0.24, 0.3)
-		# 立柱 0.12 宽 × 0.85 高，立于段首
-		_extrude_box(verts, normals, indices,
-			Vector3(xa, _main.ground_y(za) + 0.425, za + 0.15),
-			Vector3(xa, _main.ground_y(za) + 0.425, za - 0.15), 0.12, 0.85)
+			# 立柱 0.12 宽 × 0.85 高，立于段首
+			_extrude_box(verts, normals, indices,
+				Vector3(xa, _main.ground_y(za) + 0.425, za + 0.15),
+				Vector3(xa, _main.ground_y(za) + 0.425, za - 0.15), 0.12, 0.85)
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = verts
