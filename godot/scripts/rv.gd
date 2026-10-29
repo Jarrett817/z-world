@@ -1,20 +1,21 @@
 extends CharacterBody3D
-## 房车驾驶：WASD/方向键 + HUD 触摸按钮（touch_* 字段）。
+## 房车驾驶：WASD/方向键 + HUD 左侧摇杆（touch_* 字段）。
 ## 车头朝 -Z，速度以 km/h 表达，换算 0.4 单位/秒（1440 单位 = 1 km）。
 
 const ACCEL := 55.0
 const BRAKE := 120.0
 const DRAG := 10.0
+const REVERSE_MAX_KMH := 45.0
 const KMH_TO_UNITS := 0.4
 const CREW_CRUISE_KMH := 60.0   # 队友代驾的默认巡航速度；接管时保留更高的当前车速
 
 var speed_kmh := 0.0
+var reversing := false
 var engine_dead := false
 var parked := false
 var combat_in := false   # 下车/天窗战斗中：忽略驾驶按键（惯性滑行）
-var touch_gas := false
-var touch_brake := false
-var touch_steer := 0.0   # -1 右 / +1 左
+var touch_throttle := 0.0   # -1 倒退 / +1 前进
+var touch_steer := 0.0      # -1 右 / +1 左
 var main_node: Node3D
 var _wheels: Array[Node3D] = []   # 车轴轮一体网格（滚动动画）
 var _crew_cruise_kmh := 0.0
@@ -96,7 +97,8 @@ func _physics_process(delta: float) -> void:
 		# 水平化速度：y 分量由贴地逻辑接管，带坡度会被 move_and_slide 当碰撞损耗（爬坡难的根因）
 		var fwd0 := -global_transform.basis.z
 		fwd0.y = 0.0
-		velocity = fwd0.normalized() * (speed_kmh * KMH_TO_UNITS)
+		var drive_dir := -1.0 if reversing else 1.0
+		velocity = fwd0.normalized() * (speed_kmh * KMH_TO_UNITS * drive_dir)
 		move_and_slide()
 		position.y = main_node.ground_height(position.x, position.z) + main_node.RV_MODEL_FOOT
 		_align_to_terrain()
@@ -107,6 +109,7 @@ func _physics_process(delta: float) -> void:
 		if parked:
 			# 驻车 = 绝对锚定：不调 move_and_slide（重叠的残骸会把车持续顶开），只贴地
 			speed_kmh = 0.0
+			reversing = false
 			velocity = Vector3.ZERO
 		else:
 			if combat_in:
@@ -114,6 +117,7 @@ func _physics_process(delta: float) -> void:
 				speed_kmh = maxf(speed_kmh - DRAG * delta, 0.0)
 			else:
 				# 车内行走·队友代驾：接管当前车速，静止时自动起步；剧情结束继续巡航
+				reversing = false
 				if _crew_cruise_kmh <= 0.0:
 					_crew_cruise_kmh = maxf(speed_kmh, CREW_CRUISE_KMH)
 				if main_node._park_brake:
@@ -131,39 +135,51 @@ func _physics_process(delta: float) -> void:
 					rotation.y = lerp_angle(rotation.y, atan2(bx, 2.0 * d), delta * 1.2)
 			var fwd1 := -global_transform.basis.z
 			fwd1.y = 0.0
-			velocity = fwd1.normalized() * (speed_kmh * KMH_TO_UNITS)
+			var drive_dir := -1.0 if reversing else 1.0
+			velocity = fwd1.normalized() * (speed_kmh * KMH_TO_UNITS * drive_dir)
 			move_and_slide()
 			if not combat_in:
 				_report_collisions()
 				if is_on_wall():
-					speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd1) / KMH_TO_UNITS))
+					speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd1 * drive_dir) / KMH_TO_UNITS))
 		position.y = main_node.ground_height(position.x, position.z) + main_node.RV_MODEL_FOOT
 		_align_to_terrain()
 		main_node.rv_model.rotation.x = lerpf(main_node.rv_model.rotation.x, 0.0, delta * 3.0)
 		main_node.rv_model.rotation.z = lerpf(main_node.rv_model.rotation.z, 0.0, delta * 4.0)
 		return
-	var gas := touch_gas or Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP)
-	var brake: bool = touch_brake or main_node._park_brake or Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN)
+	var throttle := clampf(touch_throttle + _key_throttle(), -1.0, 1.0)
 	var steer_in := clampf(touch_steer + _key_steer(), -1.0, 1.0)
-
-	if not engine_dead and gas:
-		# 爬坡动力补偿：坡度越陡油门加成越大，陡坡不再爬不动
-		var climb := 1.0 + maxf(slope, 0.0) * 2.2
-		speed_kmh = minf(speed_kmh + ACCEL * grip * climb * delta, main_node.MAX_KMH)
-	elif brake:
+	if main_node._park_brake:
 		speed_kmh = maxf(speed_kmh - BRAKE * braking * delta, 0.0)
+		if speed_kmh <= 0.05:
+			reversing = false
+	elif not engine_dead and absf(throttle) > 0.05:
+		var want_reverse := throttle < 0.0
+		if want_reverse != reversing:
+			speed_kmh = maxf(speed_kmh - BRAKE * braking * absf(throttle) * delta, 0.0)
+			if speed_kmh <= 0.05:
+				reversing = want_reverse
+		else:
+			# 沿当前运动方向爬坡补偿；倒退时坡向取反
+			var slope_along := -slope if reversing else slope
+			var climb := 1.0 + maxf(slope_along, 0.0) * 2.2
+			var max_speed: float = REVERSE_MAX_KMH if reversing else main_node.MAX_KMH
+			speed_kmh = minf(speed_kmh + ACCEL * grip * climb * absf(throttle) * delta, max_speed)
 	else:
 		speed_kmh = maxf(speed_kmh - DRAG * delta, 0.0)
+		if speed_kmh <= 0.05:
+			reversing = false
 
+	var drive_dir := -1.0 if reversing else 1.0
 	var fwd := -global_transform.basis.z
 	fwd.y = 0.0
-	velocity = fwd.normalized() * (speed_kmh * KMH_TO_UNITS)
-	if absf(speed_kmh) > 1.0:
-		# 高速转向迟滞：速度越快打舵越缓，避免掉头打转
+	velocity = fwd.normalized() * (speed_kmh * KMH_TO_UNITS * drive_dir)
+	if speed_kmh > 1.0:
+		# 高速转向迟滞：速度越快打舵越缓，倒退时按实际行进方向反向打舵
 		var ratio: float = speed_kmh / main_node.MAX_KMH
-		rotation.y += steer_in * delta * 1.5 * (1.0 - 0.55 * ratio)
-		if absf(steer_in) < 0.05 and absf(position.x - main_node.road_x(position.z)) < main_node.ROAD_HALF + 3.0:
-			# 松手自动回正：对齐道路切线（仅在公路上时生效，野地里不抢方向盘）
+		rotation.y += steer_in * drive_dir * delta * 1.5 * (1.0 - 0.55 * ratio)
+		if not reversing and absf(steer_in) < 0.05 and absf(position.x - main_node.road_x(position.z)) < main_node.ROAD_HALF + 3.0:
+			# 松手自动回正：对齐道路切线（仅在公路前进时生效，野地里不抢方向盘）
 			var d: float = 0.6
 			var bx: float = main_node.road_x(position.z + d) - main_node.road_x(position.z - d)
 			# 行进方向是 -Z：目标朝向 = atan2(bx, +2d)，否则会掉头往后开
@@ -173,16 +189,17 @@ func _physics_process(delta: float) -> void:
 	_report_collisions()
 	if is_on_wall():
 		# 顶住障碍时采用实际位移速度，避免表显/耗油/车轮仍按油门目标速度运行
-		speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd) / KMH_TO_UNITS))
+		speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd * drive_dir) / KMH_TO_UNITS))
 
 	# 贴地：直接跟随地形高度函数，避免起伏穿模
 	position.y = main_node.ground_height(position.x, position.z) + main_node.RV_MODEL_FOOT
 
 	# 物理车身只贴合地形坡度；加速俯仰/转向侧倾仅作用于外壳，避免平地加速时碰撞盒插入地面
-	var pitch := -0.05 if (gas and not engine_dead) else 0.0
+	var gas_forward := throttle > 0.05 and not reversing
+	var pitch := -0.05 if (gas_forward and not engine_dead) else 0.0
 	_align_to_terrain()
 	main_node.rv_model.rotation.x = lerpf(main_node.rv_model.rotation.x, pitch, delta * 3.0)
-	main_node.rv_model.rotation.z = lerpf(main_node.rv_model.rotation.z, steer_in * 0.035 * (speed_kmh / main_node.MAX_KMH), delta * 4.0)
+	main_node.rv_model.rotation.z = lerpf(main_node.rv_model.rotation.z, steer_in * drive_dir * 0.035 * (speed_kmh / main_node.MAX_KMH), delta * 4.0)
 
 ## 碾压：触发区内的丧尸直接撞飞（车速 >8 才触发，停车时丧尸仍可围车）；动量按质量比衰减
 func _on_zombie_area(body: Node) -> void:
@@ -199,8 +216,18 @@ func _spin_wheels(delta: float) -> void:
 	if speed_kmh < 0.05:
 		return
 	var w := speed_kmh * KMH_TO_UNITS / 0.378 * delta
+	if reversing:
+		w = -w
 	for wheel in _wheels:
 		wheel.rotate_x(w)
+
+func _key_throttle() -> float:
+	var t := 0.0
+	if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP):
+		t += 1.0
+	if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN):
+		t -= 1.0
+	return t
 
 func _key_steer() -> float:
 	var s := 0.0
@@ -236,5 +263,6 @@ func _report_collisions() -> void:
 		elif other.is_in_group("obstacle_soft"):
 			# 已撞飞的解冻残骸：推着走不当墙，避免房车被自己的战利品卡死
 			if other is RigidBody3D and not other.freeze:
-				other.apply_central_impulse(-global_transform.basis.z * speed_kmh * KMH_TO_UNITS * other.mass * 0.4)
+				var drive_dir := -1.0 if reversing else 1.0
+				other.apply_central_impulse(-global_transform.basis.z * drive_dir * speed_kmh * KMH_TO_UNITS * other.mass * 0.4)
 			main_node.on_obstacle_hit(false, speed_kmh, other)

@@ -1,5 +1,5 @@
 extends CanvasLayer
-## HUD：状态面板 + 车速表 + 触摸驾驶按钮 + toast + 结算界面。
+## HUD：状态面板 + 车速表 + 驾驶摇杆 + toast + 结算界面。
 ## 末世暖调：篝火橙 #e8862e / 面板 #2a2320 / 主文字 #e8ded2 / 次文字 #8a7d6d。
 
 const ACCENT := Color("e8862e")
@@ -32,6 +32,14 @@ class Joystick:
 				queue_redraw()
 		elif e is InputEventScreenDrag and _active:
 			_update(e.position)
+
+	func release() -> void:
+		if not _active and knob == Vector2.ZERO:
+			return
+		_active = false
+		knob = Vector2.ZERO
+		moved.emit(knob)
+		queue_redraw()
 
 	func _update(p: Vector2) -> void:
 		var v := (p - size * 0.5) / 38.0
@@ -68,8 +76,8 @@ var _setting_sliders: Dictionary = {}         # key -> HSlider
 var _setting_value_labels: Dictionary = {}   # key -> 百分比 Label
 var _fullscreen_btn: Button
 var _res_opt: OptionButton
-var drive_buttons: Array[Button] = []
-var drive_misc_buttons: Array[Button] = []   # 视角/驻车/天窗/下车/车内（战斗时连同驾驶键一起收起）
+var drive_joystick: Control
+var drive_misc_buttons: Array[Button] = []   # 视角/驻车/天窗/下车/车内（战斗时连同驾驶摇杆一起收起）
 var combat_fire_buttons: Array[Button] = []   # 车内行走时要藏起来的开火类按钮
 var combat_stance_buttons: Array[Button] = [] # 跳跃/下蹲：车顶卧姿时隐藏
 var combat_joystick: Control
@@ -181,11 +189,17 @@ func build(rv_node: Node) -> void:
 	toast_label.modulate.a = 0.0
 	root.add_child(toast_label)
 
-	# 触摸驾驶按钮（驻车时隐藏驾驶四个）
-	drive_buttons.append(_touch_button(root, "油门", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -118, 156, 98), "gas"))
-	drive_buttons.append(_touch_button(root, "刹车", Control.PRESET_BOTTOM_RIGHT, Rect2(-352, -118, 156, 98), "brake"))
-	drive_buttons.append(_touch_button(root, "左", Control.PRESET_BOTTOM_LEFT, Rect2(20, -118, 130, 98), "left"))
-	drive_buttons.append(_touch_button(root, "右", Control.PRESET_BOTTOM_LEFT, Rect2(170, -118, 130, 98), "right"))
+	# 左侧驾驶摇杆：前推前进，后拉先刹停再倒车，左右转向
+	drive_joystick = Joystick.new()
+	drive_joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	drive_joystick.offset_left = 36
+	drive_joystick.offset_top = -206
+	drive_joystick.offset_right = 186
+	drive_joystick.offset_bottom = -56
+	drive_joystick.moved.connect(func(v: Vector2) -> void:
+		rv.touch_throttle = -v.y
+		rv.touch_steer = -v.x)
+	root.add_child(drive_joystick)
 	drive_misc_buttons.append(_touch_button(root, "视角", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -222, 78, 56), "view"))
 	drive_misc_buttons.append(_touch_button(root, "驻车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -222, 78, 56), "park"))
 	drive_misc_buttons.append(_touch_button(root, "天窗", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -284, 78, 56), "sunroof"))
@@ -560,6 +574,7 @@ func _build_combat(root: Control) -> void:
 	combat_stance_buttons.append(crouch_btn)
 	_touch_button(combat_root, "上车", Control.PRESET_TOP_RIGHT, Rect2(-170, 64, 146, 54), "exitcombat")
 	combat_fire_buttons.append(_touch_button(combat_root, "视角", Control.PRESET_TOP_RIGHT, Rect2(-170, 128, 146, 54), "fps"))
+	combat_fire_buttons.append(_touch_button(combat_root, "手雷", Control.PRESET_TOP_RIGHT, Rect2(-170, 192, 146, 54), "grenade"))
 	# 左下：虚拟摇杆（手游移动）
 	var js := Joystick.new()
 	combat_joystick = js
@@ -599,9 +614,10 @@ func _build_combat(root: Control) -> void:
 
 func set_combat_active(active: bool, ammo: int, hp: float) -> void:
 	combat_root.visible = active
-	# 战斗时收起整个驾驶面板（左/右压在摇杆上、视角压在跳跃上）；结束按驻车状态恢复
-	for b in drive_buttons:
-		b.visible = not active and not _is_parked()
+	# 战斗时收起整个驾驶面板；结束按驻车状态恢复
+	drive_joystick.visible = not active and not _is_parked()
+	if active:
+		drive_joystick.release()
 	for b in drive_misc_buttons:
 		b.visible = not active
 	if active:
@@ -743,7 +759,7 @@ func _process(delta: float) -> void:
 	_tab_down = tab
 	if rv == null:
 		return
-	speed_label.text = "%d km/h" % int(rv.speed_kmh)
+	speed_label.text = ("R · %d km/h" if rv.reversing else "%d km/h") % int(rv.speed_kmh)
 	# 空格/回车：打字机直接出全文
 	var skip := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_ENTER)
 	if story_root.visible and story_root.is_inside_tree() and _shown < _full_text.length():
@@ -776,9 +792,9 @@ func show_story(ev: Dictionary) -> void:
 	_shown = 0
 	_type_t = 0.0
 	story_text.text = ""
-	# 剧情面板会盖住驾驶按钮吞掉 button_up：清零触摸输入，防止油门/转向卡死
-	rv.touch_gas = false
-	rv.touch_brake = false
+	# 剧情面板会盖住驾驶摇杆吞掉松手事件：清零触摸输入，防止油门/转向卡死
+	drive_joystick.release()
+	rv.touch_throttle = 0.0
 	rv.touch_steer = 0.0
 	story_speaker.text = String(ev.get("speaker", ""))
 	for c in story_options.get_children():
@@ -968,13 +984,12 @@ func set_facilities_visible(v: bool) -> void:
 	if v:
 		_refresh_facilities()
 
-## 驻车时隐藏驾驶按钮，避免与设施面板重叠
+## 驻车时隐藏驾驶摇杆，避免与设施面板重叠
 func set_drive_buttons_visible(v: bool) -> void:
-	for b in drive_buttons:
-		b.visible = v
+	drive_joystick.visible = v
 	if not v:
-		rv.touch_gas = false
-		rv.touch_brake = false
+		drive_joystick.release()
+		rv.touch_throttle = 0.0
 		rv.touch_steer = 0.0
 
 func refresh_facilities() -> void:
@@ -1226,10 +1241,6 @@ func _touch_button(parent: Control, text: String, preset: int, rect: Rect2, acti
 
 func _on_btn_down(action: String) -> void:
 	match action:
-		"gas": rv.touch_gas = true
-		"brake": rv.touch_brake = true
-		"left": rv.touch_steer = 1.0
-		"right": rv.touch_steer = -1.0
 		"view":
 			if rv.main_node != null:
 				rv.main_node.view_mode = (rv.main_node.view_mode + 1) % 3
@@ -1246,6 +1257,9 @@ func _on_btn_down(action: String) -> void:
 		"reload":
 			if rv.main_node != null and rv.main_node.get_player_body() != null:
 				rv.main_node.get_player_body().reload()
+		"grenade":
+			if rv.main_node != null and rv.main_node.get_player_body() != null:
+				rv.main_node.get_player_body().throw_grenade()
 		"jump":
 			if rv.main_node != null and rv.main_node.get_player_body() != null:
 				rv.main_node.get_player_body().jump()
@@ -1290,10 +1304,6 @@ func _on_btn_down(action: String) -> void:
 
 func _on_btn_up(action: String) -> void:
 	match action:
-		"gas": rv.touch_gas = false
-		"brake": rv.touch_brake = false
-		"left": if rv.touch_steer > 0.0: rv.touch_steer = 0.0
-		"right": if rv.touch_steer < 0.0: rv.touch_steer = 0.0
 		"fire":
 			if rv.main_node != null and rv.main_node.get_player_body() != null:
 				rv.main_node.get_player_body().release_fire()

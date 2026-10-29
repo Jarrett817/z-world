@@ -865,7 +865,8 @@ func morale_factor() -> float:
 
 func _update_resources(delta: float) -> void:
 	var z := rv.global_position.z
-	dist_km += (last_z - z) / KMH_FACTOR
+	# 里程只记录向前推进，倒车调整位置不回滚旅程进度
+	dist_km += maxf(last_z - z, 0.0) / KMH_FACTOR
 	last_z = z
 	if parked:
 		# 驻车休整：全员检修（2.5 倍速度），持续消耗食物；吃饱时士气回升
@@ -1120,9 +1121,9 @@ func _build_terrain() -> void:
 
 func _recycle_world() -> void:
 	var rvz := rv.global_position.z
-	# 地形重建（前方余量不足时，从车后 100m 起向前铺 380m）
-	# 覆盖区间 [terrain_front-SPAN, terrain_front]，可视前沿接近覆盖末端时才重建
-	if rvz - VIEW_AHEAD < terrain_front - terrain.SPAN + 60.0:
+	# 地形重建：覆盖区间 [terrain_front-SPAN, terrain_front]（碰撞高度图另向后延 40m）
+	# 前进时可视前沿接近末端重建；倒车时接近后沿也重建，否则会撞上隐形高度图后沿
+	if rvz - VIEW_AHEAD < terrain_front - terrain.SPAN + 60.0 or rvz + 20.0 > terrain_front:
 		terrain_front = rvz + 100.0
 		terrain.rebuild(terrain_front)
 	# 路肩景物回收：原地反向清理，避免每帧 filter 分配新数组
@@ -3148,7 +3149,8 @@ func on_obstacle_hit(hard: bool, speed_kmh: float, obstacle: Node3D = null) -> v
 			# 解冻刚体：按车速冲量撞飞，翻滚落地后留在原地（不消失）
 			obstacle.set_meta("knocked", true)
 			obstacle.freeze = false
-			var dir := -rv.global_transform.basis.z
+			var drive_dir := -1.0 if rv.reversing else 1.0
+			var dir := -rv.global_transform.basis.z * drive_dir
 			obstacle.apply_central_impulse((dir * (4.0 + speed_kmh * 0.06) + Vector3(0.0, 2.2, 0.0)) * obstacle.mass)
 			obstacle.apply_torque_impulse(Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * 3.0 * obstacle.mass)
 			_wrecks.append(obstacle)
