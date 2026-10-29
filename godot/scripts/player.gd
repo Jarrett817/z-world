@@ -12,11 +12,10 @@ const GRAVITY := 18.0
 const JUMP_VEL := 7.2
 const CROUCH_MUL := 0.45
 const GUN_POS := Vector3(-0.12, 1.30, 0.33)   # 枪挂点基准（下蹲时随手下放）
+const GUN_POS_PRONE := Vector3(-0.3043, 0.1447, 0.4909)   # 免费卧姿第 0 帧右手 grip 关节实测位置
 const FPS_EYE := 1.62        # 站立眼高
 const FPS_EYE_CROUCH := 1.05 # 下蹲眼高
-const PRONE_ANGLE := 1.25    # 车顶卧姿：身体绕脚部前倒约 72°（手臂近似撑地前伸）
-const PRONE_LIFT := 0.22     # 趴下后躯干抬离车顶面，防穿模
-const FPS_EYE_PRONE := 0.78  # 卧姿眼高（前倒后头部位置）
+const FPS_EYE_PRONE := 0.56  # 与站立视角一致：相机高于 M4 枪线约 0.16m
 
 enum Mode { ON_FOOT, SUNROOF, RV_WALK }
 
@@ -28,6 +27,7 @@ var fire_cd := 0.0
 var reload_t := 0.0
 var hp := 100.0
 var model_root: Node3D
+var _body_meshes: Array[MeshInstance3D] = []
 var muzzle: Node3D
 var gun: Node3D          # 当前枪的挂点（grip 对齐点），俯仰/后坐作用在它身上
 var cam: Camera3D
@@ -74,6 +74,8 @@ func setup(main: Node, m: int) -> void:
 	mode = m
 
 func _ready() -> void:
+	# 车内由本地坐标移动，不对外参与碰撞，避免房车把车内玩家当障碍推挤
+	collision_layer = 0 if mode == Mode.RV_WALK else 1
 	# 胶囊碰撞：与丧尸同款尺寸
 	var col := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
@@ -86,10 +88,16 @@ func _ready() -> void:
 	var made := CharUtil.instantiate("hero", "aim", {}, false)
 	model_root = made["node"]
 	_anim = made["anim"]
-	for a in ["aim", "walk", "run", "crouch"]:
+	for a in ["aim", "walk", "run", "crouch", "prone"]:
 		_anim.get_animation(a).loop_mode = Animation.LOOP_LINEAR
 	_anim.get_animation("jump").loop_mode = Animation.LOOP_NONE
 	add_child(model_root)
+	# 长外套在俯卧时会铺开穿车顶；车顶第一人称隐藏自身网格，避免低机位身体与手臂侵入画面
+	for mesh in model_root.find_children("*", "MeshInstance3D", true, false):
+		if mesh.name.begins_with("Cloth"):
+			mesh.visible = mode != Mode.SUNROOF
+		else:
+			_body_meshes.append(mesh)
 	# 武器数据
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/guns.json"))
 	_guns = parsed["guns"]
@@ -187,6 +195,9 @@ func toggle_fps(force := false) -> void:
 	fps = not fps
 	if not fps and _head_bone >= 0:
 		_skel.set_bone_pose_scale(_head_bone, Vector3.ONE)
+	if mode == Mode.SUNROOF:
+		for mesh in _body_meshes:
+			mesh.visible = not fps
 	main_node.hud.toast("第一人称" if fps else "第三人称")
 
 ## FPS 期间每帧把 Head 骨缩零（动画每帧重写 pose，须在 pose_updated 后覆盖）
@@ -263,6 +274,9 @@ func _physics_process(delta: float) -> void:
 		_move_speed = 0.0
 		velocity = Vector3.ZERO
 		move_and_slide()
+		if _cur_anim != "prone":
+			_cur_anim = "prone"
+			_anim.play("prone", 0.15)
 	_update_sway(delta)
 	_aim_and_camera(delta)
 
@@ -387,13 +401,13 @@ func _update_sway(delta: float) -> void:
 ## 统一写枪挂点姿态：后坐衰减 + sway 叠加 + 蹲姿下放
 func _apply_gun(delta: float) -> void:
 	_recoil = maxf(0.0, _recoil - delta * 6.0)
-	# 车顶卧姿：挂点随身体前倒，枪反向补回保持指向瞄准方向
-	gun.rotation.x = -aim_pitch - _recoil * 0.22 + _look_sway.y - (PRONE_ANGLE if mode == Mode.SUNROOF else 0.0)
+	gun.rotation.x = -aim_pitch - _recoil * 0.22 + _look_sway.y
 	gun.rotation.y = _look_sway.x
 	gun.rotation.z = _bob_roll + _look_sway.x * 0.3 + _breath_roll
-	gun.position.x = GUN_POS.x + _bob_x + _look_sway.x * 0.35
-	gun.position.z = GUN_POS.z
-	var base_y := GUN_POS.y
+	var base_pos := GUN_POS_PRONE if mode == Mode.SUNROOF else GUN_POS
+	gun.position.x = base_pos.x + _bob_x + _look_sway.x * 0.35
+	gun.position.z = base_pos.z
+	var base_y := base_pos.y
 	if mode == Mode.ON_FOOT and _crouching:
 		base_y = 0.99
 	var target_y := base_y + _bob_y + _breath_y
@@ -405,9 +419,8 @@ func _apply_gun(delta: float) -> void:
 func _aim_and_camera(delta: float) -> void:
 	# 身体随瞄准转身（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
 	model_root.rotation.y = aim_yaw + PI
-	# 车顶卧姿：绕脚部前倒趴向车顶（欧拉 YXZ 序：先转身再前倒），躯干微抬防穿车顶
-	model_root.rotation.x = PRONE_ANGLE if mode == Mode.SUNROOF else 0.0
-	model_root.position.y = PRONE_LIFT if mode == Mode.SUNROOF else 0.0
+	model_root.rotation.x = 0.0
+	model_root.position.y = 0.0
 	if mode == Mode.RV_WALK:
 		# 车内：aim_yaw 是 rv 本地朝向，相机直接用本地变换（车转弯不甩视角）
 		var eye := Vector3(0, FPS_EYE, 0)
@@ -423,7 +436,7 @@ func _aim_and_camera(delta: float) -> void:
 		var eye_back := 0.05
 		if mode == Mode.SUNROOF:
 			eye_h = FPS_EYE_PRONE
-			eye_back = -1.45   # 眼位落在前伸头部（头骨已缩零，不挡视线）
+			eye_back = -0.30   # 与站立视角保持相同的枪后距离
 		cam.global_position = global_position + Vector3(0, eye_h, 0) + back * eye_back
 	else:
 		# MOBA 式斜背后高位俯视：玩家居画面下方，准星指向远处战场，宏观感知敌我态势

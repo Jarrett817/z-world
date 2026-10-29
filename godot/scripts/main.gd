@@ -60,6 +60,7 @@ var env: Environment
 var hud: CanvasLayer
 var terrain: MeshInstance3D
 var rain: CPUParticles3D
+var snow: CPUParticles3D
 var headlight: SpotLight3D
 
 # ---- 游戏状态 ----
@@ -102,6 +103,7 @@ var _fv_yaw := 0.0     # 车内自由视角：右键拖动环顾的偏航/俯仰
 var _fv_pitch := 0.0
 var combat_active := false
 var rv_walk_active := false   # 车内行走中（驻车起身 / 队友代驾巡航）
+var crew_driving := false     # 首位队友是否已坐到主驾（驻车后也用于恢复原岗位）
 var _q_down := false
 var _zones: Array = []        # 景观段循环（data/terrain_zones.json）
 var _zones_total := 0.0
@@ -212,6 +214,10 @@ func _ready() -> void:
 		elif a.begins_with("--hour="):
 			# --hour=H：设定开局时刻（截帧验收昼夜光照）
 			hour = float(a.trim_prefix("--hour="))
+		elif a.begins_with("--weather="):
+			# --weather=rain/heavy_rain/snow/fog：固定天气用于截帧验收
+			weather = a.trim_prefix("--weather=")
+			weather_timer = 9999.0
 		elif a.begins_with("--crew="):
 			_debug_crew = int(a.trim_prefix("--crew="))
 		elif a == "--dump":
@@ -249,7 +255,10 @@ func _ready() -> void:
 	sfx = Sfx.new()
 	add_child(sfx)
 	_spawn_initial_scenery()
-	hud.set_weather(weather)
+	if weather == "clear":
+		hud.set_weather(weather)
+	else:
+		_apply_weather()
 	# 车载电台剧情管理器
 	story = Node.new()
 	story.set_script(STORY_SCRIPT)
@@ -1055,7 +1064,7 @@ func _update_sun() -> void:
 	# 明媚末日：正午饱和蓝天，晨昏暖橙，深夜墨蓝——随太阳高度连续过渡
 	sky_mat.sky_top_color = Color(0.04, 0.05, 0.1).lerp(Color(0.42, 0.34, 0.32).lerp(Color(0.27, 0.5, 0.82), noon), day_t)
 	sky_mat.sky_horizon_color = Color(0.1, 0.11, 0.16).lerp(Color(0.92, 0.58, 0.36).lerp(Color(0.62, 0.78, 0.92), noon), day_t)
-	# 天气调制：雾=白茫茫能见度低，雨=阴沉
+	# 天气调制：雾=白茫茫能见度低，雨=阴沉，雪=明亮冷色
 	match weather:
 		"fog":
 			sky_mat.sky_top_color = sky_mat.sky_top_color.lerp(Color(0.5, 0.52, 0.53), 0.55)
@@ -1069,12 +1078,24 @@ func _update_sun() -> void:
 			env.fog_density = 0.006
 			env.fog_light_color = Color(0.4, 0.43, 0.46)
 			sun.light_energy *= 0.55
+		"heavy_rain":
+			sky_mat.sky_top_color = sky_mat.sky_top_color.lerp(Color(0.1, 0.13, 0.17), 0.75)
+			sky_mat.sky_horizon_color = sky_mat.sky_horizon_color.lerp(Color(0.25, 0.29, 0.33), 0.7)
+			env.fog_density = 0.0095
+			env.fog_light_color = Color(0.32, 0.36, 0.4)
+			sun.light_energy *= 0.38
+		"snow":
+			sky_mat.sky_top_color = sky_mat.sky_top_color.lerp(Color(0.5, 0.57, 0.65), 0.65)
+			sky_mat.sky_horizon_color = sky_mat.sky_horizon_color.lerp(Color(0.76, 0.8, 0.84), 0.7)
+			env.fog_density = 0.009
+			env.fog_light_color = Color(0.67, 0.72, 0.78)
+			sun.light_energy *= 0.6
 		_:
 			env.fog_density = 0.0011
 			env.fog_light_color = Color(0.68, 0.78, 0.88)
-	# 夜间/雾天自动开灯
+	# 夜间/低能见度天气自动开灯
 	var dark := deg > -15.0 or deg < -165.0
-	headlight.light_energy = 11.0 if dark or weather == "fog" else (2.6 if weather == "rain" else 0.0)
+	headlight.light_energy = 11.0 if dark or weather == "fog" else (4.0 if weather in ["heavy_rain", "snow"] else (2.6 if weather == "rain" else 0.0))
 	lamp_mat.emission_energy_multiplier = 3.2 if dark else (1.2 if weather != "clear" else 0.0)
 	if dark:
 		# 夜色：雾色压暗，改用月光色环境光保证剪影可辨
@@ -1678,22 +1699,74 @@ func _build_weather() -> void:
 	rain.visible = false
 	add_child(rain)
 
+	snow = CPUParticles3D.new()
+	snow.amount = 1500
+	snow.lifetime = 5.0
+	snow.preprocess = 2.0
+	snow.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	snow.emission_box_extents = Vector3(34, 4, 46)
+	snow.direction = Vector3(0.12, -1, 0)
+	snow.spread = 18.0
+	snow.gravity = Vector3(0, -0.8, 0)
+	snow.initial_velocity_min = 2.2
+	snow.initial_velocity_max = 3.6
+	snow.scale_amount_min = 0.65
+	snow.scale_amount_max = 1.4
+	var flake := QuadMesh.new()
+	flake.size = Vector2(0.12, 0.12)
+	var snow_mat := StandardMaterial3D.new()
+	snow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	snow_mat.albedo_color = Color(0.95, 0.98, 1.0, 0.9)
+	snow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	snow_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	flake.material = snow_mat
+	snow.mesh = flake
+	snow.emitting = false
+	snow.visible = false
+	add_child(snow)
+
+func _apply_weather() -> void:
+	var raining := weather in ["rain", "heavy_rain"]
+	var heavy := weather == "heavy_rain"
+	rain.amount = 1400 if heavy else 700
+	rain.lifetime = 1.1 if heavy else 1.3
+	rain.direction = Vector3(0.32, -1, 0) if heavy else Vector3(0.18, -1, 0)
+	rain.gravity = Vector3(0, -34, 0) if heavy else Vector3(0, -26, 0)
+	rain.initial_velocity_min = 32.0 if heavy else 24.0
+	rain.initial_velocity_max = 42.0 if heavy else 32.0
+	(rain.mesh as QuadMesh).size = Vector2(0.04, 0.85) if heavy else Vector2(0.03, 0.5)
+	rain.emitting = raining
+	rain.visible = raining
+	snow.emitting = weather == "snow"
+	snow.visible = weather == "snow"
+	match weather:
+		"rain": hud.toast("下起了冷雨，路面湿滑")
+		"heavy_rain": hud.toast("暴雨倾盆，能见度与抓地力下降")
+		"snow": hud.toast("大雪纷飞，路滑注意制动")
+		"fog": hud.toast("浓雾弥漫，能见度骤降")
+		_: hud.toast("云开了，路况转好")
+	hud.set_weather(weather)
+
 func _update_weather(delta: float) -> void:
 	rain.global_position = rv.global_position + Vector3(0, 9.0, -14.0)
+	snow.global_position = rv.global_position + Vector3(0, 9.0, -14.0)
 	weather_timer -= delta
 	if weather_timer > 0.0:
 		return
 	weather_timer = randf_range(50.0, 90.0)
 	var roll := randf()
-	# 明媚基调：晴天占大头，恶劣天气只是偶发
-	weather = "rain" if roll < 0.15 else ("fog" if roll < 0.30 else "clear")
-	rain.emitting = weather == "rain"
-	rain.visible = weather == "rain"
-	match weather:
-		"rain": hud.toast("下起了冷雨，路面湿滑")
-		"fog": hud.toast("浓雾弥漫，能见度骤降")
-		_: hud.toast("云开了，路况转好")
-	hud.set_weather(weather)
+	# 明媚基调：晴天 64%，普通雨雪与雾各 12%，极端天气各 6%
+	if roll < 0.06:
+		weather = "heavy_rain"
+	elif roll < 0.12:
+		weather = "snow"
+	elif roll < 0.24:
+		weather = "rain"
+	elif roll < 0.36:
+		weather = "fog"
+	else:
+		weather = "clear"
+	_apply_weather()
 
 # ---------- HUD ----------
 func _build_hud() -> void:
@@ -1895,8 +1968,12 @@ func start_rv_walk() -> void:
 	if driver_figure != null:
 		driver_figure.visible = false   # 主角起身，驾驶位空出
 	if not parked:
-		# 队友代驾：首位队友（副驾坐姿）挪到主驾位，名牌切「代驾」
-		crew_figures[0].position = Vector3(-0.55, -0.4, -2.85)
+		# 队友代驾：首位队友挪到主驾，切换双手握方向盘的驾驶动作
+		crew_driving = true
+		crew_figures[0].position = Vector3(-0.55, -0.42, -2.85)
+		crew_figures[0].rotation.y = PI
+		var driver_anim := crew_figures[0].find_child("AnimationPlayer", true, false) as AnimationPlayer
+		driver_anim.play("drive", 0.15)
 		var lb0: Label3D = crew_figures[0].get_meta("label")
 		lb0.text = "%s · 代驾" % crew_members[0].get("name", "")
 	p.aim_yaw = 0.0    # 面朝车头（车内 -Z）
@@ -1912,9 +1989,9 @@ func start_rv_walk() -> void:
 		else:
 			hud.toast("已起身 · WASD 走动 · 右键拖动环顾 · E 设施 · F 出发")
 	elif DisplayServer.is_touchscreen_available():
-		hud.toast("车内行走：左下摇杆移动 · 拖动屏幕环顾 · 车内键回驾驶座")
+		hud.toast("%s 代驾中 · 左下摇杆移动 · 车内键接管 · 驻车键刹车" % crew_members[0].get("name", ""))
 	else:
-		hud.toast("车内行走：WASD 移动 · 鼠标环顾 · Q 回驾驶座")
+		hud.toast("%s 代驾中 · 自动起步/跟弯 · Q 接管 · F 刹车驻车" % crew_members[0].get("name", ""))
 
 func end_rv_walk() -> void:
 	if not rv_walk_active:
@@ -1927,9 +2004,12 @@ func end_rv_walk() -> void:
 	rv_walk_active = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	cam.make_current()
-	if not parked and not crew_members.is_empty():
-		# 代驾结束：队友挪回副驾岗位（-3.18 与岗位表一致），名牌还原
+	if crew_driving:
+		crew_driving = false
+		# 代驾结束：队友挪回副驾岗位（-3.18 与岗位表一致），坐姿与名牌还原
 		crew_figures[0].position = Vector3(0.55, -0.4, -3.18)
+		var driver_anim := crew_figures[0].find_child("AnimationPlayer", true, false) as AnimationPlayer
+		driver_anim.play("sit", 0.15)
 		var lb0: Label3D = crew_figures[0].get_meta("label")
 		lb0.text = "%s · %s" % [crew_members[0].get("name", ""), crew_figures[0].get_meta("duty_label")]
 	# 回驾驶座：驻车回车内视角，行驶回追尾视角
@@ -3782,63 +3862,9 @@ func _make_scenery(z: float) -> Node3D:
 		cross.material_override = _mat(Color(0.22, 0.21, 0.19))
 		root.add_child(cross)
 	elif roll < 0.70:
-		# 废墟楼：近处矮楼 + 远处玻璃幕墙高楼天际线（程序化窗格立面，不再是素盒）
+		# 废墟楼：近处矮楼 + 远处玻璃幕墙高楼天际线
 		var far := randf() < 0.55
-		var b := MeshInstance3D.new()
-		var bm := BoxMesh.new()
-		if far:
-			bm.size = Vector3(randf_range(9.0, 18.0), randf_range(28.0, 72.0), randf_range(9.0, 16.0))
-		else:
-			bm.size = Vector3(randf_range(5.0, 10.0), randf_range(6.0, 14.0), randf_range(5.0, 10.0))
-		b.mesh = bm
-		b.position.y = bm.size.y * 0.5
-		# 立面纹理按楼身尺寸配窗格行列；近楼混凝土/砖/米色旧楼，远楼蓝灰玻璃幕墙
-		var cols := int(clampf(bm.size.x / 2.4, 2.0, 7.0))
-		var rows := int(clampf(bm.size.y / 3.0, 2.0, 22.0))
-		var base: Color
-		var win: Color
-		if far:
-			base = Color(0.55, 0.68, 0.79)
-			win = Color(0.3, 0.42, 0.55)
-		else:
-			base = [Color(0.62, 0.58, 0.52), Color(0.55, 0.44, 0.36), Color(0.48, 0.48, 0.49)][randi() % 3]
-			win = Color(0.16, 0.18, 0.2)
-		var facade := StandardMaterial3D.new()
-		facade.albedo_texture = _facade_tex(cols, rows, base, win)
-		if far:
-			facade.metallic = 0.3
-			facade.roughness = 0.25
-		b.material_override = facade
-		root.add_child(b)
-		_solid_box(root, bm.size, b.position)
-		# 女儿墙 + 电梯机房：屋顶轮廓不再一刀切
-		var roof_mat := _mat(base.darkened(0.3))
-		var parap := MeshInstance3D.new()
-		var pm3 := BoxMesh.new()
-		pm3.size = Vector3(bm.size.x + 0.3, 0.6, bm.size.z + 0.3)
-		parap.mesh = pm3
-		parap.position.y = bm.size.y + 0.15
-		parap.material_override = roof_mat
-		root.add_child(parap)
-		if randf() < 0.7:
-			var hut := MeshInstance3D.new()
-			var hm3 := BoxMesh.new()
-			hm3.size = Vector3(bm.size.x * randf_range(0.25, 0.4), randf_range(1.2, 2.2), bm.size.z * randf_range(0.25, 0.4))
-			hut.mesh = hm3
-			hut.position = Vector3(randf_range(-bm.size.x * 0.2, bm.size.x * 0.2), bm.size.y + hm3.size.y * 0.5, randf_range(-bm.size.z * 0.2, bm.size.z * 0.2))
-			hut.material_override = roof_mat
-			root.add_child(hut)
-		# 楼顶天线，强化废墟感
-		if far and randf() < 0.5:
-			var antenna := MeshInstance3D.new()
-			var am2 := CylinderMesh.new()
-			am2.top_radius = 0.05
-			am2.bottom_radius = 0.08
-			am2.height = randf_range(3.0, 8.0)
-			antenna.mesh = am2
-			antenna.position = Vector3(randf_range(-bm.size.x * 0.3, bm.size.x * 0.3), bm.size.y + am2.height * 0.5, 0)
-			antenna.material_override = _mat(Color(0.25, 0.25, 0.26))
-			root.add_child(antenna)
+		root.add_child(_make_ruin_building(far))
 		root.position.x = road_x(z) + side * (randf_range(105.0, 190.0) if far else randf_range(45.0, 90.0))
 		root.set_meta("x_band", Vector2(105.0, 190.0) if far else Vector2(45.0, 90.0))
 		# x 移出远处后按新位置的地形高度重算 y，否则楼悬浮/埋地
@@ -3901,6 +3927,63 @@ func _make_scenery(z: float) -> Node3D:
 		d.material_override = _mat(Color(0.42, 0.25, 0.12))
 		root.add_child(d)
 	add_child(root)
+	return root
+
+## 窗格废墟楼：出生区远景与城市近景共用，带屋顶轮廓和实心碰撞
+func _make_ruin_building(far: bool) -> Node3D:
+	var root := Node3D.new()
+	var b := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	if far:
+		bm.size = Vector3(randf_range(9.0, 18.0), randf_range(28.0, 72.0), randf_range(9.0, 16.0))
+	else:
+		bm.size = Vector3(randf_range(5.0, 10.0), randf_range(6.0, 14.0), randf_range(5.0, 10.0))
+	b.mesh = bm
+	b.position.y = bm.size.y * 0.5
+	var cols := int(clampf(bm.size.x / 2.4, 2.0, 7.0))
+	var rows := int(clampf(bm.size.y / 3.0, 2.0, 22.0))
+	var base: Color
+	var win: Color
+	if far:
+		base = Color(0.55, 0.68, 0.79)
+		win = Color(0.3, 0.42, 0.55)
+	else:
+		base = [Color(0.62, 0.58, 0.52), Color(0.55, 0.44, 0.36), Color(0.48, 0.48, 0.49)][randi() % 3]
+		win = Color(0.16, 0.18, 0.2)
+	var facade := StandardMaterial3D.new()
+	facade.albedo_texture = _facade_tex(cols, rows, base, win)
+	if far:
+		facade.metallic = 0.3
+		facade.roughness = 0.25
+	b.material_override = facade
+	root.add_child(b)
+	_solid_box(root, bm.size, b.position)
+	var roof_mat := _mat(base.darkened(0.3))
+	var parap := MeshInstance3D.new()
+	var pm3 := BoxMesh.new()
+	pm3.size = Vector3(bm.size.x + 0.3, 0.6, bm.size.z + 0.3)
+	parap.mesh = pm3
+	parap.position.y = bm.size.y + 0.15
+	parap.material_override = roof_mat
+	root.add_child(parap)
+	if randf() < 0.7:
+		var hut := MeshInstance3D.new()
+		var hm3 := BoxMesh.new()
+		hm3.size = Vector3(bm.size.x * randf_range(0.25, 0.4), randf_range(1.2, 2.2), bm.size.z * randf_range(0.25, 0.4))
+		hut.mesh = hm3
+		hut.position = Vector3(randf_range(-bm.size.x * 0.2, bm.size.x * 0.2), bm.size.y + hm3.size.y * 0.5, randf_range(-bm.size.z * 0.2, bm.size.z * 0.2))
+		hut.material_override = roof_mat
+		root.add_child(hut)
+	if far and randf() < 0.5:
+		var antenna := MeshInstance3D.new()
+		var am2 := CylinderMesh.new()
+		am2.top_radius = 0.05
+		am2.bottom_radius = 0.08
+		am2.height = randf_range(3.0, 8.0)
+		antenna.mesh = am2
+		antenna.position = Vector3(randf_range(-bm.size.x * 0.3, bm.size.x * 0.3), bm.size.y + am2.height * 0.5, 0)
+		antenna.material_override = _mat(Color(0.25, 0.25, 0.26))
+		root.add_child(antenna)
 	return root
 
 ## 程序化常青松树：短干 + 三层锥形树冠（自下而上收窄），灰绿做旧，整体随机缩放
@@ -4282,27 +4365,77 @@ func _spawn_scenery(z: float) -> void:
 	var rx: float = road_x(z)
 	var tree_p := 0.1
 	var tree_n := 1
+	var green_p := 0.85
 	match zone:
 		"city":
-			if randf() < 0.55:
-				_place_scenery(BUILDING_SCENE, rx + _side() * randf_range(23.0, 32.0), z, randf_range(9.0, 16.0))
+			if randf() < 0.75:
+				var side := _side()
+				var bx: float = rx + side * randf_range(26.0, 42.0)
+				var building := _make_ruin_building(false)
+				building.scale = Vector3(1.15, randf_range(1.1, 1.6), 1.15)
+				building.position = Vector3(bx, ground_height(bx, z), z)
+				building.rotation.y = -side * PI * 0.5 + randf_range(-0.12, 0.12)
+				building.add_to_group("consumable")
+				add_child(building)
+			if randf() < 0.22:
+				_place_scenery(BUILDING_SCENE, rx + _side() * randf_range(24.0, 34.0), z, randf_range(9.0, 16.0))
 			if randf() < 0.25:
 				_place_scenery(JUNK_SCENE, rx + _side() * randf_range(22.5, 28.0), z + randf_range(-5.0, 5.0), randf_range(2.4, 3.0))
-			tree_p = 0.06
+			if randf() < 0.08:
+				var wx: float = rx + _side() * randf_range(23.0, 29.0)
+				_wreck_solid(WCAR_SCENE, 1.0, Vector3(2.8, 1.75, 4.05), Vector3(0, 1.43, 0), Vector3(wx, 0, z), randf() * TAU)
+			tree_p = 0.08
 		"forest":
-			tree_p = 0.9
+			tree_p = 0.95
 			tree_n = 3
+			if randf() < 0.55:
+				_spawn_shrub(rx + _side() * randf_range(10.0, 19.0), z + randf_range(-5.0, 5.0))
 		"mountain":
-			tree_p = 0.4
-			if randf() < 0.3:
-				_spawn_rock(rx + _side() * randf_range(23.0, 45.0), z + randf_range(-6.0, 6.0))
+			tree_p = 0.45
+			green_p = 0.95
+			if randf() < 0.48:
+				_spawn_rock(rx + _side() * randf_range(23.0, 45.0), z + randf_range(-6.0, 6.0), randf_range(1.4, 2.4))
 		"hills", "lake", "coast":
-			tree_p = 0.22
+			tree_p = 0.28
+			if zone != "coast" and randf() < 0.25:
+				_spawn_shrub(rx + _side() * randf_range(10.0, 19.0), z + randf_range(-5.0, 5.0))
+		_:
+			if randf() < 0.18:
+				_spawn_shrub(rx + _side() * randf_range(10.0, 19.0), z + randf_range(-5.0, 5.0))
 	for i in range(tree_n):
-		if randf() < tree_p:
-			# coast 段右侧是海（水面 10~170m），树只生左岸
-			var ts: float = -1.0 if zone == "coast" else _side()
-			_place_scenery(TREE_SCENE, rx + ts * randf_range(23.0, 65.0), z + randf_range(-6.0, 6.0), randf_range(7.0, 13.0))
+		if randf() >= tree_p:
+			continue
+		# coast 段右侧是海（水面 10~170m），树只生左岸
+		var ts: float = -1.0 if zone == "coast" else _side()
+		var tx: float = rx + ts * randf_range(23.0, 65.0)
+		var tz: float = z + randf_range(-6.0, 6.0)
+		if randf() > green_p:
+			_place_scenery(TREE_SCENE, tx, tz, randf_range(7.0, 13.0))
+			continue
+		var tree: Node3D = _make_pine() if zone == "mountain" or randf() < 0.32 else _make_broadleaf()
+		tree.position = Vector3(tx, ground_height(tx, tz), tz)
+		_solid_box(tree, Vector3(0.6, 5.5, 0.6), Vector3(0, 2.75, 0))
+		tree.add_to_group("consumable")
+		add_child(tree)
+
+## 无碰撞的低矮灌木，可放在路肩近处补足前景层次
+func _spawn_shrub(x: float, z: float) -> void:
+	var shrub := Node3D.new()
+	var col := Color(0.17, 0.34, 0.13).lerp(Color(0.3, 0.46, 0.16), randf())
+	for i in randi_range(2, 3):
+		var tu := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = randf_range(0.45, 0.85)
+		sm.height = sm.radius * 1.4
+		sm.radial_segments = 7
+		sm.rings = 4
+		tu.mesh = sm
+		tu.position = Vector3(randf_range(-0.65, 0.65), sm.radius * 0.45, randf_range(-0.65, 0.65))
+		tu.material_override = _mat(col.lightened(randf_range(0.0, 0.12)))
+		shrub.add_child(tu)
+	shrub.position = Vector3(x, ground_height(x, z), z)
+	shrub.add_to_group("consumable")
+	add_child(shrub)
 
 var _scene_aabbs: Dictionary = {}
 
@@ -4390,7 +4523,7 @@ func _rock_texture() -> Texture2D:
 	return _rock_tex
 
 ## 山段巨岩：低面数球体压成不规则椭球 + 程序化石纹，随机翻转半埋
-func _spawn_rock(x: float, z: float) -> void:
+func _spawn_rock(x: float, z: float, size_scale := 1.0) -> void:
 	var rock := MeshInstance3D.new()
 	var mesh := SphereMesh.new()
 	mesh.radius = 1.0
@@ -4398,7 +4531,7 @@ func _spawn_rock(x: float, z: float) -> void:
 	mesh.radial_segments = 9
 	mesh.rings = 6
 	rock.mesh = mesh
-	var s := randf_range(1.3, 2.9)
+	var s := randf_range(1.3, 2.9) * size_scale
 	var sx := s * randf_range(1.0, 1.35)
 	var sy := s * randf_range(0.72, 1.12)
 	var sz := s * randf_range(0.9, 1.3)
@@ -4418,7 +4551,12 @@ func _spawn_rock(x: float, z: float) -> void:
 	lump.scale = Vector3(randf_range(0.45, 0.75), randf_range(0.4, 0.7), randf_range(0.45, 0.75))
 	lump.position = Vector3(randf_range(0.45, 0.8) * (1 if randf() < 0.5 else -1), randf_range(0.1, 0.5), randf_range(-0.6, 0.6))
 	rock.add_child(lump)
-	rock.position = Vector3(x, ground_height(x, z) + sy * randf_range(0.5, 0.7), z)
+	# 大岩块按占地最低点贴地，避免山坡下坡侧悬空
+	var base_y := ground_height(x, z)
+	for dx in [-sx * 0.75, sx * 0.75]:
+		for dz in [-sz * 0.75, sz * 0.75]:
+			base_y = minf(base_y, ground_height(x + dx, z + dz))
+	rock.position = Vector3(x, base_y + sy * randf_range(0.5, 0.7), z)
 	_solid_box(rock, Vector3(1.4, 1.45, 1.4), Vector3.ZERO, true)
 	rock.add_to_group("consumable")
 	add_child(rock)

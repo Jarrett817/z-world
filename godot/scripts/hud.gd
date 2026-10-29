@@ -71,6 +71,8 @@ var _res_opt: OptionButton
 var drive_buttons: Array[Button] = []
 var drive_misc_buttons: Array[Button] = []   # 视角/驻车/天窗/下车/车内（战斗时连同驾驶键一起收起）
 var combat_fire_buttons: Array[Button] = []   # 车内行走时要藏起来的开火类按钮
+var combat_stance_buttons: Array[Button] = [] # 跳跃/下蹲：车顶卧姿时隐藏
+var combat_joystick: Control
 var _tab_down := false
 var _toast_tween: Tween
 
@@ -132,7 +134,7 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 车内走动 · E 设施 · V 射击视角 · Tab 队伍 · Esc 菜单", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 车内/队友代驾 · E 设施 · V 射击视角 · Tab 队伍 · Esc 菜单", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	hint.offset_left = -958
 	hint.offset_right = -308
@@ -145,7 +147,7 @@ func build(rv_node: Node) -> void:
 	weather_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	weather_label.offset_left = -200
 	weather_label.offset_right = -14
-	weather_label.offset_top = 38
+	weather_label.offset_top = 50
 	weather_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	root.add_child(weather_label)
 
@@ -188,7 +190,7 @@ func build(rv_node: Node) -> void:
 	drive_misc_buttons.append(_touch_button(root, "驻车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -222, 78, 56), "park"))
 	drive_misc_buttons.append(_touch_button(root, "天窗", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -284, 78, 56), "sunroof"))
 	drive_misc_buttons.append(_touch_button(root, "下车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -284, 78, 56), "exitveh"))
-	drive_misc_buttons.append(_touch_button(root, "车内", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -346, 78, 56), "rvwalk"))
+	drive_misc_buttons.append(_touch_button(root, "车内·代驾", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -346, 78, 56), "rvwalk"))
 	# 右上：署名 / 队伍 / 设施（手游触屏替代 Tab/E 快捷键）
 	_touch_button(root, "署名", Control.PRESET_TOP_RIGHT, Rect2(-292, 14, 88, 46), "credits")
 	_touch_button(root, "队伍", Control.PRESET_TOP_RIGHT, Rect2(-196, 14, 88, 46), "crew")
@@ -548,14 +550,19 @@ func _build_combat(root: Control) -> void:
 	combat_root.add_child(gun_label)
 	# 触屏战斗按钮组：开火（大）/ 跳跃 / 换弹 / 换枪 / 下蹲 / 上车撤离
 	combat_fire_buttons.append(_touch_button(combat_root, "开火", Control.PRESET_BOTTOM_RIGHT, Rect2(-170, -140, 146, 116), "fire"))
-	combat_fire_buttons.append(_touch_button(combat_root, "跳跃", Control.PRESET_BOTTOM_RIGHT, Rect2(-170, -262, 146, 62), "jump"))
+	var jump_btn := _touch_button(combat_root, "跳跃", Control.PRESET_BOTTOM_RIGHT, Rect2(-170, -262, 146, 62), "jump")
+	combat_fire_buttons.append(jump_btn)
+	combat_stance_buttons.append(jump_btn)
 	combat_fire_buttons.append(_touch_button(combat_root, "换弹", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -204, 150, 54), "reload"))
 	combat_fire_buttons.append(_touch_button(combat_root, "换枪", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -140, 150, 54), "swapgun"))
-	combat_fire_buttons.append(_touch_button(combat_root, "下蹲", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -76, 150, 54), "crouch"))
+	var crouch_btn := _touch_button(combat_root, "下蹲", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -76, 150, 54), "crouch")
+	combat_fire_buttons.append(crouch_btn)
+	combat_stance_buttons.append(crouch_btn)
 	_touch_button(combat_root, "上车", Control.PRESET_TOP_RIGHT, Rect2(-170, 64, 146, 54), "exitcombat")
 	combat_fire_buttons.append(_touch_button(combat_root, "视角", Control.PRESET_TOP_RIGHT, Rect2(-170, 128, 146, 54), "fps"))
 	# 左下：虚拟摇杆（手游移动）
 	var js := Joystick.new()
+	combat_joystick = js
 	js.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	js.offset_left = 36
 	js.offset_top = -206
@@ -598,6 +605,11 @@ func set_combat_active(active: bool, ammo: int, hp: float) -> void:
 	for b in drive_misc_buttons:
 		b.visible = not active
 	if active:
+		var roof: bool = rv.main_node.get_player_body().mode == 1
+		for b in combat_stance_buttons:
+			b.visible = not roof
+		combat_joystick.visible = not roof
+		combat_hint.text = "左键 开火 · R 换弹 · X 手雷 · 1-4 换枪 · V 视角 · G 上车" if roof else "左键 开火 · R 换弹 · X 手雷 · 1-4 换枪 · C 下蹲 · V 视角 · G 上车"
 		set_combat_ammo(ammo, 0)
 		set_combat_hp(hp)
 
@@ -607,6 +619,8 @@ func _is_parked() -> bool:
 ## 车内行走：复用战斗 HUD 底板，但只留摇杆与「上车」撤离（无法开枪/跳跃/换枪）
 func set_rv_walk_active(v: bool) -> void:
 	combat_root.visible = v
+	if v:
+		combat_joystick.visible = true
 	for b in combat_fire_buttons:
 		b.visible = not v
 	ammo_label.visible = not v
@@ -1111,13 +1125,15 @@ func update_stats(main: Node3D) -> void:
 	var h := int(main.hour)
 	var m := int((main.hour - h) * 60.0)
 	info_label.text = "里程 %.1f km · 第 %d 天 %02d:%02d%s" % [main.dist_km, main.day, h, m, " · 驻车中" if main.parked else ""]
+	if main.crew_driving and not main.parked:
+		info_label.text += "\n%s 代驾中 · 定速巡航 · Q 接管" % main.crew_members[0].get("name", "")
 	var legs := PackedStringArray()
 	for pl in main.next_places(3):
 		legs.append("%s %.0fkm" % [pl[0], pl[1]])
 	journey_label.text = " → ".join(legs)
 
 func set_weather(w: String) -> void:
-	weather_label.text = "天气 " + {"clear": "晴", "rain": "雨", "fog": "雾"}.get(w, "晴")
+	weather_label.text = "天气 " + {"clear": "晴", "rain": "雨", "heavy_rain": "大雨", "snow": "大雪", "fog": "雾"}.get(w, "晴")
 
 func toast(msg: String) -> void:
 	toast_label.text = msg

@@ -6,6 +6,7 @@ const ACCEL := 55.0
 const BRAKE := 120.0
 const DRAG := 10.0
 const KMH_TO_UNITS := 0.4
+const CREW_CRUISE_KMH := 60.0   # 队友代驾的默认巡航速度；接管时保留更高的当前车速
 
 var speed_kmh := 0.0
 var engine_dead := false
@@ -16,6 +17,7 @@ var touch_brake := false
 var touch_steer := 0.0   # -1 右 / +1 左
 var main_node: Node3D
 var _wheels: Array[Node3D] = []   # 车轴轮一体网格（滚动动画）
+var _crew_cruise_kmh := 0.0
 
 func _ready() -> void:
 	main_node = get_parent()
@@ -72,6 +74,20 @@ func _add_hub_marker(axle: MeshInstance3D) -> void:
 
 func _physics_process(delta: float) -> void:
 	_spin_wheels(delta)
+	if not main_node.rv_walk_active:
+		_crew_cruise_kmh = 0.0
+	var grip := 1.0
+	var braking := 1.0
+	match main_node.weather:
+		"rain":
+			grip = 0.78
+			braking = 0.85
+		"heavy_rain":
+			grip = 0.62
+			braking = 0.68
+		"snow":
+			grip = 0.55
+			braking = 0.6
 	# 坡度姿态：前后 5m 地面高差算俯仰（车头朝 -Z，前方更高即上坡抬车头）
 	var slope := atan2(main_node.ground_height(position.x, position.z - 2.5) - main_node.ground_height(position.x, position.z + 2.5), 5.0)
 	# 剧情对话期间：世界冻结，强制刹停并贴地（忽略一切驾驶输入）
@@ -95,15 +111,31 @@ func _physics_process(delta: float) -> void:
 			if combat_in:
 				# 天窗射击：无驾驶输入，惯性滑行
 				speed_kmh = maxf(speed_kmh - DRAG * delta, 0.0)
-			elif speed_kmh > 1.0 and absf(position.x - main_node.road_x(position.z)) < main_node.ROAD_HALF + 3.0:
-				# 车内行走·队友代驾：定速巡航，公路上自动跟弯（同驾驶回正逻辑）
-				var d: float = 0.6
-				var bx: float = main_node.road_x(position.z + d) - main_node.road_x(position.z - d)
-				rotation.y = lerp_angle(rotation.y, atan2(bx, 2.0 * d), delta * 1.2)
+			else:
+				# 车内行走·队友代驾：接管当前车速，静止时自动起步；剧情结束继续巡航
+				if _crew_cruise_kmh <= 0.0:
+					_crew_cruise_kmh = maxf(speed_kmh, CREW_CRUISE_KMH)
+				if main_node._park_brake:
+					speed_kmh = maxf(speed_kmh - BRAKE * braking * delta, 0.0)
+				elif engine_dead:
+					speed_kmh = maxf(speed_kmh - DRAG * delta, 0.0)
+				elif speed_kmh < _crew_cruise_kmh:
+					var climb := 1.0 + maxf(slope, 0.0) * 2.2
+					speed_kmh = minf(speed_kmh + ACCEL * grip * climb * delta, _crew_cruise_kmh)
+				else:
+					speed_kmh = maxf(speed_kmh - DRAG * delta, _crew_cruise_kmh)
+				if speed_kmh > 1.0 and absf(position.x - main_node.road_x(position.z)) < main_node.ROAD_HALF + 3.0:
+					var d: float = 0.6
+					var bx: float = main_node.road_x(position.z + d) - main_node.road_x(position.z - d)
+					rotation.y = lerp_angle(rotation.y, atan2(bx, 2.0 * d), delta * 1.2)
 			var fwd1 := -global_transform.basis.z
 			fwd1.y = 0.0
 			velocity = fwd1.normalized() * (speed_kmh * KMH_TO_UNITS)
 			move_and_slide()
+			if not combat_in:
+				_report_collisions()
+				if is_on_wall():
+					speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd1) / KMH_TO_UNITS))
 		position.y = main_node.ground_height(position.x, position.z) + main_node.RV_MODEL_FOOT
 		rotation.x = lerpf(rotation.x, slope, delta * 3.0)
 		rotation.z = lerpf(rotation.z, 0.0, delta * 4.0)
@@ -113,12 +145,10 @@ func _physics_process(delta: float) -> void:
 	var steer_in := clampf(touch_steer + _key_steer(), -1.0, 1.0)
 
 	if not engine_dead and gas:
-		var grip := 0.78 if main_node.weather == "rain" else 1.0
 		# 爬坡动力补偿：坡度越陡油门加成越大，陡坡不再爬不动
 		var climb := 1.0 + maxf(slope, 0.0) * 2.2
 		speed_kmh = minf(speed_kmh + ACCEL * grip * climb * delta, main_node.MAX_KMH)
 	elif brake:
-		var braking := 0.85 if main_node.weather == "rain" else 1.0
 		speed_kmh = maxf(speed_kmh - BRAKE * braking * delta, 0.0)
 	else:
 		speed_kmh = maxf(speed_kmh - DRAG * delta, 0.0)
