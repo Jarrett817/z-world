@@ -84,7 +84,6 @@
 	},
 	"npc_gunner": {
 		"mag_size": 30,
-		"reload_time": 2.4,
-		"fire_arc": 0.45
+		"reload_time": 2.4
 	}
 }

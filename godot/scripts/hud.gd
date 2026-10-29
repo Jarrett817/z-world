@@ -81,6 +81,7 @@ var drive_misc_buttons: Array[Button] = []   # 视角/驻车/天窗/下车/车�
 var combat_fire_buttons: Array[Button] = []   # 车内行走时要藏起来的开火类按钮
 var combat_stance_buttons: Array[Button] = [] # 跳跃/下蹲：车顶卧姿时隐藏
 var combat_joystick: Control
+var rvwalk_roof_btn: Button   # 车内行走时专用：爬上车顶守卫（队友继续代驾）
 var _tab_down := false
 var _toast_tween: Tween
 
@@ -573,6 +574,8 @@ func _build_combat(root: Control) -> void:
 	combat_fire_buttons.append(crouch_btn)
 	combat_stance_buttons.append(crouch_btn)
 	_touch_button(combat_root, "上车", Control.PRESET_TOP_RIGHT, Rect2(-170, 64, 146, 54), "exitcombat")
+	rvwalk_roof_btn = _touch_button(combat_root, "车顶", Control.PRESET_TOP_RIGHT, Rect2(-170, 128, 146, 54), "rvwalkroof")
+	rvwalk_roof_btn.visible = false
 	combat_fire_buttons.append(_touch_button(combat_root, "视角", Control.PRESET_TOP_RIGHT, Rect2(-170, 128, 146, 54), "fps"))
 	combat_fire_buttons.append(_touch_button(combat_root, "手雷", Control.PRESET_TOP_RIGHT, Rect2(-170, 192, 146, 54), "grenade"))
 	# 左下：虚拟摇杆（手游移动）
@@ -614,6 +617,7 @@ func _build_combat(root: Control) -> void:
 
 func set_combat_active(active: bool, ammo: int, hp: float) -> void:
 	combat_root.visible = active
+	rvwalk_roof_btn.visible = false
 	# 战斗时收起整个驾驶面板；结束按驻车状态恢复
 	drive_joystick.visible = not active and not _is_parked()
 	if active:
@@ -642,6 +646,7 @@ func set_rv_walk_active(v: bool) -> void:
 	ammo_label.visible = not v
 	gun_label.visible = not v
 	combat_hint.visible = not v
+	rvwalk_roof_btn.visible = v
 
 ## 瞄准数据（相机已直接朝向，准星居中即可；保留接口）
 func set_combat_aim(_dir: Vector3, _pos: Vector3) -> void:
@@ -1290,6 +1295,9 @@ func _on_btn_down(action: String) -> void:
 					rv.main_node.end_combat()
 				else:
 					rv.main_node.start_combat(1)
+		"rvwalkroof":
+			if rv.main_node != null:
+				rv.main_node.start_combat(1)
 		"exitveh":
 			if rv.main_node != null and rv.main_node.parked and not rv.main_node.combat_active:
 				rv.main_node.start_combat(0)
