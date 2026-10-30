@@ -59,6 +59,8 @@ var cam: Camera3D
 var sun: DirectionalLight3D
 var sky_mat: ProceduralSkyMaterial
 var env: Environment
+var cloud_dome: MeshInstance3D
+var cloud_mat: ShaderMaterial
 var hud: CanvasLayer
 var terrain: MeshInstance3D
 var rain: CPUParticles3D
@@ -547,6 +549,7 @@ func save_settings() -> void:
 
 # ---------- 相机（追尾 / 驾驶舱 / 车内） ----------
 func _process(delta: float) -> void:
+	_update_clouds(delta)
 	if _drive_test and not _drive_started:
 		_drive_started = true
 		var ev := InputEventKey.new()
@@ -1121,6 +1124,83 @@ func _build_sky() -> void:
 	lamp_mat.emission_enabled = true
 	lamp_mat.emission = Color(1.0, 0.72, 0.38)
 	lamp_mat.emission_energy_multiplier = 0.0
+	_build_clouds()
+
+## 软云：跟随相机的天空穹，shader 内 3D FBM 按视线方向生成云团（无球面 UV 拉伸），
+## 只在地平线以上显示、随风漂移；昼夜与天气在 _update_sun 里染色
+func _build_clouds() -> void:
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode cull_disabled, depth_draw_never, unshaded;
+uniform vec4 cloud_color : source_color = vec4(1.0);
+uniform float opacity = 0.85;
+uniform float coverage = 0.5;
+float hash(vec3 p) {
+	p = fract(p * 0.31831 + vec3(0.1, 0.2, 0.3));
+	p *= 17.0;
+	return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float vnoise(vec3 x) {
+	vec3 i = floor(x);
+	vec3 f = fract(x);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
+	               mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+	           mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+	               mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
+}
+float fbm(vec3 p) {
+	float a = 0.5, s = 0.0;
+	for (int k = 0; k < 5; k++) {
+		s += a * vnoise(p);
+		p *= 2.03;
+		a *= 0.5;
+	}
+	return s;
+}
+void fragment() {
+	vec3 dir = normalize(VERTEX);
+	// 仰角遮罩：地平线附近淡、高空略收，避免地平白雾带与头顶盖满
+	float ang = smoothstep(0.05, 0.3, dir.y);
+	ang *= mix(0.7, 1.0, smoothstep(0.12, 0.45, dir.y));
+	ang *= 1.0 - smoothstep(0.9, 1.0, dir.y) * 0.3;
+	vec3 wind = vec3(TIME * 0.004, 0.0, TIME * 0.0015);
+	// 低频大团定云形，高频细节在团块上撕出棉絮边缘与破洞
+	float base = fbm(dir * 1.5 + wind);
+	float detail = fbm(dir * 4.3 - wind * 1.7);
+	float n = base * 0.72 + detail * 0.28;
+	// 陡阈值把云切成团块：云芯实、缝隙透出蓝天，coverage 平移阈值
+	float lo = 0.62 - coverage * 0.34;
+	float mask = smoothstep(lo, lo + 0.2, n);
+	float a = mask * ang * opacity;
+	if (a < 0.01) discard;
+	// 云缘略压暗，给白色团块一点厚度层次
+	ALBEDO = cloud_color.rgb * mix(0.82, 1.0, mask);
+	ALPHA = a;
+}
+"""
+	cloud_mat = ShaderMaterial.new()
+	cloud_mat.shader = sh
+	cloud_mat.set_shader_parameter("cloud_color", Color(1.0, 0.99, 0.97))
+	cloud_mat.set_shader_parameter("opacity", 0.85)
+	cloud_mat.set_shader_parameter("coverage", 0.55)
+	var dome := SphereMesh.new()
+	dome.radius = 760.0
+	dome.height = 1520.0
+	dome.radial_segments = 32
+	dome.rings = 24
+	dome.material = cloud_mat
+	cloud_dome = MeshInstance3D.new()
+	cloud_dome.mesh = dome
+	cloud_dome.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(cloud_dome)
+
+## 云穹水平跟随相机（漂移与流动由 shader TIME 驱动）；每帧调用
+func _update_clouds(_delta: float) -> void:
+	if cloud_dome == null:
+		return
+	cloud_dome.global_position = Vector3(cam.global_position.x, 0.0, cam.global_position.z)
 
 func _update_time(delta: float) -> void:
 	hour += delta * (_time_rates.y if parked else _time_rates.x)
@@ -1183,6 +1263,26 @@ func _update_sun() -> void:
 	else:
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 		env.ambient_light_energy = 0.75
+	# 云色随昼夜：深夜暗蓝稀薄、晨昏暖粉、正午亮白；阴雨压成厚重乌云
+	var cc := Color(0.26, 0.31, 0.4).lerp(Color(1.0, 0.85, 0.72).lerp(Color(1.0, 0.99, 0.97), noon), day_t)
+	var cop := lerpf(0.5, 0.9, day_t)
+	var cov := lerpf(0.4, 0.55, day_t)
+	match weather:
+		"rain", "heavy_rain":
+			cc = Color(0.42, 0.45, 0.5)
+			cop = 1.0
+			cov = 0.8
+		"fog":
+			cc = Color(0.72, 0.73, 0.74)
+			cov = 0.66
+		"snow":
+			cc = Color(0.82, 0.86, 0.9)
+			cop = maxf(cop, 0.85)
+			cov = 0.7
+	if cloud_mat != null:
+		cloud_mat.set_shader_parameter("cloud_color", cc)
+		cloud_mat.set_shader_parameter("opacity", cop)
+		cloud_mat.set_shader_parameter("coverage", cov)
 
 # ---------- 地形（无限重建） ----------
 func _build_terrain() -> void:

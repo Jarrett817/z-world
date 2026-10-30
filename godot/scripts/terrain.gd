@@ -171,9 +171,10 @@ func _ensure_materials() -> void:
 		return
 	var rail_mat := _mat(Color(0.48, 0.55, 0.58), 0.8)
 	rail_mat.metallic = 0.15
-	var ridge_mat := _mat(Color(0.19, 0.36, 0.26), 1.0)
+	# 远山走大气透视：近山蓝绿灰、远山淡青蓝（越远越偏天色），告别绿色塑料薄片
+	var ridge_mat := _mat(Color(0.42, 0.58, 0.58), 1.0)
 	ridge_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var ridge_far_mat := _mat(Color(0.36, 0.56, 0.52), 1.0)
+	var ridge_far_mat := _mat(Color(0.6, 0.72, 0.83), 1.0)
 	ridge_far_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var water_mat := StandardMaterial3D.new()
 	water_mat.albedo_color = Color(0.16, 0.36, 0.46)
@@ -231,13 +232,13 @@ func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool, nx 
 			var height: float = _main.ground_height_c(cxa + xx, za, gya, cxa, zone_a) - 0.02 if use_xs else ya
 			verts.append(Vector3(cxa + xx, height, za))
 			normals.append(Vector3.UP)
-			colors.append(_mottle(cxa + xx, za))
+			colors.append(_mottle(cxa + xx, za, zone_a, use_xs))
 		for j in enx + 1:
 			var xx: float = xs[j] if use_xs else lerpf(x0, x1, float(j) / nx)
 			var height: float = _main.ground_height_c(cxb + xx, zb, gyb, cxb, zone_b) - 0.02 if use_xs else yb
 			verts.append(Vector3(cxb + xx, height, zb))
 			normals.append(Vector3.UP)
-			colors.append(_mottle(cxb + xx, zb))
+			colors.append(_mottle(cxb + xx, zb, zone_b, use_xs))
 		for j in enx:
 			var a := row_a + j
 			var b := row_a + j + 1
@@ -255,11 +256,28 @@ func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool, nx 
 
 ## 低对比多频色块：保留手绘式明暗变化，不让高频脏噪声盖过卡通色板
 ## 公路带内保留轻量轮迹与修补斑块，重建时同位置颜色不变
-func _mottle(x: float, z: float) -> Color:
+## 野外大地按景观段染不同草色、叠草地斑块，并随离路距离做近鲜远淡的地面大气透视
+func _mottle(x: float, z: float, zone: String = "", is_ground := false) -> Color:
 	var n := sin(x * 0.91 + z * 0.37) * 0.5 + sin(x * 2.3 - z * 1.7) * 0.3 + sin(z * 4.7 + x * 0.4) * 0.2
 	var v: float = clampf(0.98 + n * 0.045, 0.9, 1.06)
-	var dry: float = sin(x * 0.05 + z * 0.031) * 0.5 + sin(x * 0.013 - z * 0.017) * 0.5
 	var dx: float = absf(x - _main.road_x(z))
+	if is_ground and dx >= ROAD_HALF:
+		var zmul: Color = {
+			"plain": Color(1.05, 1.0, 0.84),
+			"forest": Color(0.72, 0.9, 0.68),
+			"hills": Color(0.92, 1.0, 0.78),
+			"mountain": Color(0.76, 0.85, 0.76),
+			"lake": Color(0.97, 1.02, 0.88),
+			"coast": Color(1.04, 0.96, 0.8),
+			"city": Color(0.9, 0.86, 0.78),
+		}.get(zone, Color(0.98, 1.0, 0.9))
+		# 大块低频明暗当坡面光影，叠一层中频斑块打破塑料平涂
+		var big: float = sin(x * 0.045 + z * 0.02) * 0.6 + sin(x * 0.017 - z * 0.033) * 0.4
+		var mid: float = sin(x * 0.13 + z * 0.09) * 0.5 + sin(x * 0.05 - z * 0.11) * 0.5
+		var c := Color(v, v, v) * zmul * (1.0 + big * 0.14 + mid * 0.045)
+		var far: float = smoothstep(60.0, 240.0, dx)
+		return c.lerp(Color(0.72, 0.8, 0.87), far * 0.4)
+	var dry: float = sin(x * 0.05 + z * 0.031) * 0.5 + sin(x * 0.013 - z * 0.017) * 0.5
 	if dx < ROAD_HALF:
 		var wear: float = smoothstep(1.1, 1.7, dx) * (1.0 - smoothstep(2.6, 3.2, dx))
 		v *= 1.0 - wear * 0.12
