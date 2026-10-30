@@ -117,6 +117,15 @@ var _type_t := 0.0
 var _skip_down := false
 var morale_fill: ColorRect
 
+# 任务追踪 + 日志面板
+var quest_node: Node
+var quest_track: PanelContainer
+var quest_track_rows: VBoxContainer
+var quest_log: ColorRect
+var quest_log_rows: VBoxContainer
+var quest_log_visible := false
+var _quest_key_down := false
+
 func build(rv_node: Node) -> void:
 	rv = rv_node
 	# Esc 暂停菜单需要暂停期间仍能响应点击
@@ -149,10 +158,10 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 点按车内/接管 · E 设施 · V 射击视角 · Tab 队伍 · Esc 菜单", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 点按车内/接管 · E 设施 · V 射击视角 · J 任务 · Tab 队伍 · Esc 菜单", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	hint.offset_left = -958
-	hint.offset_right = -308
+	hint.offset_left = -1042
+	hint.offset_right = -410
 	hint.offset_top = 14
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	root.add_child(hint)
@@ -212,7 +221,8 @@ func build(rv_node: Node) -> void:
 	drive_misc_buttons.append(_touch_button(root, "天窗", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -284, 78, 56), "sunroof"))
 	drive_misc_buttons.append(_touch_button(root, "下车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -284, 78, 56), "exitveh"))
 	drive_misc_buttons.append(_touch_button(root, "点按·车内", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -346, 78, 56), "rvwalk"))
-	# 右上：署名 / 队伍 / 设施（手游触屏替代 Tab/E 快捷键）
+	# 右上：任务 / 署名 / 队伍 / 设施（手游触屏替代 J/Tab/E 快捷键）
+	_touch_button(root, "任务", Control.PRESET_TOP_RIGHT, Rect2(-388, 14, 88, 46), "quest")
 	_touch_button(root, "署名", Control.PRESET_TOP_RIGHT, Rect2(-292, 14, 88, 46), "credits")
 	_touch_button(root, "队伍", Control.PRESET_TOP_RIGHT, Rect2(-196, 14, 88, 46), "crew")
 	_touch_button(root, "设施", Control.PRESET_TOP_RIGHT, Rect2(-100, 14, 88, 46), "fac")
@@ -525,6 +535,7 @@ func build(rv_node: Node) -> void:
 
 	_build_combat(root)
 	_build_story(root)
+	_build_quests(root)
 
 # ---------- 下车 / 天窗战斗层 ----------
 func _build_combat(root: Control) -> void:
@@ -804,6 +815,11 @@ func _process(delta: float) -> void:
 		crew_visible = not crew_visible
 		crew_panel.visible = crew_visible
 	_tab_down = tab
+	# J：任务日志开关（剧情对话框打开时禁用）
+	var jk := Input.is_physical_key_pressed(KEY_J)
+	if jk and not _quest_key_down and quest_node != null and not story_root.visible:
+		set_quest_log_visible(not quest_log_visible)
+	_quest_key_down = jk
 	if rv == null:
 		return
 	speed_label.text = ("R · %d km/h" if rv.reversing else "%d km/h") % int(rv.speed_kmh)
@@ -903,6 +919,112 @@ func _show_options() -> void:
 func hide_story() -> void:
 	story_root.visible = false
 	hud_root.visible = true
+
+# ---------- 任务追踪 + 日志 ----------
+func _build_quests(root: Control) -> void:
+	# 左上常驻追踪条：状态面板（高 164，底边 y≈176）下方
+	quest_track = PanelContainer.new()
+	quest_track.position = Vector2(12, 182)
+	quest_track.custom_minimum_size = Vector2(348, 0)
+	quest_track.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tsb := StyleBoxFlat.new()
+	tsb.bg_color = Color(0.105, 0.085, 0.07, 0.82)
+	tsb.set_border_width_all(1)
+	tsb.border_color = Color(0.91, 0.53, 0.18, 0.4)
+	tsb.set_corner_radius_all(8)
+	tsb.content_margin_left = 12
+	tsb.content_margin_right = 12
+	tsb.content_margin_top = 8
+	tsb.content_margin_bottom = 8
+	quest_track.add_theme_stylebox_override("panel", tsb)
+	quest_track_rows = VBoxContainer.new()
+	quest_track_rows.add_theme_constant_override("separation", 5)
+	quest_track_rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	quest_track.add_child(quest_track_rows)
+	root.add_child(quest_track)
+
+	# J 键任务日志：居中大面板
+	quest_log = ColorRect.new()
+	quest_log.set_anchors_preset(Control.PRESET_FULL_RECT)
+	quest_log.color = Color(0.04, 0.03, 0.03, 0.72)
+	quest_log.visible = false
+	root.add_child(quest_log)
+	var log_panel := Panel.new()
+	log_panel.set_anchors_preset(Control.PRESET_CENTER)
+	log_panel.offset_left = -380
+	log_panel.offset_top = -300
+	log_panel.offset_right = 380
+	log_panel.offset_bottom = 300
+	var lsb := StyleBoxFlat.new()
+	lsb.bg_color = Color(0.105, 0.085, 0.07, 0.98)
+	lsb.set_border_width_all(2)
+	lsb.border_color = Color(0.91, 0.53, 0.18, 0.7)
+	lsb.set_corner_radius_all(12)
+	lsb.content_margin_left = 22
+	lsb.content_margin_right = 22
+	lsb.content_margin_top = 18
+	lsb.content_margin_bottom = 18
+	log_panel.add_theme_stylebox_override("panel", lsb)
+	quest_log.add_child(log_panel)
+	var log_title := _label("任务日志 · J 关闭", 24, ACCENT, Vector2(22, 0))
+	log_panel.add_child(log_title)
+	var log_scroll := ScrollContainer.new()
+	log_scroll.position = Vector2(22, 44)
+	log_scroll.size = Vector2(716, 510)
+	log_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	log_panel.add_child(log_scroll)
+	quest_log_rows = VBoxContainer.new()
+	quest_log_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	quest_log_rows.add_theme_constant_override("separation", 10)
+	log_scroll.add_child(quest_log_rows)
+
+## 刷新左上追踪条与（打开中的）日志
+func refresh_quests() -> void:
+	if quest_node == null:
+		return
+	for c in quest_track_rows.get_children():
+		c.queue_free()
+	var goals: Array = quest_node.active_goals()
+	quest_track.visible = not goals.is_empty()
+	for g in goals:
+		var name_col := ACCENT if String(g.kind) == "main" else TEXT_MAIN
+		quest_track_rows.add_child(_label(String(g.get("name", "")), 16, name_col))
+		quest_track_rows.add_child(_label("　▸ " + String(g.get("text", "")), 15, TEXT_MAIN))
+	if quest_log_visible:
+		_refresh_quest_log()
+
+func _refresh_quest_log() -> void:
+	for c in quest_log_rows.get_children():
+		c.queue_free()
+	for q in quest_node.all_quests():
+		var box := VBoxContainer.new()
+		box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		box.add_theme_constant_override("separation", 3)
+		var kind_tag := "主线" if String(q.get("kind", "")) == "main" else "支线"
+		var title_col := ACCENT if String(q.get("kind", "")) == "main" else TEXT_MAIN
+		var state := "已完成" if q.get("done", false) else "进行中"
+		box.add_child(_label("[%s] %s · %s" % [kind_tag, String(q.get("name", "")), state], 19, title_col))
+		var desc := _label(String(q.get("desc", "")), 15, TEXT_DIM)
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		desc.custom_minimum_size.x = 690
+		box.add_child(desc)
+		var goals: Array = q.get("goals", [])
+		var gi: int = int(q.get("goal_i", 0))
+		for i in goals.size():
+			var done: bool = q.get("done", false) or i < gi
+			var mark := "✓ " if done else "▸ "
+			var gc := Color(0.55, 0.62, 0.5) if done else TEXT_MAIN
+			var gl := _label(mark + String(goals[i].get("text", "")), 15, gc)
+			gl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			gl.custom_minimum_size.x = 690
+			box.add_child(gl)
+		quest_log_rows.add_child(box)
+
+func set_quest_log_visible(v: bool) -> void:
+	quest_log_visible = v
+	quest_log.visible = v
+	if v:
+		_refresh_quest_log()
 
 # ---------- 暂停菜单 ----------
 ## Esc 开关暂停菜单（HUD 常驻处理：暂停时本体收不到输入，HUD 才能关）
@@ -1351,6 +1473,9 @@ func _on_btn_down(action: String) -> void:
 		"crew":
 			crew_visible = not crew_visible
 			crew_panel.visible = crew_visible
+		"quest":
+			if not story_root.visible:
+				set_quest_log_visible(not quest_log_visible)
 		"credits":
 			set_credits_visible(not credits_root.visible)
 		"fac":

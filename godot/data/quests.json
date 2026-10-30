@@ -1,0 +1,36 @@
+{
+  "main": [
+	{
+	  "id": "q_south",
+	  "name": "向南，方舟集结点",
+	  "desc": "南方 680 公里，方舟集结点仍在广播。带上你能带的所有人。",
+	  "at": 0.0,
+	  "goals": [
+		{"type": "dist", "target": 55.0, "text": "抵达断桥营地（55 km）"},
+		{"type": "dist", "target": 180.0, "text": "翻越鹰嘴岩（180 km）"},
+		{"type": "dist", "target": 420.0, "text": "穿过青石垭口加油站（420 km）"},
+		{"type": "dist", "target": 600.0, "text": "抵达最后营地补给（600 km）"},
+		{"type": "dist", "target": 680.0, "text": "驶入方舟集结点（680 km）"}
+	  ]
+	},
+	{
+	  "id": "q_gather",
+	  "name": "带上所有人",
+	  "desc": "到了那边，人手就是活下去的本钱。在抵达方舟前集结至少四名幸存者，才能调转车头接回更多人。",
+	  "at": 0.0,
+	  "goals": [
+		{"type": "crew", "target": 1, "text": "招募第一名幸存者"},
+		{"type": "crew", "target": 4, "text": "集结四名幸存者（救世主结局条件）"}
+	  ]
+	}
+  ],
+  "side": [
+	{
+	  "id": "q_first_stop",
+	  "name": "第一个补给点",
+	  "desc": "油表撑不到太远。七里铺加油站是南下路上第一个能补给的地方。",
+	  "at": 0.0,
+	  "goals": [{"type": "dist", "target": 12.0, "text": "抵达七里铺加油站（12 km）"}]
+	}
+  ]
+}

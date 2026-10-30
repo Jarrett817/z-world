@@ -19,6 +19,7 @@ const PICKUP_SCRIPT := preload("res://scripts/pickup.gd")
 const SURVIVOR_SCRIPT := preload("res://scripts/survivor.gd")
 const DUTY_MOTION := preload("res://scripts/duty_motion.gd")
 const STORY_SCRIPT := preload("res://scripts/story.gd")
+const QUEST_SCRIPT := preload("res://scripts/quest.gd")
 const PLAYER_SCRIPT := preload("res://scripts/player.gd")
 const MATE_SCRIPT := preload("res://scripts/mate.gd")
 const BUILDING_SCENE := preload("res://assets/props/scene_models/building/scene.gltf")
@@ -79,6 +80,7 @@ var game_over := false
 var won := false
 var dying := false
 var story: Node
+var quest: Node
 
 var zombies: Array = []
 var props: Array = []
@@ -177,6 +179,7 @@ var _shot_seat_cam := false # --shotseat：截帧专用近距离侧拍副驾相�
 var _shot_bunk_cam := false # --shotbunk：截帧专用后舱床铺隔间相机
 var _shot_story_id := ""    # --shotstory=ID：截帧前打开指定剧情事件
 var _shot_story_shown := false
+var _shot_quest := false    # --shotquest：截帧前打开任务日志
 var _jump_km := 0.0         # --jump=KM：直达指定里程（配合 --shot 截帧验收）
 var _debug_crew := 0        # --crew=N：调试直接补 N 名队友（配合截帧验收座位角色）
 var _dump := false          # --dump：截帧时刻打印房车周边节点并退出（验收定位异常物）
@@ -218,6 +221,8 @@ func _ready() -> void:
 			_shot_cabin = true
 		elif a.begins_with("--shotstory="):
 			_shot_story_id = a.trim_prefix("--shotstory=")
+		elif a == "--shotquest":
+			_shot_quest = true
 		elif a.begins_with("--jump="):
 			_jump_km = float(a.trim_prefix("--jump="))
 		elif a.begins_with("--hour="):
@@ -274,6 +279,12 @@ func _ready() -> void:
 	add_child(story)
 	story.setup(self)
 	hud.story_node = story
+	quest = Node.new()
+	quest.set_script(QUEST_SCRIPT)
+	add_child(quest)
+	quest.setup(self)
+	hud.quest_node = quest
+	hud.refresh_quests()
 	last_z = rv.global_position.z
 	terrain_front = rv.global_position.z + 100.0
 	# --jump 直达：同步里程与房车位置，跳过已走过的生成游标，避免一帧补刷全程
@@ -644,6 +655,13 @@ func _process(delta: float) -> void:
 				_shot_at = 1.0
 				_shot_t = 0.0
 				return
+			if _shot_quest:
+				# --shotquest：打开任务日志，稳定 0.5s 截帧
+				_shot_quest = false
+				hud.set_quest_log_visible(true)
+				_shot_at = 0.5
+				_shot_t = 0.0
+				return
 			# 剧情可能在截帧准备阶段再次触发，保存前始终收起，避免挡住验收画面
 			if story != null and not _shot_story_shown:
 				story.set_process(false)
@@ -968,7 +986,7 @@ func _do_win() -> void:
 ## 自动存档：只存生存/车辆/队伍/剧情进度，战斗与丧尸等瞬时状态不入档
 func save_game() -> void:
 	# 截帧/调试命令行/无头回归不写档，避免污染玩家存档
-	if game_over or story == null or _no_save or not OS.get_cmdline_user_args().is_empty() or DisplayServer.get_name() == "headless":
+	if game_over or story == null or quest == null or _no_save or not OS.get_cmdline_user_args().is_empty() or DisplayServer.get_name() == "headless":
 		return
 	var ids: Array = []
 	for m in crew_members:
@@ -981,6 +999,7 @@ func save_game() -> void:
 		"crew_ids": ids,
 		"facility_levels": facility_levels,
 		"story_fired": story.fired,
+		"quests": quest.save_state(),
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
@@ -1016,9 +1035,11 @@ func _apply_save(sv: Dictionary) -> void:
 		if facility_levels.has(k):
 			facility_levels[k] = int(fl[k])
 	story.fired = sv.get("story_fired", [])
+	quest.load_state(sv.get("quests", {}))
 	_sync_crew()
 	hud.set_crew(crew_members)
 	hud.update_stats(self)
+	hud.refresh_quests()
 
 ## 从头开始：清档后重载场景（暂停菜单/结算界面共用）
 func new_game() -> void:
