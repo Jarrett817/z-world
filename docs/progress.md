@@ -1,5 +1,13 @@
 # 开发日志
 
+## 2026-10-30 · n95 lake/coast 景物水面避让（修穿帮）
+
+- n94 波光暴露出湖/海段景物泡在水里：新增 `_in_water(wx,z)`，与 terrain.gd `_water` 同一确定性碟形包络公式（coast 仅右侧 center90/half 80·zw、lake 两侧 center95/half 55·zw、段内 sin 包络，岸边留 2m 干地，INF/NaN 早退）
+- 树：`_spawn_scenery` 落点叠加 `_in_water` 跳过（coast 原本已强制左岸）
+- 网格土路支路：抽 `_branch_end(n)` 求支路末端点，末端落水则整格取消——`junctions_in`（地形条带源头）、`loop_road_distance`（防撞距离）、`junction_gap`（护栏缺口/loop 回接口）、`_spawn_detour`（尽头 POI 与预告牌）共用同一判定，四处一致；cross 沥青十字路口不做避水
+- 剧情点 town/gas 支路：抽 `_place_branch_end(pj)`，`junctions_in`/`junction_gap` 避水；`_spawn_place` 对湿支路整条早退（建筑/物资/丧尸/到达牌都不生成）；`_place_scenery` 再拒收水中 BUILDING_SCENE 兜底
+- lake 10.5km / coast 15.6km 窗口截帧目检：水中棕楼消失、海面无树杆楼，岸线干净；无头回归 EXIT=0 零 SCRIPT/SHADER ERROR（注意 GDScript 内建是 `is_inf()` 不是 `isinf()`）
+
 ## 2026-10-30 · n94 湖面/海面卡通波光（原神化批次 5）
 
 - 水面材质从平涂 StandardMaterial3D 换成片元 shader：双频正弦在世界 xz 面叠加出漂移亮纹，`smoothstep` 陡切出卡通式白色波光；近岸浅青 `(0.26,0.55,0.62)` 与远水深蓝 `(0.09,0.27,0.38)` 按水深混合，保留低粗糙/弱金属反光

@@ -2818,7 +2818,15 @@ func next_places(n: int) -> Array:
 ## 沿途聚落（data/world.json）：按类型生成 + 路口立高速名牌
 func _spawn_place(p: Dictionary, z: float) -> void:
 	_wseed(z, 8)
-	match String(p.get("type", "")):
+	var ptype := String(p.get("type", ""))
+	# town/gas 沿支路生成：支路末端落入湖/海时整条取消（建筑/物资/丧尸/到达牌都不进水里）
+	if ptype == "town" or ptype == "gas":
+		var pj0 := _place_junction(p)
+		if not pj0.is_empty():
+			var pe0 := _place_branch_end(pj0)
+			if _in_water(pe0.x, pe0.z):
+				return
+	match ptype:
 		"town":
 			_town(z, _place_junction(p))
 		"gas":
@@ -4600,6 +4608,16 @@ const DETOUR_SIGN_LEAD := 180.0 # 支路预告锈牌提前量（米）：牌入 
 func _jh(n: int) -> float:
 	return fposmod(sin(float(n) * 127.1) * 43758.5453, 1.0)
 
+## 第 n 格网格土路支路的末端点（与 terrain.gd 支路条带同一哈希公式）
+func _branch_end(n: int) -> Vector3:
+	var zj := -n * JUNCTION_EVERY
+	var side := 1.0 if _jh(n + 1000) < 0.5 else -1.0
+	var ang := lerpf(0.5, 1.0, _jh(n + 3000))
+	var length := lerpf(60.0, 120.0, _jh(n + 4000))
+	var dir := Vector3(side * sin(ang), 0.0, -cos(ang)).normalized()
+	var org := Vector3(road_x(zj) + side * (ROAD_HALF - 0.8), 0.0, zj)
+	return org + dir * length
+
 ## 到探索支路中心线的平面距离：直出段与回接贝塞尔和 terrain.gd 使用同一组参数
 func loop_road_distance(x: float, z: float) -> float:
 	var point := Vector2(x, z)
@@ -4610,11 +4628,12 @@ func loop_road_distance(x: float, z: float) -> float:
 			continue
 		var zj := -n * JUNCTION_EVERY
 		var side := 1.0 if _jh(n + 1000) < 0.5 else -1.0
-		var ang := lerpf(0.5, 1.0, _jh(n + 3000))
-		var len := lerpf(60.0, 120.0, _jh(n + 4000))
-		var dir := Vector3(side * sin(ang), 0, -cos(ang)).normalized()
+		var dir := Vector3(side * sin(lerpf(0.5, 1.0, _jh(n + 3000))), 0, -cos(lerpf(0.5, 1.0, _jh(n + 3000)))).normalized()
 		var org := Vector3(road_x(zj) + side * (ROAD_HALF - 0.8), 0, zj)
-		var p0 := org + dir * len
+		var pend := _branch_end(n)
+		if _in_water(pend.x, pend.z):
+			continue
+		var p0 := pend
 		var p1 := p0 + dir * 18.0
 		var rejoin_z := zj - JUNCTION_EVERY
 		var p3 := Vector3(road_x(rejoin_z) + side * (ROAD_HALF - 0.8), 0, rejoin_z)
@@ -4660,6 +4679,15 @@ func _place_junction_z(pj: Dictionary) -> float:
 		return INF
 	return rv.global_position.z - (float(pj["km"]) - dist_km) * KMH_FACTOR
 
+## 剧情点（town/gas）支路末端点（世界坐标，rv 未建时返回 INF 点）
+func _place_branch_end(pj: Dictionary) -> Vector3:
+	var pz := _place_junction_z(pj)
+	if is_inf(pz):
+		return Vector3(INF, 0.0, INF)
+	var ps := float(pj["side"])
+	var pdir := Vector3(ps * sin(float(pj["ang"])), 0.0, -cos(float(pj["ang"]))).normalized()
+	return Vector3(road_x(pz) + ps * (ROAD_HALF - 0.8), 0.0, pz) + pdir * float(pj["len"])
+
 ## 窗口 [z1, z0]（z0 > z1，向 -Z 前进）内的岔路清单：{z, side, kind, ang, len}
 ## kind：0 土路支路 / 1 沥青十字路口；约 25% 的位置没有岔路；末尾合并聚落专属岔路
 func junctions_in(z0: float, z1: float) -> Array:
@@ -4672,12 +4700,20 @@ func junctions_in(z0: float, z1: float) -> Array:
 		var cross := _jh(n + 2000) < 0.28
 		var is_loop := not cross and _jh(n + 5000) < 0.35
 		var zj := -n * JUNCTION_EVERY
+		var jside := 1.0 if _jh(n + 1000) < 0.5 else -1.0
+		var jang := lerpf(0.5, 1.0, _jh(n + 3000))
+		var jlen := lerpf(60.0, 120.0, _jh(n + 4000))
+		# 土路支路伸进湖/海则整格取消（地形条带、尽头 POI、护栏缺口、防撞距离共用此结果）
+		if not cross:
+			var ept := _branch_end(n)
+			if _in_water(ept.x, ept.z):
+				continue
 		out.append({
 			"z": zj,
-			"side": 1.0 if _jh(n + 1000) < 0.5 else -1.0,
+			"side": jside,
 			"kind": 1 if cross else 0,
-			"ang": lerpf(0.5, 1.0, _jh(n + 3000)),
-			"len": lerpf(60.0, 120.0, _jh(n + 4000)),
+			"ang": jang,
+			"len": jlen,
 			"loop": is_loop,
 			"rejoin_z": zj - JUNCTION_EVERY if is_loop else zj,
 		})
@@ -4686,7 +4722,7 @@ func junctions_in(z0: float, z1: float) -> Array:
 		if pj.is_empty():
 			continue
 		var pz := _place_junction_z(pj)
-		if pz <= z0 and pz >= z1:
+		if pz <= z0 and pz >= z1 and not _in_water(_place_branch_end(pj).x, _place_branch_end(pj).z):
 			out.append({"z": pz, "side": pj["side"], "kind": 0, "ang": pj["ang"], "len": pj["len"]})
 	return out
 
@@ -4694,19 +4730,27 @@ func junctions_in(z0: float, z1: float) -> Array:
 func junction_gap(z: float, side: float) -> bool:
 	var n := int(round(-z / JUNCTION_EVERY))
 	if n >= 1 and _jh(n) <= 0.75:
+		var cross := _jh(n + 2000) < 0.28
 		var junction_side := 1.0 if _jh(n + 1000) < 0.5 else -1.0
-		if absf(-n * JUNCTION_EVERY - z) <= 12.0:
-			if _jh(n + 2000) < 0.28 or signf(side) == junction_side:
+		# 土路支路末端落水则整格取消，护栏不断口
+		var bend := _branch_end(n)
+		var wet := not cross and _in_water(bend.x, bend.z)
+		if not wet and absf(-n * JUNCTION_EVERY - z) <= 12.0:
+			if cross or signf(side) == junction_side:
 				return true
 	# 回接口按上一条岔路编号查找；即使下一网格本身没有岔路，也必须留口
 	var prev := n - 1
 	if prev >= 1 and _jh(prev) <= 0.75 and _jh(prev + 2000) >= 0.28 and _jh(prev + 5000) < 0.35:
 		var origin_side := 1.0 if _jh(prev + 1000) < 0.5 else -1.0
-		if signf(side) == origin_side and absf(-n * JUNCTION_EVERY - z) <= 12.0:
+		var pe := _branch_end(prev)
+		if not _in_water(pe.x, pe.z) and signf(side) == origin_side and absf(-n * JUNCTION_EVERY - z) <= 12.0:
 			return true
 	for p in _places:
 		var pj := _place_junction(p)
-		if not pj.is_empty() and absf(_place_junction_z(pj) - z) <= 12.0 and signf(side) == float(pj["side"]):
+		if pj.is_empty():
+			continue
+		var pe := _place_branch_end(pj)
+		if not _in_water(pe.x, pe.z) and absf(_place_junction_z(pj) - z) <= 12.0 and signf(side) == float(pj["side"]):
 			return true
 	return false
 
@@ -4714,6 +4758,10 @@ func junction_gap(z: float, side: float) -> bool:
 ## org/dir/len 与 junctions_in（terrain 支路条带）同一哈希公式，POI 落在条带末端；consumable 组车后自动回收
 func _spawn_detour(n: int, zj: float) -> void:
 	if _detours.is_empty():
+		return
+	# 支路末端落水则整格取消（与 junctions_in 同源），POI 与预告牌都不生成
+	var be := _branch_end(n)
+	if _in_water(be.x, be.z):
 		return
 	_wseed(zj, 9)
 	var side := 1.0 if _jh(n + 1000) < 0.5 else -1.0
@@ -4829,6 +4877,31 @@ func zone_weight(z: float) -> float:
 		acc += len
 	return 0.0
 
+## 点是否落在水面碟形包络内（与 terrain.gd _water 同一确定性公式，岸边留 2m 干地）；树等景物据此避水
+func _in_water(wx: float, z: float) -> bool:
+	if is_inf(wx) or is_inf(z) or is_nan(wx) or is_nan(z):
+		return false
+	var zone := zone_at(z)
+	if zone != "lake" and zone != "coast":
+		return false
+	var rx: float = road_x(z)
+	var side := 1.0 if wx >= rx else -1.0
+	var d: float = (wx - rx) * side
+	var phase := z * 0.0062 + (2.1 if side > 0.0 else 0.0)
+	var env: float = clampf(sin(phase) * 2.2 - 0.55, 0.0, 1.0)
+	var center := 150.0
+	var half := 30.0 * env
+	var zw: float = zone_weight(z)
+	if zone == "coast":
+		if side < 0.0:
+			return false
+		center = 90.0
+		half = maxf(half, 80.0 * zw)
+	else:
+		center = 95.0
+		half = maxf(half, 55.0 * zw)
+	return half > 0.0 and d >= center - half - 2.0 and d <= center + half
+
 ## 路段海拔：段内取段值，段首平滑过渡（坡度随高差放缓）
 func _elev_at(z: float) -> float:
 	if _zones.is_empty():
@@ -4918,7 +4991,7 @@ func _spawn_scenery(z: float) -> void:
 		var ts: float = -1.0 if zone == "coast" else _side()
 		var tx: float = rx + ts * randf_range(23.0, 65.0)
 		var tz: float = z + randf_range(-6.0, 6.0)
-		if loop_road_distance(tx, tz) < 3.0:
+		if loop_road_distance(tx, tz) < 3.0 or _in_water(tx, tz):
 			continue
 		if randf() > green_p:
 			_place_scenery(TREE_SCENE, tx, tz, randf_range(7.0, 13.0))
@@ -4952,6 +5025,9 @@ var _scene_aabbs: Dictionary = {}
 
 ## 实例化景物：按 AABB 缩放到目标高度、脚底落地（源资产包围盒只计算一次）
 func _place_scenery(scene: PackedScene, x: float, z: float, target_h: float) -> void:
+	# 废墟楼不得落入湖/海（剧情小镇支路伸进水面时整楼舍弃，避免楼泡在水里）
+	if scene == BUILDING_SCENE and _in_water(x, z):
+		return
 	var aabb: AABB
 	if _scene_aabbs.has(scene):
 		aabb = _scene_aabbs[scene]
