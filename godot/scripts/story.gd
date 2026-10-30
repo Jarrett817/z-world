@@ -145,6 +145,10 @@ func _apply(fx: Dictionary) -> void:
 		main.food = maxf(0.0, main.food + float(fx["food"]))
 	if fx.has("morale"):
 		main.morale = clampf(main.morale + float(fx["morale"]), 0.0, 100.0)
+	# 羁绊：fx.bond = {队友 id: 增量}，仅车上成员生效
+	if fx.has("bond"):
+		for id in fx["bond"]:
+			main.add_bond(String(id), float(fx["bond"][id]))
 
 ## 选项前置条件是否满足（队友/士气/人数/医疗/战力不足时按钮置灰）
 func option_available(opt: Dictionary) -> bool:

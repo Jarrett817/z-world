@@ -139,6 +139,7 @@ var _low_morale_warned := false
 var ark_spawned := false
 var survivors_data := {}
 var crew_members: Array = []
+var bonds: Dictionary = {}   # 幸存者 id → 羁绊值 0..100（每 15 一颗心，3 心满）
 var crew_figures: Array = []
 var _npc_gun_cfg: Dictionary = {}   # guns.json "npc_gunner" 节：射手弹匣/换弹/射界（首次用到时加载）
 var driver_figure: Node3D   # 主角驾驶位模型（坐姿 + 双手 IK 握方向盘）
@@ -180,6 +181,7 @@ var _shot_bunk_cam := false # --shotbunk：截帧专用后舱床铺隔间相机
 var _shot_story_id := ""    # --shotstory=ID：截帧前打开指定剧情事件
 var _shot_story_shown := false
 var _shot_quest := false    # --shotquest：截帧前打开任务日志
+var _shot_crew := false     # --shotcrew：截帧前打开队伍面板（注入演示羁绊阶梯值）
 var _jump_km := 0.0         # --jump=KM：直达指定里程（配合 --shot 截帧验收）
 var _debug_crew := 0        # --crew=N：调试直接补 N 名队友（配合截帧验收座位角色）
 var _dump := false          # --dump：截帧时刻打印房车周边节点并退出（验收定位异常物）
@@ -223,6 +225,8 @@ func _ready() -> void:
 			_shot_story_id = a.trim_prefix("--shotstory=")
 		elif a == "--shotquest":
 			_shot_quest = true
+		elif a == "--shotcrew":
+			_shot_crew = true
 		elif a.begins_with("--jump="):
 			_jump_km = float(a.trim_prefix("--jump="))
 		elif a.begins_with("--hour="):
@@ -662,6 +666,18 @@ func _process(delta: float) -> void:
 				_shot_at = 0.5
 				_shot_t = 0.0
 				return
+			if _shot_crew:
+				# --shotcrew：注入演示羁绊阶梯值（3/2/1/0 心），打开队伍面板
+				_shot_crew = false
+				var demo_b := [45.0, 30.0, 15.0, 0.0, 0.0]
+				for i in crew_members.size():
+					bonds[String(crew_members[i].get("id", ""))] = demo_b[i]
+				hud.set_crew(crew_members)
+				hud.crew_visible = true
+				hud.crew_panel.visible = true
+				_shot_at = 0.5
+				_shot_t = 0.0
+				return
 			# 剧情可能在截帧准备阶段再次触发，保存前始终收起，避免挡住验收画面
 			if story != null and not _shot_story_shown:
 				story.set_process(false)
@@ -1000,6 +1016,7 @@ func save_game() -> void:
 		"facility_levels": facility_levels,
 		"story_fired": story.fired,
 		"quests": quest.save_state(),
+		"bonds": bonds,
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
@@ -1036,6 +1053,9 @@ func _apply_save(sv: Dictionary) -> void:
 			facility_levels[k] = int(fl[k])
 	story.fired = sv.get("story_fired", [])
 	quest.load_state(sv.get("quests", {}))
+	var bd: Dictionary = sv.get("bonds", {})
+	for k in bd:
+		bonds[String(k)] = float(bd[k])
 	_sync_crew()
 	hud.set_crew(crew_members)
 	hud.update_stats(self)
@@ -3366,6 +3386,26 @@ func _has_passive(id: String) -> bool:
 		if m.get("id", "") == id:
 			return true
 	return false
+
+## 增减某名队友的羁绊（剧情选项驱动）；每跨过一颗心（15）弹一次升温提示
+func add_bond(id: String, delta: float) -> void:
+	if id == "" or not _has_passive(id):
+		return
+	var before: int = int(floorf(float(bonds.get(id, 0.0)) / 15.0))
+	bonds[id] = clampf(float(bonds.get(id, 0.0)) + delta, 0.0, 100.0)
+	var after: int = int(floorf(float(bonds[id]) / 15.0))
+	if after > before:
+		var nm := ""
+		for m in crew_members:
+			if m.get("id", "") == id:
+				nm = String(m.get("name", ""))
+				break
+		hud.toast("与 %s 的羁绊加深 · %s" % [nm, "★".repeat(after) + "☆".repeat(3 - after)])
+	hud.set_crew(crew_members)
+
+## 某名队友当前羁绊星级（0..3）
+func bond_hearts(id: String) -> int:
+	return int(floorf(float(bonds.get(id, 0.0)) / 15.0))
 
 func _next_crew_member() -> Dictionary:
 	for id in CREW_ORDER:

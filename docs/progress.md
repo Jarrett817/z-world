@@ -1,5 +1,11 @@
 # 开发日志
 
+## 2026-10-30 · n89 队友羁绊系统
+
+- main.gd 新增 `bonds: Dictionary`（队友 id → 0..100，每 15 一颗心、3 心满）与 `add_bond()/bond_hearts()`；add_bond 跨心阈值时 toast「与 X 的羁绊加深 · ★★☆」；bonds 入 save.json（旧档无键默认 {}，不改版本号）
+- 成长完全数据驱动：events.json 全部个人线/招募事件选项 fx 新增 `bond: {id: 增量}`（招募热情 +10、个人线共情 +8、中立 +4~6、负心 −2~−5，roll 事件 ok/bad 各自结算），story.gd `_apply()` 通用结算，不加第二套系统
+- HUD 队伍面板名字行追加 ★/☆ 三星（ACCENT 色）；新增 `--shotcrew` 截帧参数（注入 45/30/15/0/0 演示阶梯值），窗口截帧目检三/二/一/零星渲染正确，无头回归 EXIT=0 零 SCRIPT ERROR
+
 ## 2026-10-30 · n88 任务追踪 + 任务日志
 
 - 新增 JSON 驱动的任务系统：`data/quests.json`（主线 2：南下 680km 五段里程、集结四名幸存者；支线 1：首个补给点），目标类型仅 dist/crew，全部复用 dist_km/crew_members，不引入第二状态源

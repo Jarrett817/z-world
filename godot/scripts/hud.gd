@@ -1297,7 +1297,14 @@ func set_crew(members: Array) -> void:
 		var box := VBoxContainer.new()
 		box.alignment = BoxContainer.ALIGNMENT_CENTER
 		box.add_theme_constant_override("separation", 2)
-		box.add_child(_label(String(m.get("name", "")), 18, TEXT_MAIN))
+		var name_row := HBoxContainer.new()
+		name_row.add_theme_constant_override("separation", 8)
+		name_row.add_child(_label(String(m.get("name", "")), 18, TEXT_MAIN))
+		var hearts := 0
+		if rv != null and rv.main_node != null:
+			hearts = rv.main_node.bond_hearts(String(m.get("id", "")))
+		name_row.add_child(_label("★".repeat(hearts) + "☆".repeat(3 - hearts), 15, ACCENT))
+		box.add_child(name_row)
 		box.add_child(_label("%s · %s" % [String(m.get("skill", "")), String(m.get("passive", "工作中"))], 14, ACCENT))
 		row.add_child(box)
 		crew_rows.add_child(row)
