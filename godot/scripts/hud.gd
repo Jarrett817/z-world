@@ -8,41 +8,50 @@ const TEXT_DIM := Color("8a7d6d")
 const BAR_W := 240.0
 const RESOLUTIONS: Array = [[1280, 720], [1600, 900], [1920, 1080], [2560, 1440]]
 
-## 虚拟摇杆：手游战斗移动输入，输出 -1..1 向量（推满自动奔跑由 player 判定）
+## 动态虚拟摇杆：手指在 touch_zone 内任意位置按下，底盘就在落点出现；多指按 index 区分
+## 输出 -1..1 向量（推满自动奔跑由 player 判定）
 class Joystick:
 	extends Control
+	const RADIUS := 62.0       # 底盘半径
+	const DEAD := 38.0         # 归一化死区半径（手指移动距离）
+	const KNOB_CLAMP := 46.0   # 摇杆头相对底盘最大偏移
+	var touch_zone := Rect2()  # 可唤起摇杆的屏幕区域（本控件本地坐标）
 	var knob := Vector2.ZERO
+	var base := Vector2.ZERO
 	var _active := false
+	var _touch_idx := -1
 	signal moved(v: Vector2)
 
 	func _draw() -> void:
-		var c := size * 0.5
-		draw_circle(c, 62.0, Color(0, 0, 0, 0.28))
-		draw_arc(c, 62.0, 0.0, TAU, 48, Color(0.91, 0.53, 0.18, 0.85), 3.0)
-		draw_circle(c + knob * 36.0, 26.0, Color(0.91, 0.53, 0.18, 0.75))
+		if not _active:
+			return
+		draw_circle(base, RADIUS, Color(0, 0, 0, 0.28))
+		draw_arc(base, RADIUS, 0.0, TAU, 48, Color(0.91, 0.53, 0.18, 0.85), 3.0)
+		draw_circle(base + knob * KNOB_CLAMP, 26.0, Color(0.91, 0.53, 0.18, 0.75))
 
 	func _gui_input(e: InputEvent) -> void:
 		if e is InputEventScreenTouch:
-			_active = e.pressed
-			if _active:
+			if e.pressed and not _active and touch_zone.has_point(e.position):
+				_active = true
+				_touch_idx = e.index
+				base = e.position
 				_update(e.position)
-			else:
-				knob = Vector2.ZERO
-				moved.emit(knob)
-				queue_redraw()
-		elif e is InputEventScreenDrag and _active:
+			elif not e.pressed and e.index == _touch_idx:
+				release()
+		elif e is InputEventScreenDrag and e.index == _touch_idx:
 			_update(e.position)
 
 	func release() -> void:
 		if not _active and knob == Vector2.ZERO:
 			return
 		_active = false
+		_touch_idx = -1
 		knob = Vector2.ZERO
 		moved.emit(knob)
 		queue_redraw()
 
 	func _update(p: Vector2) -> void:
-		var v := (p - size * 0.5) / 38.0
+		var v := (p - base) / DEAD
 		if v.length() > 1.0:
 			v = v.normalized()
 		knob = v
@@ -205,17 +214,17 @@ func build(rv_node: Node) -> void:
 	toast_label.modulate.a = 0.0
 	root.add_child(toast_label)
 
-	# 左侧驾驶摇杆：前推前进，后拉先刹停再倒车，左右转向
+	# 左侧驾驶摇杆（动态）：左半屏任意位置按下即出现，前推前进，后拉先刹停再倒车，左右转向
 	drive_joystick = Joystick.new()
-	drive_joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	drive_joystick.offset_left = 36
-	drive_joystick.offset_top = -206
-	drive_joystick.offset_right = 186
-	drive_joystick.offset_bottom = -56
+	drive_joystick.set_anchors_preset(Control.PRESET_FULL_RECT)
+	drive_joystick.mouse_filter = Control.MOUSE_FILTER_PASS
+	root.add_child(drive_joystick)
+	drive_joystick.touch_zone = Rect2(0.0, root.size.y * 0.42, root.size.x * 0.5, root.size.y * 0.58)
+	drive_joystick.resized.connect(func() -> void:
+		drive_joystick.touch_zone = Rect2(0.0, root.size.y * 0.42, root.size.x * 0.5, root.size.y * 0.58))
 	drive_joystick.moved.connect(func(v: Vector2) -> void:
 		rv.touch_throttle = -v.y
 		rv.touch_steer = -v.x)
-	root.add_child(drive_joystick)
 	drive_misc_buttons.append(_touch_button(root, "视角", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -222, 78, 56), "view"))
 	drive_misc_buttons.append(_touch_button(root, "驻车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -222, 78, 56), "park"))
 	drive_misc_buttons.append(_touch_button(root, "天窗", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -284, 78, 56), "sunroof"))
@@ -595,14 +604,14 @@ func _build_combat(root: Control) -> void:
 	rvwalk_roof_btn.visible = false
 	combat_fire_buttons.append(_touch_button(combat_root, "视角", Control.PRESET_TOP_RIGHT, Rect2(-170, 128, 146, 54), "fps"))
 	combat_fire_buttons.append(_touch_button(combat_root, "手雷", Control.PRESET_TOP_RIGHT, Rect2(-170, 192, 146, 54), "grenade"))
-	# 左下：虚拟摇杆（手游移动）
+	# 左下：动态虚拟摇杆（左半屏按下即在落点出现）
 	var js := Joystick.new()
 	combat_joystick = js
-	js.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	js.offset_left = 36
-	js.offset_top = -206
-	js.offset_right = 186
-	js.offset_bottom = -56
+	js.set_anchors_preset(Control.PRESET_FULL_RECT)
+	js.mouse_filter = Control.MOUSE_FILTER_PASS
+	js.touch_zone = Rect2(0.0, combat_root.size.y * 0.42, combat_root.size.x * 0.5, combat_root.size.y * 0.58)
+	js.resized.connect(func() -> void:
+		js.touch_zone = Rect2(0.0, combat_root.size.y * 0.42, combat_root.size.x * 0.5, combat_root.size.y * 0.58))
 	js.moved.connect(func(v: Vector2) -> void:
 		var p: Node3D = rv.main_node.get_player_body()
 		if p != null:

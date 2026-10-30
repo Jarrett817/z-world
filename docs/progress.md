@@ -1,5 +1,12 @@
 # 开发日志
 
+## 2026-10-30 · n100 动态虚拟摇杆 + 房车水陆两栖浮水
+
+- **动态摇杆**（手感改进）：hud Joystick 从固定底位改为 floating joystick——手指在左半屏偏下 touch_zone 内任意位置按下，底盘就在落点出现，拖动距离 38px 归一化、摇杆头钳制 46px；多指按 `e.index` 锁定，MOUSE_FILTER_PASS 不吞右半屏/按钮触摸。驾驶摇杆与下车战斗摇杆同一套；分辨率变化经 resized 重算 zone
+- **房车浮水**（定位：可浮水面的两栖车）：main 新增 `water_surface_height(wx,z)`，与 terrain.gd `_water` 同一碟形包络（lake 两侧 / coast 右侧海，点外返回 -INF）；rv `_update_water` 每帧比对地面高/水面高，水面高出地面即浮起，`_water_f` 以 delta*3 平滑，支撑高度在地面↔水面间混合，岸边不跳车
+- **水面姿态与操控**：水上物理车身向水平 basis slerp（不随湖床倾斜），最高速 140→26km/h、推进/阻力改 WATER_ACCEL/DRAG、舵效系数 1.5→0.8、松手自动回正与加速俯仰水上关闭；驻车/队友代驾/战斗滑行/剧情分支统一用 `_support_y` 贴靠与水陆混合阻力
+- 数值层 SceneTree 断言湖心/湖岸/海岸浮起、公路与旱地干燥（WATER_CHECK_PASS），标准无头回归 EXIT=0 零错误
+
 ## 2026-10-30 · n99 弹药资源化：共享备弹/统一消耗/营地复装/拾取补给
 
 - **唯一状态源**：main 新增 `ammo_reserve`（共享备弹发数，不含枪内弹匣），入 save.json（`"ammo"` 键，旧档缺失取 guns.json `ammo.start`=120）；数值全在 guns.json `ammo` 节（start/pickup 30-60）与 facilities.json

@@ -5312,6 +5312,41 @@ func _in_water(wx: float, z: float) -> bool:
 		half = maxf(half, 55.0 * zw)
 	return half > 0.0 and d >= center - half - 2.0 and d <= center + half
 
+## 水面世界高度（与 terrain.gd _water 同一碟形包络）；点不在水面内返回 -INF。
+## 房车水陆两栖据此浮起：水面高于湖床地面时车身贴水面而非地面。
+func water_surface_height(wx: float, z: float) -> float:
+	if is_inf(wx) or is_inf(z) or is_nan(wx) or is_nan(z):
+		return -INF
+	var rx: float = road_x(z)
+	var side := 1.0 if wx >= rx else -1.0
+	var d: float = (wx - rx) * side
+	var phase := z * 0.0062 + (2.1 if side > 0.0 else 0.0)
+	var env: float = clampf(sin(phase) * 2.2 - 0.55, 0.0, 1.0)
+	var center := 150.0
+	var half := 30.0 * env
+	var sink := 0.22 * env
+	var zw: float = zone_weight(z)
+	match zone_at(z):
+		"coast":
+			if side < 0.0:
+				return -INF
+			center = 90.0
+			half = maxf(half, 80.0 * zw)
+			sink = maxf(sink, 1.5 * zw)
+		"lake":
+			center = 95.0
+			half = maxf(half, 55.0 * zw)
+			sink = maxf(sink, 0.8 * zw)
+		_:
+			pass
+	if half <= 0.0:
+		return -INF
+	var local := d - center
+	if absf(local) > half:
+		return -INF
+	var t := (local + half) / (2.0 * half)
+	return ground_y(z) - sin(t * PI) * sink
+
 ## 路段海拔：段内取段值，段首平滑过渡（坡度随高差放缓）
 func _elev_at(z: float) -> float:
 	if _zones.is_empty():
