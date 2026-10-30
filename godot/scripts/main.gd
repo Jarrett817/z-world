@@ -117,6 +117,7 @@ var scenery_z := -20.0
 var sign_z := -50.0 * KMH_FACTOR   # 里程碑路牌：首块在 50km 处
 var _detour_z := -JUNCTION_EVERY   # 可探索支路扫描游标（对齐 -n*JUNCTION_EVERY 岔路网格）
 var pole_z := -40.0                # 电线杆生成前沿
+var grass_front := 30.0            # 草丛 MultiMesh 条带前沿（每条 50m，consumable 回收）
 var _pole_prev: Array = []         # 上一根电线杆两侧挂线点（世界坐标）
 var _world_seed := 1               # 确定性世界种子（data/world.json）
 var _places: Array = []            # 沿途地点（km 升序，data/world.json）
@@ -307,6 +308,8 @@ func _ready() -> void:
 		lamp_z = rv.global_position.z - 30.0
 		scenery_z = rv.global_position.z - 20.0
 		pole_z = rv.global_position.z - 40.0
+		# 草丛条带对齐 GRASS_LEN 绝对网格：同一世界位置无论是否跳转都重建出相同草丛
+		grass_front = -float(floori(-(rv.global_position.z + 30.0) / GRASS_LEN)) * GRASS_LEN
 		_pole_prev.clear()
 		# 支路游标对齐 -n*JUNCTION_EVERY 绝对网格（与 terrain 支路条带同源，不可随 rvz 偏移）
 		_detour_z = -float(maxi(int(ceil(-(rv.global_position.z - 30.0) / JUNCTION_EVERY)), 1)) * JUNCTION_EVERY
@@ -1291,6 +1294,7 @@ func _build_terrain() -> void:
 	terrain.name = "Terrain"
 	add_child(terrain)
 	terrain.rebuild(100.0)
+	_build_grass_asset()
 
 func _recycle_world() -> void:
 	var rvz := rv.global_position.z
@@ -1319,6 +1323,103 @@ func _recycle_world() -> void:
 					nx,
 					ground_height(nx, nz) + float(p.get_meta("y_off", 0.0)),
 					nz)
+
+# ---------- 草丛（MultiMesh 条带，近景丰茂） ----------
+const GRASS_LEN := 50.0       # 每条草带沿 z 长度
+const GRASS_NEAR := 9.5       # 草丛离路心最小距离（越过护栏 8.9）
+const GRASS_FAR := 34.0       # 草丛离路心最大距离
+var _blade_mesh: ArrayMesh
+var _grass_mat: StandardMaterial3D
+
+## 一丛草 = 三片放射交叉的尖叶（根部暗、尖部亮的顶点色），全部草丛共享一份网格
+func _build_grass_asset() -> void:
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
+	var blades := [0.0, TAU / 3.0, TAU * 2.0 / 3.0]
+	var bends := [0.05, -0.045, 0.06]   # 三片各自沿叶面方向的前倾量，避免完全对称的尖锥感
+	var bw := 0.12
+	var tw := bw * 0.3                  # 叶尖保留少量宽度：草叶而非针尖
+	for bi in blades.size():
+		var a: float = blades[bi]
+		var dx := cos(a)
+		var dz := sin(a)
+		var bend: float = bends[bi]
+		var base := verts.size()
+		verts.append(Vector3(-dx * bw, 0.0, -dz * bw))
+		verts.append(Vector3(dx * bw, 0.0, dz * bw))
+		verts.append(Vector3(dx * (bend + tw), 1.0, dz * (bend + tw)))
+		verts.append(Vector3(dx * (bend - tw), 1.0, dz * (bend - tw)))
+		var n := Vector3(-dz, 0.0, dx)
+		for k in 4:
+			normals.append(n)
+		for k in 2:
+			colors.append(Color(0.72, 0.78, 0.62))
+		for k in 2:
+			colors.append(Color(1.0, 1.05, 0.82))
+		indices.append(base); indices.append(base + 1); indices.append(base + 3)
+		indices.append(base + 1); indices.append(base + 2); indices.append(base + 3)
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = normals
+	arr[Mesh.ARRAY_COLOR] = colors
+	arr[Mesh.ARRAY_INDEX] = indices
+	_blade_mesh = ArrayMesh.new()
+	_blade_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	_grass_mat = _mat(Color.WHITE)
+	_grass_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_grass_mat.vertex_color_use_as_albedo = true
+	_blade_mesh.surface_set_material(0, _grass_mat)
+
+## 生成一条 z ∈ [front-GRASS_LEN, front] 的草丛 MultiMesh；密度与色相按景观段变化
+func _spawn_grass_patch(front: float) -> void:
+	var xforms: Array[Transform3D] = []
+	var cols: Array[Color] = []
+	var rows := int(GRASS_LEN / 1.3)
+	for i in rows:
+		var lz := front - (float(i) + 0.5) * GRASS_LEN / rows
+		_wseed(lz, 11)
+		var rx: float = road_x(lz)
+		var gy: float = ground_y(lz)
+		var zone: String = zone_at(lz)
+		var density: float = {"forest": 1.0, "plain": 0.8, "hills": 0.78, "mountain": 0.55, "lake": 0.7, "coast": 0.26, "city": 0.2}.get(zone, 0.6)
+		var base_col: Color = {"forest": Color(0.5, 0.82, 0.32), "plain": Color(0.58, 0.85, 0.32), "hills": Color(0.52, 0.8, 0.34), "mountain": Color(0.58, 0.74, 0.42), "lake": Color(0.54, 0.83, 0.4), "coast": Color(0.72, 0.8, 0.42), "city": Color(0.56, 0.68, 0.38)}.get(zone, Color(0.56, 0.84, 0.32))
+		var rank := int((GRASS_FAR - GRASS_NEAR) / 1.2)
+		for j in rank:
+			var side := 1.0 if randf() > 0.5 else -1.0
+			var d: float = GRASS_NEAR + (float(j) + randf()) * 1.2
+			# 近路略密、远侧草坡仍成片覆盖，整体按 zone 密度缩放；海岸段右侧是大海不布草
+			var p: float = (0.95 if d < 20.0 else 0.62) * density
+			if randf() > p:
+				continue
+			if zone == "coast" and side > 0.0:
+				continue
+			var x: float = rx + side * d
+			if loop_road_distance(x, lz) < 10.0:
+				continue
+			var wgt := randf_range(0.85, 1.55)
+			var hgt := randf_range(0.6, 1.15)
+			var t := Transform3D(Basis(Vector3.UP, randf() * TAU).scaled(Vector3(wgt, hgt, wgt)), Vector3(x, ground_height_c(x, lz, gy, rx, zone) - 0.02, lz - front))
+			xforms.append(t)
+			cols.append(base_col * Color(randf_range(0.9, 1.05), randf_range(0.95, 1.12), randf_range(0.85, 1.0)))
+	if xforms.is_empty():
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = _blade_mesh
+	mm.use_colors = true
+	mm.instance_count = xforms.size()
+	for i in xforms.size():
+		mm.set_instance_transform(i, xforms[i])
+		mm.set_instance_color(i, cols[i])
+	var mi := MultiMeshInstance3D.new()
+	mi.multimesh = mm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position.z = front
+	mi.add_to_group("consumable")
+	add_child(mi)
 
 # ---------- 房车 ----------
 func _build_rv() -> void:
@@ -2545,6 +2646,12 @@ func _update_frontier() -> void:
 		_wseed(scenery_z, 5)
 		_spawn_scenery(scenery_z)
 		scenery_z -= 12.0
+	while grass_front > rvz - VIEW_AHEAD:
+		if grass_front < safe_z:
+			grass_front = safe_z - 1.0
+			break
+		_spawn_grass_patch(grass_front)
+		grass_front -= GRASS_LEN
 	while sign_z > rvz - VIEW_AHEAD:
 		if sign_z < safe_z:
 			sign_z = safe_z - 1.0
@@ -3558,38 +3665,10 @@ func _spawn_initial_scenery() -> void:
 		mi.set_meta("y_off", bm.size.y * 0.4)
 		add_child(mi)
 		props.append(mi)
-	# 路肩青草丛：两片交叉草叶，双面不剔除，随世界回收
-	var grass_mat := _mat(Color(0.2, 0.34, 0.13))
-	grass_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	# 野花：三色小贴片散布草丛间
 	var flower_mats := [_mat(Color(0.9, 0.36, 0.42)), _mat(Color(0.95, 0.82, 0.25)), _mat(Color(0.55, 0.5, 0.92))]
 	for fm in flower_mats:
 		fm.cull_mode = BaseMaterial3D.CULL_DISABLED
-	for i in range(70):
-		var zz := -650.0 + randf() * 710.0
-		var side := 1.0 if randf() > 0.5 else -1.0
-		var gq := QuadMesh.new()
-		var gh := randf_range(0.35, 0.8)
-		gq.size = Vector2(randf_range(0.18, 0.34), gh)
-		var blades := Node3D.new()
-		blades.position = Vector3(
-			road_x(zz) + side * randf_range(ROAD_HALF + 0.3, ROAD_HALF + 13.0),
-			ground_y(zz),
-			zz)
-		var g := MeshInstance3D.new()
-		g.mesh = gq
-		g.material_override = grass_mat
-		g.position.y = gh * 0.5
-		g.rotation.y = randf() * PI
-		blades.add_child(g)
-		var g2 := MeshInstance3D.new()
-		g2.mesh = gq
-		g2.material_override = grass_mat
-		g2.position.y = gh * 0.5
-		g2.rotation.y = PI * 0.5
-		blades.add_child(g2)
-		add_child(blades)
-		props.append(blades)
 	# 野花：细茎 + 花冠小十字贴片
 	var stem_mat := _mat(Color(0.16, 0.3, 0.12))
 	for i in range(60):
