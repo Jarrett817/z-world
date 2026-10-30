@@ -12,7 +12,7 @@ const RAIL_OFFSET := 8.9
 const RAIL_SEG := 4.0
 
 var _main: Node3D
-var _mats: Array[StandardMaterial3D] = []
+var _mats: Array[Material] = []
 var _col_shape: CollisionShape3D
 var _build_active := false
 var _pending_mesh: ArrayMesh
@@ -176,11 +176,31 @@ func _ensure_materials() -> void:
 	ridge_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var ridge_far_mat := _mat(Color(0.6, 0.72, 0.83), 1.0)
 	ridge_far_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var water_mat := StandardMaterial3D.new()
-	water_mat.albedo_color = Color(0.16, 0.36, 0.46)
-	water_mat.roughness = 0.12
-	water_mat.metallic = 0.25
-	water_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# 湖面/海面：片元卡通波光，双频正弦亮纹随时间漂移，近岸浅远水深，不扰动顶点避免碟形岸沿离缝
+	var water_mat := ShaderMaterial.new()
+	var wsh := Shader.new()
+	wsh.code = """
+shader_type spatial;
+render_mode cull_disabled;
+uniform vec3 shallow_col : source_color = vec3(0.26, 0.55, 0.62);
+uniform vec3 deep_col : source_color = vec3(0.09, 0.27, 0.38);
+varying vec3 wpos;
+void vertex() {
+	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+void fragment() {
+	vec2 w = wpos.xz;
+	float r1 = sin(w.x * 0.35 + TIME * 1.3) + sin(w.y * 0.27 - TIME * 0.9);
+	float r2 = sin((w.x + w.y) * 0.12 + TIME * 0.5);
+	float glint = smoothstep(1.25, 1.95, r1 + r2 * 0.8);
+	float depth = smoothstep(0.2, 0.85, COLOR.r);
+	vec3 base = mix(shallow_col, deep_col, depth);
+	ALBEDO = base + vec3(0.35, 0.42, 0.45) * glint;
+	ROUGHNESS = 0.18;
+	METALLIC = 0.25;
+}
+"""
+	water_mat.shader = wsh
 	_mats = [
 		_mat(Color(0.20, 0.38, 0.17), 1.0),
 		_mat(Color(0.34, 0.43, 0.22), 1.0),
@@ -323,10 +343,12 @@ func _water(start_z: float, side: float) -> Array:
 			var t := float(j) / nx
 			# 岸边与地面齐平、中心下沉的碟形；half→0 时整条与地面齐平即隐形
 			var xx: float = center + lerpf(-half, half, t)
-			var y := gy - sin(t * PI) * sink
+			var sag := sin(t * PI) * sink
+			var y := gy - sag
 			verts.append(Vector3(cx + xx, y, zz))
 			normals.append(Vector3.UP)
-			colors.append(Color(1, 1, 1))
+			# 顶点色 r 编码归一化水深（碟心最深），供水面 shader 近岸浅/远水深混色
+			colors.append(Color(clampf(sag / 1.5, 0.0, 1.0), 1, 1))
 			row_idx.append(row + j)
 		rows.append(row_idx)
 	for i in steps:
