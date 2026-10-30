@@ -87,6 +87,8 @@ var _setting_value_labels: Dictionary = {}   # key -> 百分比 Label
 var _fullscreen_btn: Button
 var _res_opt: OptionButton
 var drive_joystick: Control
+var drive_view_btn: Button
+var rvwalk_btn: Button
 var drive_misc_buttons: Array[Button] = []   # 视角/驻车/天窗/下车/车内（战斗时连同驾驶摇杆一起收起）
 var combat_fire_buttons: Array[Button] = []   # 车内行走时要藏起来的开火类按钮
 var combat_stance_buttons: Array[Button] = [] # 跳跃/下蹲：车顶卧姿时隐藏
@@ -167,7 +169,7 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 点按车内/接管 · E 设施 · V 射击视角 · J 任务 · Tab 队伍 · Esc 菜单", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 起身走动/回座接管 · E 设施 · V 射击视角 · J 任务 · Tab 队伍 · Esc 菜单", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	hint.offset_left = -1042
 	hint.offset_right = -410
@@ -225,11 +227,13 @@ func build(rv_node: Node) -> void:
 	drive_joystick.moved.connect(func(v: Vector2) -> void:
 		rv.touch_throttle = -v.y
 		rv.touch_steer = -v.x)
-	drive_misc_buttons.append(_touch_button(root, "视角", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -222, 78, 56), "view"))
+	drive_view_btn = _touch_button(root, "视角", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -222, 78, 56), "view")
+	drive_misc_buttons.append(drive_view_btn)
 	drive_misc_buttons.append(_touch_button(root, "驻车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -222, 78, 56), "park"))
 	drive_misc_buttons.append(_touch_button(root, "天窗", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -284, 78, 56), "sunroof"))
 	drive_misc_buttons.append(_touch_button(root, "下车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -284, 78, 56), "exitveh"))
-	drive_misc_buttons.append(_touch_button(root, "点按·车内", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -346, 78, 56), "rvwalk"))
+	rvwalk_btn = _touch_button(root, "起身", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -346, 78, 56), "rvwalk")
+	drive_misc_buttons.append(rvwalk_btn)
 	# 右上：任务 / 署名 / 队伍 / 设施（手游触屏替代 J/Tab/E 快捷键）
 	_touch_button(root, "任务", Control.PRESET_TOP_RIGHT, Rect2(-388, 14, 88, 46), "quest")
 	_touch_button(root, "署名", Control.PRESET_TOP_RIGHT, Rect2(-292, 14, 88, 46), "credits")
@@ -667,6 +671,13 @@ func set_rv_walk_active(v: bool) -> void:
 	combat_root.visible = v
 	if v:
 		combat_joystick.visible = true
+		# 行走时相机由玩家接管，驾驶视角循环无效，藏「视角」避免点了没反应
+		drive_view_btn.visible = false
+		rvwalk_btn.text = "回座"
+		rvwalk_btn.visible = true
+	else:
+		drive_view_btn.visible = not _is_parked()
+		rvwalk_btn.text = "起身"
 	for b in combat_fire_buttons:
 		b.visible = not v
 	ammo_label.visible = not v
