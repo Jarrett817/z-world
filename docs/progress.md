@@ -1,5 +1,11 @@
 # 开发日志
 
+## 2026-10-30 · n92 草叶随风摆动（原神化批次 3）
+
+- 草材质从 StandardMaterial3D 换成自定义 spatial shader：顶点阶段按世界坐标 + `INSTANCE_ID` 生成相位，双频正弦阵风沿 xz 传播，叶尖 `h*h` 大摆、根部不动，实例相位打散避免齐摆；fragment 沿用 toon 明暗，`COLOR` 取引擎已相乘的网格顶点色×MultiMesh 实例色
+- 与云穹共用「TIME 驱动 + 世界坐标相位」同款风机制；dummy 渲染器不支持 `INSTANCE_CUSTOM`，实例色改走 use_colors 注入的 COLOR（真实渲染器两路径同色）
+- 平原窗口截帧目检草色/几何正常，无头回归 EXIT=0 零 SHADER/SCRIPT ERROR
+
 ## 2026-10-30 · n91 路边草丛 MultiMesh（原神化批次 2）
 
 - 近景丰茂感：新建全场景共享的单片草网格（三片放射交叉的窄长叶，根部暗/尖部亮顶点色、叶尖留窄宽并各向微倾，双面渲染），沿路每 50m 生成一条 `MultiMeshInstance3D`（`TRANSFORM_3D` + 实例色），离路 9.5~34m 两列条带、随机旋转/宽高/色相乘，单 draw call 覆盖数千米草坡；关闭实例投影省填充

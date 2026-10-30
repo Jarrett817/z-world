@@ -1329,7 +1329,7 @@ const GRASS_LEN := 50.0       # 每条草带沿 z 长度
 const GRASS_NEAR := 9.5       # 草丛离路心最小距离（越过护栏 8.9）
 const GRASS_FAR := 34.0       # 草丛离路心最大距离
 var _blade_mesh: ArrayMesh
-var _grass_mat: StandardMaterial3D
+var _grass_mat: ShaderMaterial
 
 ## 一丛草 = 三片放射交叉的尖叶（根部暗、尖部亮的顶点色），全部草丛共享一份网格
 func _build_grass_asset() -> void:
@@ -1368,9 +1368,28 @@ func _build_grass_asset() -> void:
 	arr[Mesh.ARRAY_INDEX] = indices
 	_blade_mesh = ArrayMesh.new()
 	_blade_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-	_grass_mat = _mat(Color.WHITE)
-	_grass_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_grass_mat.vertex_color_use_as_albedo = true
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode cull_disabled, diffuse_toon, specular_toon;
+// 草叶风摆：阵风沿世界 xz 传播，叶尖摆幅大、根部不动，实例相位打散避免齐摆
+void vertex() {
+	float h = clamp(VERTEX.y, 0.0, 1.0);
+	float bend = h * h;
+	vec3 wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	float ph = wpos.x * 0.35 + wpos.z * 0.22 + float(INSTANCE_ID) * 0.61;
+	float gust = sin(TIME * 1.7 + ph) * 0.5 + sin(TIME * 0.6 + ph * 1.7) * 0.5;
+	vec3 woff = vec3(gust * 0.12, 0.0, cos(TIME * 1.3 + ph) * 0.07) * bend;
+	VERTEX += (inverse(MODEL_MATRIX) * vec4(woff, 0.0)).xyz;
+}
+void fragment() {
+	// use_colors 的实例色与网格顶点色由引擎相乘后送入 COLOR
+	ALBEDO = COLOR.rgb;
+	ROUGHNESS = 1.0;
+}
+"""
+	_grass_mat = ShaderMaterial.new()
+	_grass_mat.shader = sh
 	_blade_mesh.surface_set_material(0, _grass_mat)
 
 ## 生成一条 z ∈ [front-GRASS_LEN, front] 的草丛 MultiMesh；密度与色相按景观段变化
