@@ -87,6 +87,7 @@ blender --background --addons vrm_addon --python run_pipeline.py -- <in.vrm> <ou
     - **逐骨 rest 段对齐 qcorr（补第 24/25 条）**：Q 版（KayKit）与写实（VRM）骨架即使同 T-pose，「骨 head→子骨 head」rest 段轴向也不一致，单纯 delta 旋转后脚段仍偏 16.4°。对每根有映射子骨的骨预算 `qcorr = tgt_rest段方向.rotation_difference(src_rest段方向)`，烘焙写 `want_world_rot = delta @ qcorr @ tgt_rest_world_rot`，修后全部段 0.00–0.02°
     - **两阶段采样（单 Blender 会话不能二次 import glTF）**：第二次 `bpy.ops.import_scene.gltf` 报 "Please select a file"。必须 PHASE1 导源骨架、采样全部帧世界矩阵**以及源 rest 段方向**到 dict，`bpy.ops.wm.read_factory_settings(use_empty=True)` 重开场后 PHASE2 导目标烘焙——重开场后源 Object 的 StructRNA 已释放，PHASE2 再引用源 armature 必崩 ReferenceError
     - VRoid 双手手指局部卷曲轴同向（均局部 +Z），镜像骨不需要反号；实握据枪屈角定版：指节 0.85/1.15/0.95、拇指 0.35、Thumb1 额外绕 Y 0.45 对握
+27. **Blender 5.2 后台无法渲染，动作目检只能 Godot 窗口截帧（2026-10-30 教训，修第 4.2 节旧法）**：`blender --background -b bake.py` 里 Workbench 渲染引擎在 5.2 已移除、EEVEE 需要 GPU 上下文（无显示设备时报 `No OpenGL context`），Cycles CPU 虽可跑但只渲 mesh 不渲 Workbench 姿态着色，且装角色 + 打光成本高。本轮 shoot/reload 烘焙**全程只做第 24 条数值验收（四肢段 0.0°）**，姿势目检改用 Godot 窗口模式 `--shot=` 截帧（新动作实跑还有 `--gunnertest` 无头实弹断言兜底：打空弹匣→换弹→复火链路过即说明动作/接线正确）。第 4.2 节「Blender Workbench 渲染」是 4.x 时代的法子，5.2 起作废
 
 ### 4.2 截帧验收法
 

@@ -19,8 +19,8 @@ func setup(node: Node) -> void:
 		events = parsed
 
 func _ready() -> void:
-	# --nostory：截帧验收等调试场景不弹任何剧情
-	if OS.get_cmdline_user_args().has("--nostory"):
+	# --nostory：截帧验收等调试场景不弹任何剧情；--gunnertest 序章会冻结射手主循环
+	if OS.get_cmdline_user_args().has("--nostory") or OS.get_cmdline_user_args().has("--gunnertest"):
 		set_process(false)
 		return
 	# 开局序章：给玩家两秒看清场景后电台亮起（兼容仅记录过 intro_2 的旧存档）

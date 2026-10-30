@@ -1947,12 +1947,12 @@ func _set_life_combat(on: bool) -> void:
 		var char: Node3D = f.get_node_or_null("Char")
 		if char == null:
 			continue
-		var ap := char.find_child("AnimationPlayer", true, false) as AnimationPlayer
+		var lively := char.get_node_or_null("CharLively") as CharLively
 		if on:
 			if not f.has_meta("muzzle"):
 				_equip_fig_gun(f)
-			if ap != null and ap.has_animation("aim"):
-				ap.play("aim", 0.2)
+			if lively != null:
+				lively.play_combat(&"aim")
 		else:
 			if f.has_meta("muzzle"):
 				var gn: Node = f.get_meta("gun_node")
@@ -1963,8 +1963,11 @@ func _set_life_combat(on: bool) -> void:
 				f.remove_meta("npc_ammo")
 				f.remove_meta("reload_until")
 			var back := "sit" if String(f.get_meta("duty")) == "sit" else "idle"
+			var ap := char.find_child("AnimationPlayer", true, false) as AnimationPlayer
 			if ap != null and ap.has_animation(back):
 				ap.play(back, 0.2)
+			if lively != null:
+				lively.end_combat()
 
 ## 主角驾驶位：hero 坐主驾播 drive 动画（坐姿+双手握方向盘已烘焙，仅车内视角可见）
 func _build_driver() -> void:
@@ -2165,20 +2168,15 @@ func _update_auto_gunners(delta: float) -> void:
 		if f.get_meta("banter_until", 0.0) > now or bool(f.get_meta("wandering", false)):
 			continue
 		var cd: float = f.get_meta("fire_cd", 0.0) - delta
-		# 换弹中：枪口下垂停火，到点补满弹匣、枪回平、名牌恢复
+		# 换弹中：播 reload 动作停火，到点补满弹匣、回 aim、名牌恢复
 		var reload_until: float = f.get_meta("reload_until", 0.0)
 		if reload_until > 0.0:
 			if reload_until > now:
-				var gn: Node3D = f.get_meta("gun_node", null)
-				if gn != null:
-					gn.rotation.x = lerpf(gn.rotation.x, 0.5, delta * 6.0)
 				f.set_meta("fire_cd", cd)
 				continue
 			f.set_meta("reload_until", 0.0)
 			f.set_meta("npc_ammo", mag_size)
-			var gn2: Node3D = f.get_meta("gun_node", null)
-			if gn2 != null:
-				gn2.rotation.x = 0.0
+			_gunner_anim(f, "aim")
 			(f.get_meta("label") as Label3D).text = "%s · %s" % [String(crew_members[fi].get("name", "")), f.get_meta("duty_label")]
 		var best: Node3D = _gunner_target(f, duty, life_gun)
 		if best == null:
@@ -2191,19 +2189,30 @@ func _update_auto_gunners(delta: float) -> void:
 			cd = 1.3
 			var ammo_left: int = f.get_meta("npc_ammo", mag_size)
 			if ammo_left <= 0:
-				# 弹匣打空：开始换弹（期间停火）
+				# 弹匣打空：开始换弹（reload 动作与换弹时长对齐，期间停火）
 				f.set_meta("reload_until", now + reload_time)
+				_gunner_anim(f, "reload")
 				sfx.play3d("reload", f.global_position, 1.0, 0.05)
 				(f.get_meta("label") as Label3D).text = "%s · 换弹中" % String(crew_members[fi].get("name", ""))
 				f.set_meta("fire_cd", cd)
 				continue
 			f.set_meta("npc_ammo", ammo_left - 1)
+			_gunner_anim(f, "shoot")
 			var from: Vector3 = (f.get_meta("muzzle") as Node3D).global_position
 			var dir := (best.global_position + Vector3(0, 1.1, 0) - from).normalized()
 			spawn_bullet(from, dir, 600.0, [rv.get_rid()])
 			spawn_muzzle_flash(from)
 			sfx.play3d("gunshot", f.global_position, 0.9, 0.08)
 		f.set_meta("fire_cd", cd)
+
+## 射手动作播放：shoot 一次性动作（结束由 CharLively 自动回 aim）；reload/aim 直接切换
+func _gunner_anim(f: Node3D, anim: String) -> void:
+	var char: Node = f.get_node_or_null("Char")
+	if char == null:
+		return
+	var lively := char.get_node_or_null("CharLively") as CharLively
+	if lively != null:
+		lively.play_combat(StringName(anim))
 
 ## 射手槽按射界选最近活尸：车顶侧哨=本侧半平面22m，尾哨=后扇22m，侧窗射孔=侧窗锥18m，尾门射孔=后扇18m，生活位=全向14m
 func _gunner_target(f: Node3D, duty: String, life_gun: bool) -> Node3D:
@@ -2273,7 +2282,8 @@ func _gunner_test_tick(delta: float) -> void:
 	var gunner_count := 0
 	var all_pass := true
 	for f in crew_figures:
-		if f.get_meta("duty", "") != "gun":
+		# 只统计有人在岗的射手（空槽位 duty 仍为 gun，但无 Char 模型，永不开火）
+		if f.get_meta("duty", "") != "gun" or not f.has_node("Char") or not f.has_meta("muzzle"):
 			continue
 		gunner_count += 1
 		if not _gt_state.has(f):

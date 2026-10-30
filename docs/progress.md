@@ -1,5 +1,13 @@
 # 开发日志
 
+## 2026-10-30 · n98 KayKit shoot/reload 重定向 + 枪手实弹换弹链路验证
+
+- **现成动作包补战斗动作（用户要求禁手捏）**：role1/role2 各加 KayKit Adventures（CC0）的 `2H_Ranged_Shoot`（32 帧/1.07s 单发）与 `2H_Ranged_Reload`（48 帧/1.6s 换弹），沿用 n97 两阶段跨骨架重定向（非 hips 骨只转旋转 + 逐骨 rest 段 qcorr），四肢段世界方向误差 0.0°；两 GLB 各 12 个 action
+- CharLively.play_combat 接 shoot/reload/aim：shoot 一次性、animation_finished 自动回 aim；reload 一次性停末帧等逻辑切回；shoot/reload 显式压 LOOP_NONE（不依赖 GLB 导入默认循环识别）；reload 播放中或 shoot 未播完时拒绝重入
+- main 自动枪手接线：弹匣 30 发（guns.json npc_gunner.mag_size），cd 到点打空判断——0 发进 reload_until=now+1.7s 播 reload、名牌显「换弹中」、期间停火，到点补满回 aim；有弹才播 shoot 发弹（600m/s 射线弹）+ 枪口焰 + 枪声
+- **新增 `--gunnertest` 无头实弹断言**：驻车两侧射界每秒补怪保持每侧 2 只，跟踪每名在岗射手 fired/reloaded/refired，全部「换弹后复火≥3」则 PASS quit(0)，180s 超时 FAIL。修两个验证自身的问题：① 开局 2.5s intro 序章把 story_active 置 true，枪手主循环早退冻结 fire_cd（测试同 --nostory 禁用剧情系统）；② 空槽尾哨（5 人只占前 5 槽）也计入断言导致 all_pass 永假，过滤无 Char/muzzle 的空槽
+- 结果：4 名车顶哨 fired≈32/reloaded=1/refired=3，PASS t≈45s；标准无头回归 EXIT=0 零非基线错误
+
 ## 2026-10-30 · n97 KayKit 现成动作重定向修枪手坏 aim + 房车扩员到 20 人
 
 - **现成动作包替换手捏占位（用户明确要求）**：role1/role2 的 aim 原是 0.033s 坏占位（截帧里队员 T-pose 伸臂诡异）。改用 KayKit Character Pack Adventures（CC0，76 动画）的 `2H_Ranged_Aiming`（48 帧双手据步枪循环），Blender 5.2 后台两阶段重定向到 VRM J_Bip 骨架，逐帧四肢段世界方向误差 0.025°（验收线 <5°），双手屈指握枪；保留各 GLB 其余 action 与网格材质

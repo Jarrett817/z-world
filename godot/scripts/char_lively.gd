@@ -23,6 +23,8 @@ var _blink_left := 0.0
 var _talk_left := 0.0
 var _next_variant := 0.0
 var _expr: Dictionary = {}
+var _in_combat := false   # 战斗据枪态：屏蔽闲置插播，shoot 结束回 aim
+var _hold := &""          # 一次性动作结束后要回到的动作（变体回 _base，shoot 回 aim）
 
 func _init(expr: Dictionary = {}, base_anim: String = "idle") -> void:
 	_expr = expr if not expr.is_empty() else DEFAULT_EXPR
@@ -48,7 +50,7 @@ func _ready() -> void:
 				_anim.get_animation(v).loop_mode = Animation.LOOP_NONE
 				_variants.append(v)
 		if not _variants.is_empty():
-			_anim.animation_finished.connect(_on_variant_done)
+			_anim.animation_finished.connect(_on_one_shot_done)
 	_next_blink = randf_range(1.0, 3.0)
 	_next_variant = randf_range(6.0, 12.0)
 
@@ -68,12 +70,45 @@ func _process(delta: float) -> void:
 	if _face != null and _mth_idx >= 0 and _talk_left > 0.0:
 		_talk_left = maxf(_talk_left - delta, 0.0)
 		_face.set_blend_shape_value(_mth_idx, absf(sin(_t * 13.0)) * 0.75 * minf(_talk_left, 1.0))
-	if not _variants.is_empty() and _anim != null and _t >= _next_variant:
+	if not _variants.is_empty() and _anim != null and not _in_combat and _t >= _next_variant:
 		_next_variant = _t + randf_range(8.0, 16.0)
+		_hold = _base
 		_anim.play(_variants[randi() % _variants.size()], 0.3)
 
-func _on_variant_done(_name: StringName) -> void:
-	_anim.play(_base, 0.3)
+## 战斗动作：shoot 一次性、结束回 aim；reload 一次性、结束停在末帧等逻辑切回；aim 据枪循环
+func play_combat(anim: StringName) -> void:
+	if _anim == null or not _anim.has_animation(anim):
+		return
+	_in_combat = true
+	# shoot/reload 是一次性动作：导入默认若被识别成循环会导致 animation_finished 不触发，显式压成 LOOP_NONE
+	if anim == &"shoot" or anim == &"reload":
+		_anim.get_animation(anim).loop_mode = Animation.LOOP_NONE
+	match anim:
+		&"shoot":
+			if _anim.current_animation == &"reload" or (_anim.current_animation == &"shoot" and _anim.is_playing()):
+				return
+			_hold = &"aim"
+			if not _anim.is_connected("animation_finished", _on_one_shot_done):
+				_anim.animation_finished.connect(_on_one_shot_done)
+			_anim.play(&"shoot", 0.1)
+		&"reload":
+			if _anim.current_animation != &"reload":
+				_hold = &""
+				_anim.play(&"reload", 0.2)
+		&"aim":
+			if _anim.current_animation != &"aim":
+				_anim.play(&"aim", 0.25)
+
+## 收枪结束战斗：恢复闲置插播并回基础姿态
+func end_combat() -> void:
+	_in_combat = false
+	_hold = &""
+
+func _on_one_shot_done(name: StringName) -> void:
+	if _hold != &"":
+		var back := _hold
+		_hold = &""
+		_anim.play(back, 0.3)
 
 func _apply_expression() -> void:
 	for k in _expr:
