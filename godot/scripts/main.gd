@@ -174,6 +174,7 @@ var _shot_cab_cam := false  # --shotcab：截帧专用近距离侧拍驾驶座�
 var _shot_seat := false     # --shotseat：截帧前切车内视角看副驾队友
 var _shot_cabin := false    # --shotcabin：截帧前切车内视角整舱俯拍（验收岗位布局）
 var _shot_seat_cam := false # --shotseat：截帧专用近距离侧拍副驾相机
+var _shot_bunk_cam := false # --shotbunk：截帧专用后舱床铺隔间相机
 var _jump_km := 0.0         # --jump=KM：直达指定里程（配合 --shot 截帧验收）
 var _debug_crew := 0        # --crew=N：调试直接补 N 名队友（配合截帧验收座位角色）
 var _dump := false          # --dump：截帧时刻打印房车周边节点并退出（验收定位异常物）
@@ -209,6 +210,9 @@ func _ready() -> void:
 		elif a == "--shotseat":
 			_shot_seat = true
 		elif a == "--shotcabin":
+			_shot_cabin = true
+		elif a == "--shotbunk":
+			_shot_bunk_cam = true
 			_shot_cabin = true
 		elif a.begins_with("--jump="):
 			_jump_km = float(a.trim_prefix("--jump="))
@@ -720,6 +724,11 @@ func _process(delta: float) -> void:
 			cam.global_position = rv.to_global(Vector3(-0.5, 0.95, -2.85) * INTERIOR_SCALE)
 			cam.look_at(rv.to_global(Vector3(0.55, 0.5, -2.85) * INTERIOR_SCALE), Vector3.UP)
 			cam.fov = 55.0
+		if _shot_bunk_cam:
+			# --shotbunk：床尾高位越过半墙俯拍，两层铺/枕头/布帘同框
+			cam.global_position = rv.to_global(Vector3(-0.20, 1.90, 0.90) * INTERIOR_SCALE)
+			cam.look_at(rv.to_global(Vector3(-1.05, 0.30, 2.20) * INTERIOR_SCALE), Vector3.UP)
+			cam.fov = 72.0
 	else:
 		var target := rv.global_position + Vector3(0, 3.5, 11.0)
 		cam_pos = cam_pos.lerp(target, 1.0 - exp(-5.0 * delta))
@@ -1205,6 +1214,11 @@ func _build_interior() -> void:
 		var seat_mesh: Node3D = interior.find_child(sn, true, false)
 		if seat_mesh != null:
 			seat_mesh.position.z -= 1.27
+	# GLB 原模自带一张横贯整车的大通铺，改为代码搭建的左侧上下铺睡眠隔间（见 _build_life_props），隐藏旧床件
+	for bn in ["bed", "bed_pad", "blanket", "pillow"]:
+		var bed_part: Node3D = interior.find_child(bn, true, false)
+		if bed_part != null:
+			bed_part.visible = false
 
 ## 车内岗位制：副驾瞭望 / 灶台做饭 / 货架收拾 / 车顶双哨兵持枪戒备（自动开火见 _update_roof_gunners）
 func _build_crew() -> void:
@@ -1342,22 +1356,55 @@ func _build_life_props() -> void:
 		mi.position = pos
 		interior.add_child(mi)
 		return mi
-	# 车尾单人铺（贴左墙）：床架+床垫+枕头+毯子，末日里的体面
+	# 左墙上下铺睡眠隔间：纵置两层铺（头朝车尾），床尾半墙 + 过道侧布帘围出私人角落
 	var wood := Color(0.42, 0.33, 0.24)
-	box.call(Vector3(0.62, 0.22, 0.85), Vector3(-0.95, -0.29, 2.25), wood)
-	box.call(Vector3(0.58, 0.10, 0.80), Vector3(-0.95, -0.13, 2.25), Color(0.72, 0.70, 0.62))
-	box.call(Vector3(0.30, 0.07, 0.18), Vector3(-0.95, -0.05, 2.56), Color(0.85, 0.82, 0.72))
-	box.call(Vector3(0.56, 0.035, 0.45), Vector3(-0.95, -0.055, 2.10), Color(0.30, 0.34, 0.42))
+	var mattress_col := Color(0.72, 0.70, 0.62)
+	var pillow_col := Color(0.85, 0.82, 0.72)
+	var blanket_col := Color(0.30, 0.34, 0.42)
+	# 四根角柱自地板通到上铺床板，兼作下铺支架
+	for px in [-1.30, -0.74]:
+		for pz in [1.12, 2.72]:
+			box.call(Vector3(0.06, 1.02, 0.06), Vector3(px, 0.19, pz), wood.darkened(0.08))
+	# 下铺：床板/床垫/枕头/毯子（头朝车尾）
+	box.call(Vector3(0.62, 0.10, 1.66), Vector3(-1.02, -0.27, 1.92), wood)
+	box.call(Vector3(0.60, 0.10, 1.58), Vector3(-1.02, -0.17, 1.90), mattress_col)
+	box.call(Vector3(0.46, 0.08, 0.20), Vector3(-1.02, -0.08, 2.55), pillow_col)
+	box.call(Vector3(0.60, 0.04, 1.00), Vector3(-1.02, -0.10, 1.60), blanket_col)
+	# 上铺：床板/床垫/枕头/毯子 + 过道侧防护横杆（床尾半段留空给爬梯）
+	box.call(Vector3(0.62, 0.08, 1.66), Vector3(-1.02, 0.62, 1.92), wood)
+	box.call(Vector3(0.60, 0.10, 1.58), Vector3(-1.02, 0.72, 1.90), mattress_col)
+	box.call(Vector3(0.46, 0.08, 0.20), Vector3(-1.02, 0.81, 2.55), pillow_col)
+	box.call(Vector3(0.60, 0.04, 1.00), Vector3(-1.02, 0.79, 1.60), blanket_col)
+	box.call(Vector3(0.04, 0.12, 0.78), Vector3(-0.68, 0.89, 2.33), wood.darkened(0.08))
+	# 床尾爬梯：双竖杆 + 四级横档（立于半墙前的过道侧）
+	box.call(Vector3(0.04, 0.90, 0.04), Vector3(-0.60, 0.23, 0.96), wood.darkened(0.12))
+	box.call(Vector3(0.04, 0.90, 0.04), Vector3(-0.76, 0.23, 0.96), wood.darkened(0.12))
+	for i in 4:
+		box.call(Vector3(0.20, 0.035, 0.035), Vector3(-0.68, -0.10 + float(i) * 0.22, 0.96), wood.darkened(0.12))
+	# 床尾半墙隔断（左半封死，右侧留过道）
+	box.call(Vector3(1.18, 1.12, 0.06), Vector3(-0.70, 0.16, 1.04), wood.darkened(0.1), 0.9)
+	# 上下铺各一道布帘：帆布杆 + 垂帘 + 两道褶痕（褶痕放在床尾半段，避开上铺护栏）
+	var rod_col := Color(0.2, 0.2, 0.2)
+	var canvas_col := Color(0.31, 0.27, 0.20)
+	box.call(Vector3(0.04, 0.04, 1.46), Vector3(-0.70, 0.32, 1.96), rod_col, 0.5)
+	box.call(Vector3(0.04, 0.04, 1.46), Vector3(-0.70, 1.12, 1.96), rod_col, 0.5)
+	box.call(Vector3(0.03, 0.40, 1.46), Vector3(-0.70, 0.10, 1.96), canvas_col, 1.0)
+	box.call(Vector3(0.03, 0.42, 1.46), Vector3(-0.70, 0.89, 1.96), canvas_col, 1.0)
+	var fold_col := canvas_col.darkened(0.25)
+	for fz in [1.45, 1.80]:
+		box.call(Vector3(0.012, 0.40, 0.03), Vector3(-0.683, 0.10, fz), fold_col, 1.0)
+		box.call(Vector3(0.012, 0.42, 0.03), Vector3(-0.683, 0.89, fz), fold_col, 1.0)
 	# 左墙吊柜 ×3（灶台/货架上方，储物感）
 	for i in 3:
 		box.call(Vector3(0.40, 0.48, 0.55), Vector3(-1.08, 1.32, -0.3 + float(i) * 0.65), wood.darkened(0.15), 0.85)
 	# 生活舱地毯（暗红棕做旧）
 	box.call(Vector3(1.20, 0.02, 1.60), Vector3(0.05, -0.39, 0.40), Color(0.35, 0.18, 0.14), 1.0)
-	# 灶台边水壶 ×2 + 囤货罐头 ×3（床尾地板）
+	# 灶台边水壶 ×2
 	cyl.call(0.07, 0.08, 0.22, Vector3(-0.92, -0.29, -0.62), Color(0.62, 0.64, 0.66), 0.45)
 	cyl.call(0.06, 0.07, 0.18, Vector3(-0.74, -0.31, -0.66), Color(0.55, 0.52, 0.45), 0.6)
+	# 餐桌囤货罐头 ×3（床铺改造后原床尾罐头挪上桌）
 	for i in 3:
-		cyl.call(0.045, 0.045, 0.11, Vector3(-0.62 + float(i) * 0.11, -0.345, 2.62), Color(0.65, 0.55, 0.30), 0.4)
+		cyl.call(0.045, 0.045, 0.11, Vector3(-0.02 + float(i) * 0.11, 0.405, 1.70), Color(0.65, 0.55, 0.30), 0.4)
 	# 吊柜顶小盆栽（末日生机）
 	cyl.call(0.06, 0.075, 0.10, Vector3(-1.08, 1.61, 1.0), Color(0.45, 0.28, 0.18))
 	var leaf := MeshInstance3D.new()
