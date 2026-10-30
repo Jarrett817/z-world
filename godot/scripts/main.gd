@@ -1331,6 +1331,8 @@ const GRASS_NEAR := 9.5       # 草丛离路心最小距离（越过护栏 8.9�
 const GRASS_FAR := 34.0       # 草丛离路心最大距离
 var _blade_mesh: ArrayMesh
 var _grass_mat: ShaderMaterial
+var _wind_tex_shader: Shader   # 树风摆：贴图枯枝版（GLB 枯树包）
+var _wind_solid_shader: Shader # 树风摆：纯色版（程序化叶冠/松塔/灌木）
 
 ## 一丛草 = 三片放射交叉的尖叶（根部暗、尖部亮的顶点色），全部草丛共享一份网格
 func _build_grass_asset() -> void:
@@ -1392,6 +1394,100 @@ void fragment() {
 	_grass_mat = ShaderMaterial.new()
 	_grass_mat.shader = sh
 	_blade_mesh.surface_set_material(0, _grass_mat)
+
+## 树风摆 shader：阵风沿世界 xz 传播（同草叶机制），顶点色 r 编码风摆权重（根/干 0、枝梢/叶球 1）
+func _wind_shader_code(textured: bool) -> String:
+	return """
+shader_type spatial;
+render_mode cull_disabled, diffuse_toon, specular_toon;
+uniform vec4 tint : source_color = vec4(1.0);
+uniform sampler2D albedo_tex : source_color, filter_linear_mipmap, repeat_enable;
+uniform float amp = 0.8;
+void vertex() {
+	float w = COLOR.r;
+	vec3 wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	float ph = wpos.x * 0.35 + wpos.z * 0.22;
+	float gust = sin(TIME * 1.4 + ph) * 0.5 + sin(TIME * 0.55 + ph * 1.6) * 0.5;
+	vec3 woff = vec3(gust, 0.0, cos(TIME * 1.1 + ph)) * (amp * w);
+	VERTEX += (inverse(MODEL_MATRIX) * vec4(woff, 0.0)).xyz;
+}
+void fragment() {
+	ALBEDO = %s * tint.rgb;
+	ROUGHNESS = 0.9;
+}
+""" % ("texture(albedo_tex, UV).rgb" if textured else "vec3(1.0)")
+
+## 纯色树风材质（程序化叶冠/松塔/灌木/枯枝）
+func _wind_solid_mat(col: Color, amp: float) -> ShaderMaterial:
+	if _wind_solid_shader == null:
+		_wind_solid_shader = Shader.new()
+		_wind_solid_shader.code = _wind_shader_code(false)
+	var m := ShaderMaterial.new()
+	m.shader = _wind_solid_shader
+	m.set_shader_parameter("tint", col)
+	m.set_shader_parameter("amp", amp)
+	return m
+
+## 贴图树风材质（GLB 枯树包，沿用原 StandardMaterial 的树皮贴图）
+func _wind_textured_mat(src: StandardMaterial3D, amp: float) -> ShaderMaterial:
+	if _wind_tex_shader == null:
+		_wind_tex_shader = Shader.new()
+		_wind_tex_shader.code = _wind_shader_code(true)
+	var m := ShaderMaterial.new()
+	m.shader = _wind_tex_shader
+	m.set_shader_parameter("albedo_tex", src.albedo_texture)
+	m.set_shader_parameter("amp", amp)
+	return m
+
+## 把 PrimitiveMesh 烤成带顶点色的 ArrayMesh：顶点色 r = 风摆权重。
+## full=true 全部权重 1（叶冠球/松塔整体摇）；false 按高度渐变（下部不动、枝梢满摆）
+func _wind_weighted(mesh: PrimitiveMesh, full := true) -> ArrayMesh:
+	var arr: Array = mesh.surface_get_arrays(0)
+	var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var ab := mesh.get_aabb()
+	var y0: float = ab.position.y + ab.size.y * 0.15
+	var y1: float = ab.position.y + ab.size.y * 0.95
+	var cols := PackedColorArray()
+	cols.resize(verts.size())
+	for i in verts.size():
+		var w: float = 1.0 if full else smoothstep(y0, y1, verts[i].y)
+		cols[i] = Color(w, 1.0, 1.0)
+	arr[Mesh.ARRAY_COLOR] = cols
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return am
+
+## GLB 枯树包：逐片网格按各自树高写风摆顶点色，并换成贴图风材质（只改本实例，不动共享导入资源）
+func _apply_glb_tree_wind(root: Node3D) -> void:
+	for mi in root.find_children("*", "MeshInstance3D", true, false):
+		var to_root := Transform3D.IDENTITY
+		var n: Node = mi
+		while n != root and n is Node3D:
+			to_root = (n as Node3D).transform * to_root
+			n = n.get_parent()
+		var src_mesh: Mesh = mi.mesh
+		var new_mesh := ArrayMesh.new()
+		for si in src_mesh.get_surface_count():
+			var arr: Array = src_mesh.surface_get_arrays(si)
+			var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var ymin := INF
+			var ymax := -INF
+			for v in verts:
+				var wy: float = (to_root * v).y
+				ymin = minf(ymin, wy)
+				ymax = maxf(ymax, wy)
+			var y0: float = ymin + (ymax - ymin) * 0.22
+			var y1: float = ymin + (ymax - ymin) * 0.9
+			var cols := PackedColorArray()
+			cols.resize(verts.size())
+			for i in verts.size():
+				cols[i] = Color(smoothstep(y0, y1, (to_root * verts[i]).y), 1.0, 1.0)
+			arr[Mesh.ARRAY_COLOR] = cols
+			new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			var src := mi.get_active_material(si) as StandardMaterial3D
+			if src != null:
+				new_mesh.surface_set_material(new_mesh.get_surface_count() - 1, _wind_textured_mat(src, 0.8))
+		mi.mesh = new_mesh
 
 ## 生成一条 z ∈ [front-GRASS_LEN, front] 的草丛 MultiMesh；密度与色相按景观段变化
 func _spawn_grass_patch(front: float) -> void:
@@ -4452,9 +4548,9 @@ func _make_pine() -> Node3D:
 		cm.top_radius = 0.0
 		cm.bottom_radius = t.x
 		cm.height = t.y
-		cone.mesh = cm
+		cone.mesh = _wind_weighted(cm)
 		cone.position.y = y + t.y * 0.5 - 0.35
-		cone.material_override = _mat(col)
+		cone.material_override = _wind_solid_mat(col, 0.5)
 		p.add_child(cone)
 		y += t.y - 0.55
 	p.scale = Vector3.ONE * randf_range(0.8, 1.25)
@@ -4487,9 +4583,9 @@ func _make_broadleaf() -> Node3D:
 		sm.height = sm.radius * randf_range(1.5, 1.9)
 		sm.radial_segments = 7
 		sm.rings = 5
-		crown.mesh = sm
+		crown.mesh = _wind_weighted(sm)
 		crown.position = Vector3(off.x, trunk_h + 1.0 + off.y, off.z)
-		crown.material_override = _mat(leaf_col.lerp(Color(0.4, 0.55, 0.2), randf() * 0.25))
+		crown.material_override = _wind_solid_mat(leaf_col.lerp(Color(0.4, 0.55, 0.2), randf() * 0.25), 0.7)
 		t.add_child(crown)
 	t.scale = Vector3.ONE * randf_range(0.85, 1.3)
 	t.rotation.y = randf() * TAU
@@ -5013,9 +5109,9 @@ func _spawn_shrub(x: float, z: float) -> void:
 		sm.height = sm.radius * 1.4
 		sm.radial_segments = 7
 		sm.rings = 4
-		tu.mesh = sm
+		tu.mesh = _wind_weighted(sm)
 		tu.position = Vector3(randf_range(-0.65, 0.65), sm.radius * 0.45, randf_range(-0.65, 0.65))
-		tu.material_override = _mat(col.lightened(randf_range(0.0, 0.12)))
+		tu.material_override = _wind_solid_mat(col.lightened(randf_range(0.0, 0.12)), 0.18)
 		shrub.add_child(tu)
 	shrub.position = Vector3(x, ground_height(x, z), z)
 	shrub.add_to_group("consumable")
@@ -5063,6 +5159,7 @@ func _place_scenery(scene: PackedScene, x: float, z: float, target_h: float) -> 
 		# 树：只挡树干，树冠可穿
 		var trunk_w := maxf(0.35, aabb.size.x * 0.08)
 		_solid_box(node, Vector3(trunk_w, aabb.size.y, trunk_w), Vector3(aabb.get_center().x, aabb.get_center().y, aabb.get_center().z), true)
+		_apply_glb_tree_wind(node)
 	node.add_to_group("consumable")
 	add_child(node)
 

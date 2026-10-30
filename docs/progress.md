@@ -1,5 +1,12 @@
 # 开发日志
 
+## 2026-10-30 · n96 树木/植被随风摆动（原神化批次 6）
+
+- 树与植被接入「TIME + 世界坐标相位」阵风（沿用 n92 草叶同款双频正弦阵风沿世界 xz 传播机制）：顶点色 r 通道编码逐顶点风摆权重（根/干=0 不动、枝梢/叶球=1 满摆），顶点阶段按权重位移
+- 两个共享 spatial shader：贴图版（GLB PSX 枯树包，沿用原树皮 baseColor 贴图）+ 纯色版（程序化植被，tint/amp uniform），均 toon 明暗、cull_disabled
+- GLB 枯树：`_apply_glb_tree_wind()` 实例化后逐片网格按各自树高（换算到树根空间）烘焙风摆顶点色并换 ShaderMaterial，只改本实例、不动共享导入资源；程序化阔叶树叶球（full 权重整体摇，amp 0.7）、松树三层松塔（amp 0.5）、灌木球（轻微 amp 0.18）改走 `_wind_weighted()` 烤色 + 纯色风材质；树干/电线杆保持静止
+- forest/city 交界窗口截帧目检阔叶/松塔/枯枝树几何无错位、贴图保留，无头回归 EXIT=0 零 SHADER/SCRIPT ERROR
+
 ## 2026-10-30 · n95 lake/coast 景物水面避让（修穿帮）
 
 - n94 波光暴露出湖/海段景物泡在水里：新增 `_in_water(wx,z)`，与 terrain.gd `_water` 同一确定性碟形包络公式（coast 仅右侧 center90/half 80·zw、lake 两侧 center95/half 55·zw、段内 sin 包络，岸边留 2m 干地，INF/NaN 早退）
