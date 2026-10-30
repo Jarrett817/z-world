@@ -47,6 +47,19 @@
 	  }
 	},
 	{
+	  "id": "ammobench",
+	  "name": "装弹台",
+	  "desc": "拆废件复装子弹，攒共享弹药",
+	  "max_level": 2,
+	  "upgrade": { "label": "加装压弹机", "parts": [4] },
+	  "action": {
+		"label": "复装子弹",
+		"parts": 1,
+		"hours": 2,
+		"fx_ammo": [20, 35]
+	  }
+	},
+	{
 	  "id": "salvage",
 	  "name": "拆解台",
 	  "desc": "把废铁拆成能用的零件",

@@ -487,7 +487,7 @@ func _try_fire() -> void:
 	# 枪声惊动周围尸群
 	main_node.alert_gunshot(muzzle_ws)
 	main_node.spawn_muzzle_flash(muzzle_ws)
-	main_node.hud.set_combat_ammo(ammo(), int(reload_t > 0.0))
+	main_node.hud.set_combat_ammo(ammo(), int(reload_t > 0.0), int(main_node.ammo_reserve))
 
 ## X：投掷手雷（抛物线 + 引信爆炸，AOE 杀伤；HUD 余量拼在枪名行尾）
 func throw_grenade() -> void:
@@ -510,8 +510,13 @@ func _finish_reload() -> void:
 	var mag := int(_cfg()["mag_size"])
 	if ammo() == mag:
 		return
-	_ammo_map[_gun_order[_gun_idx]] = mag
-	main_node.hud.set_combat_ammo(ammo(), 0)
+	# 从共享备弹领取：有多少装多少，备弹 0 则保持空仓停火
+	var take := mini(mag - ammo(), int(main_node.ammo_reserve))
+	main_node.ammo_reserve -= float(take)
+	_ammo_map[_gun_order[_gun_idx]] = ammo() + take
+	main_node.hud.set_combat_ammo(ammo(), 0, int(main_node.ammo_reserve))
+	if take <= 0:
+		main_node.hud.toast("备弹打光了，回营地复装或搜刮弹药箱")
 
 func take_damage(amount: float) -> void:
 	hp = maxf(0.0, hp - amount)

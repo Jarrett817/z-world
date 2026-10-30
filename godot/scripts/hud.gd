@@ -669,9 +669,11 @@ func set_rv_walk_active(v: bool) -> void:
 func set_combat_aim(_dir: Vector3, _pos: Vector3) -> void:
 	pass
 
-func set_combat_ammo(ammo: int, reloading: int) -> void:
+func set_combat_ammo(ammo: int, reloading: int, reserve := -1) -> void:
 	if reloading != 0:
 		ammo_label.text = "换弹中……"
+	elif reserve >= 0:
+		ammo_label.text = "%d/%d · 备弹 %d" % [ammo, _cur_mag, reserve]
 	else:
 		ammo_label.text = "%d/%d" % [ammo, _cur_mag]
 
@@ -680,7 +682,7 @@ func set_combat_gun(gun_name: String, ammo: int, mag: int) -> void:
 	_cur_mag = mag
 	_cur_gun_name = gun_name
 	gun_label.text = _cur_gun_name + (" · 手雷×%d" % _grenade_count if _grenade_count > 0 else "")
-	set_combat_ammo(ammo, 0)
+	set_combat_ammo(ammo, 0, int(rv.main_node.ammo_reserve))
 
 ## 手雷余量：拼在枪名行尾
 func set_combat_grenades(n: int) -> void:
@@ -1251,6 +1253,12 @@ func _action_detail(main: Node, act: Dictionary, lv: int) -> String:
 		s += "  →  士气 +%d" % int((act["fx_morale"] as Array)[lv])
 	if act.has("fx_dur"):
 		s += "  →  车况 +%d" % int((act["fx_dur"] as Array)[lv])
+	if act.has("fx_food"):
+		s += "  →  食物 +%d" % int((act["fx_food"] as Array)[lv])
+	if act.has("fx_parts"):
+		s += "  →  零件 +%d" % int((act["fx_parts"] as Array)[lv])
+	if act.has("fx_ammo"):
+		s += "  →  子弹 +%d" % int((act["fx_ammo"] as Array)[lv])
 	return s
 
 func _facility_button(text: String, enabled: bool) -> Button:
@@ -1317,7 +1325,7 @@ func update_stats(main: Node3D) -> void:
 	var mr: float = main.morale / 100.0
 	morale_fill.size.x = (BAR_W - 4.0) * mr
 	morale_fill.color = Color(0.75, 0.3, 0.2).lerp(Color(0.91, 0.53, 0.18), mr)
-	res_label.text = "食物 %d · 零件 %d · 燃料 %.0f/%.0f · 队伍 %d 人" % [int(main.food), int(main.parts), main.fuel, main.fuel_cap(), main.crew]
+	res_label.text = "食物 %d · 零件 %d · 子弹 %d · 燃料 %.0f/%.0f · 队伍 %d 人" % [int(main.food), int(main.parts), int(main.ammo_reserve), main.fuel, main.fuel_cap(), main.crew]
 	var h := int(main.hour)
 	var m := int((main.hour - h) * 60.0)
 	info_label.text = "里程 %.1f km · 第 %d 天 %02d:%02d%s" % [main.dist_km, main.day, h, m, " · 驻车中" if main.parked else ""]

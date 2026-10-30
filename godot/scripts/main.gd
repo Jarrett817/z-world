@@ -76,6 +76,8 @@ var fuel := 60.0
 var food := 10.0
 var morale := 70.0
 var parts := 3.0
+var ammo_reserve := 0   # 共享备弹（发，不含枪内弹匣）：所有火力统一消耗，0 则停火等补给
+var _ammo_cfg: Dictionary = {}   # guns.json "ammo" 节：初始量/复装配方/拾取量
 var crew := 0
 var story_active := false
 var dist_km := 0.0
@@ -255,6 +257,12 @@ func _ready() -> void:
 	if _jump_km <= 0.0:
 		_jump_km = float(sv.get("dist_km", 0.0))
 	_load_facilities()
+	var guns_parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/guns.json"))
+	if guns_parsed is Dictionary:
+		_ammo_cfg = guns_parsed.get("ammo", {})
+	ammo_reserve = float(_ammo_cfg.get("start", 0))
+	if _gunner_test:
+		ammo_reserve = 240.0   # 4 哨各领 60（首匣 30 + 换弹 30），用于验证打光停火
 	_load_zones()
 	_load_world()
 	_load_credits()
@@ -911,6 +919,10 @@ func facility_action(id: String) -> void:
 		var scraps: Array = act["fx_parts"]
 		parts += float(scraps[lv])
 		hud.toast("拆出能用的零件，零件 +%d" % int(scraps[lv]))
+	if act.has("fx_ammo"):
+		var rounds: Array = act["fx_ammo"]
+		ammo_reserve += float(rounds[lv])
+		hud.toast("复装子弹完成，备弹 +%d" % int(rounds[lv]))
 	hud.update_stats(self)
 	hud.refresh_facilities()
 
@@ -1022,7 +1034,7 @@ func save_game() -> void:
 	var data := {
 		"version": 1,
 		"durability": durability, "fuel": fuel, "food": food,
-		"morale": morale, "parts": parts, "crew": crew,
+		"morale": morale, "parts": parts, "ammo": ammo_reserve, "crew": crew,
 		"dist_km": dist_km, "day": day, "hour": hour,
 		"crew_ids": ids,
 		"facility_levels": facility_levels,
@@ -1052,6 +1064,7 @@ func _apply_save(sv: Dictionary) -> void:
 	food = float(sv.get("food", food))
 	morale = float(sv.get("morale", morale))
 	parts = float(sv.get("parts", parts))
+	ammo_reserve = float(sv.get("ammo", _ammo_cfg.get("start", 0)))
 	crew = int(sv.get("crew", crew))
 	day = int(sv.get("day", day))
 	hour = float(sv.get("hour", hour))
@@ -1934,6 +1947,7 @@ func _equip_fig_gun(f: Node3D) -> void:
 	f.set_meta("gun_node", gun)
 	f.remove_meta("npc_ammo")
 	f.remove_meta("reload_until")
+	f.remove_meta("no_ammo")
 
 ## 战斗启停：生活位（index≥ARMED_STATIONS）的坐姿队员起身、全员领枪/收枪，遇袭时满舱开火
 func _set_life_combat(on: bool) -> void:
@@ -2168,16 +2182,27 @@ func _update_auto_gunners(delta: float) -> void:
 		if f.get_meta("banter_until", 0.0) > now or bool(f.get_meta("wandering", false)):
 			continue
 		var cd: float = f.get_meta("fire_cd", 0.0) - delta
-		# 换弹中：播 reload 动作停火，到点补满弹匣、回 aim、名牌恢复
+		# 换弹中：播 reload 动作停火，到点从共享备弹补弹匣
 		var reload_until: float = f.get_meta("reload_until", 0.0)
 		if reload_until > 0.0:
 			if reload_until > now:
 				f.set_meta("fire_cd", cd)
 				continue
 			f.set_meta("reload_until", 0.0)
-			f.set_meta("npc_ammo", mag_size)
+			var take := mini(mag_size, int(ammo_reserve))
+			ammo_reserve -= float(take)
+			f.set_meta("npc_ammo", take)
+			if take <= 0:
+				# 库存也空：停火等补给，备弹恢复后由 cd 重试换弹
+				f.set_meta("no_ammo", true)
+				_gunner_anim(f, "aim")
+				(f.get_meta("label") as Label3D).text = "%s · 无弹药" % String(crew_members[fi].get("name", ""))
+				f.set_meta("fire_cd", 1.0)
+				continue
+			f.set_meta("no_ammo", false)
 			_gunner_anim(f, "aim")
 			(f.get_meta("label") as Label3D).text = "%s · %s" % [String(crew_members[fi].get("name", "")), f.get_meta("duty_label")]
+			hud.update_stats(self)
 		var best: Node3D = _gunner_target(f, duty, life_gun)
 		if best == null:
 			f.rotation.y = lerp_angle(f.rotation.y, float(f.get_meta("face", 0.0)), delta * 4.0)
@@ -2189,12 +2214,23 @@ func _update_auto_gunners(delta: float) -> void:
 			cd = 1.3
 			var ammo_left: int = f.get_meta("npc_ammo", mag_size)
 			if ammo_left <= 0:
-				# 弹匣打空：开始换弹（reload 动作与换弹时长对齐，期间停火）
+				f.set_meta("fire_cd", cd)
+				if ammo_reserve <= 0.0:
+					# 备弹打光：停火等补给，每秒重试
+					if not bool(f.get_meta("no_ammo", false)):
+						f.set_meta("no_ammo", true)
+						_gunner_anim(f, "aim")
+						(f.get_meta("label") as Label3D).text = "%s · 无弹药" % String(crew_members[fi].get("name", ""))
+					cd = 1.0
+					f.set_meta("fire_cd", cd)
+					continue
+				# 有备弹：开始换弹（reload 动作与换弹时长对齐，期间停火）
+				if bool(f.get_meta("no_ammo", false)):
+					f.set_meta("no_ammo", false)
 				f.set_meta("reload_until", now + reload_time)
 				_gunner_anim(f, "reload")
 				sfx.play3d("reload", f.global_position, 1.0, 0.05)
 				(f.get_meta("label") as Label3D).text = "%s · 换弹中" % String(crew_members[fi].get("name", ""))
-				f.set_meta("fire_cd", cd)
 				continue
 			f.set_meta("npc_ammo", ammo_left - 1)
 			_gunner_anim(f, "shoot")
@@ -2278,16 +2314,17 @@ func _gunner_test_tick(delta: float) -> void:
 					add_child(body)
 					body.setup(self)
 					zombies.append(body)
-	# 跟踪每名射手：射弹数/换弹次数/换弹后复火数
+	# 跟踪每名射手：射弹数/换弹次数/换弹后复火数/备弹打光停火
 	var gunner_count := 0
 	var all_pass := true
+	var dry_count := 0
 	for f in crew_figures:
 		# 只统计有人在岗的射手（空槽位 duty 仍为 gun，但无 Char 模型，永不开火）
 		if f.get_meta("duty", "") != "gun" or not f.has_node("Char") or not f.has_meta("muzzle"):
 			continue
 		gunner_count += 1
 		if not _gt_state.has(f):
-			_gt_state[f] = {"prev_ammo": -1, "fired": 0, "reloaded": 0, "refired": 0, "was_reloading": false, "passed": false}
+			_gt_state[f] = {"prev_ammo": -1, "fired": 0, "reloaded": 0, "refired": 0, "was_reloading": false, "passed": false, "dry": false}
 		var st: Dictionary = _gt_state[f]
 		var ammo_now: int = f.get_meta("npc_ammo", -1)
 		var reloading_now: bool = f.get_meta("reload_until", 0.0) > 0.0
@@ -2299,6 +2336,11 @@ func _gunner_test_tick(delta: float) -> void:
 			st.reloaded += 1
 		st.was_reloading = reloading_now
 		st.prev_ammo = ammo_now
+		# 第二阶段：第二匣打空且共享备弹耗尽 → 进入无弹药停火
+		if st.reloaded >= 1 and st.refired >= 30 and ammo_now == 0 and ammo_reserve <= 0.0 and bool(f.get_meta("no_ammo", false)):
+			st.dry = true
+		if st.dry:
+			dry_count += 1
 		if st.reloaded >= 1 and st.refired >= 3:
 			st.passed = true
 		if not st.passed:
@@ -2324,11 +2366,11 @@ func _gunner_test_tick(delta: float) -> void:
 			print("GUNNERTEST FAIL: no gunners on duty")
 			get_tree().quit(1)
 		return
-	if all_pass:
+	if all_pass and dry_count >= gunner_count:
 		for f in _gt_state:
 			var st: Dictionary = _gt_state[f]
-			print("GUNNERTEST gunner ", f.name, ": fired=", st.fired, " reloaded=", st.reloaded, " refired=", st.refired)
-		print("GUNNERTEST PASS t=", snappedf(_gt_t, 0.1), "s")
+			print("GUNNERTEST gunner ", f.name, ": fired=", st.fired, " reloaded=", st.reloaded, " refired=", st.refired, " dry=", st.dry)
+		print("GUNNERTEST PASS t=", snappedf(_gt_t, 0.1), "s (reserve exhausted, all gunners cease fire)")
 		get_tree().quit(0)
 	elif _gt_t > 180.0:
 		for f in _gt_state:
@@ -3218,7 +3260,7 @@ func _loot_box(x: float, z: float) -> void:
 	p.add_to_group("consumable")
 	p.add_to_group("pickup")
 	var roll := randf()
-	p.kind = "fuel" if roll < 0.35 else ("food" if roll < 0.7 else "repair")
+	p.kind = "fuel" if roll < 0.3 else ("food" if roll < 0.6 else ("ammo" if roll < 0.8 else "repair"))
 	p.walkable = true
 	p.boost = 2.5
 	p.position = Vector3(x, ground_height(x, z), z)
@@ -3726,10 +3768,12 @@ func _spawn_pickup(z: float) -> void:
 	p.add_to_group("consumable")
 	p.add_to_group("pickup")
 	var roll := randf()
-	if roll < 0.45:
+	if roll < 0.4:
 		p.kind = "fuel"
-	elif roll < 0.8:
+	elif roll < 0.7:
 		p.kind = "food"
+	elif roll < 0.85:
+		p.kind = "ammo"
 	else:
 		p.kind = "repair"
 	var px := road_x(z) + randf_range(-4.0, 4.0)
@@ -3960,6 +4004,12 @@ func on_pickup(kind: String, boost := 1.0) -> void:
 			var pg := 2.0 * mult
 			parts += pg
 			hud.toast("+%d 车况 · +%d 零件" % [int(g), int(pg)])
+		"ammo":
+			var amin := int(_ammo_cfg.get("pickup_min", 30))
+			var amax := int(_ammo_cfg.get("pickup_max", 60))
+			var ag := float(randi_range(amin, amax)) * mult
+			ammo_reserve += ag
+			hud.toast("+%d 备弹" % int(ag))
 	sfx.play("pickup")
 	hud.update_stats(self)
 

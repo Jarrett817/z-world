@@ -1,5 +1,14 @@
 # 开发日志
 
+## 2026-10-30 · n99 弹药资源化：共享备弹/统一消耗/营地复装/拾取补给
+
+- **唯一状态源**：main 新增 `ammo_reserve`（共享备弹发数，不含枪内弹匣），入 save.json（`"ammo"` 键，旧档缺失取 guns.json `ammo.start`=120）；数值全在 guns.json `ammo` 节（start/pickup 30-60）与 facilities.json
+- **NPC 车顶哨**：首匣 30 仍为枪内弹，打空换弹时从备弹领 min(30,库存)，领 0 进 `no_ammo` 停火（名牌「无弹药」、每秒重试，备弹恢复自动复装）；开火节奏不变
+- **玩家**：弹匣内射击不扣库存，`_finish_reload` 从备弹领弹、不足有多少装多少，备弹 0 空仓停火 toast 提示；下车队友 mate 逐发扣库存、打光停火（贴身应急反杀 on_bitten 是救命一发，不耗库存）
+- **补给两来源**：① 营地新设施「装弹台」（ammobench，2 级，1 零件/2h 复装 20→35 发，facility_action 走新 fx_ammo 分支，HUD 置灰/成本/收益串适配，顺手补齐 fx_food/fx_parts 收益显示）；② 路边/聚落新增弹药箱拾取（权重 15%/20%，+30~60 发×搜刮倍率），无现成 GLB 按视觉规范代码生成军绿铁箱+两排黄铜子弹（pickup.gd `_build_ammo_crate`，暖黄微光识别色）
+- **HUD**：常驻资源栏加「子弹 N」；战斗弹药显 `弹匣/上限 · 备弹 N`，切枪/开火/换弹实时刷新
+- **gunnertest 升级两阶段断言**：备弹改有限 240（4 哨各 60），PASS 条件 = 全员换弹复火≥3 且二次换弹后耗尽库存全部 dry=true 停火；实测 fired=89/reloaded=2/refired=60/dry，PASS t≈125s；标准无头回归 EXIT=0 零非基线错误
+
 ## 2026-10-30 · n98 KayKit shoot/reload 重定向 + 枪手实弹换弹链路验证
 
 - **现成动作包补战斗动作（用户要求禁手捏）**：role1/role2 各加 KayKit Adventures（CC0）的 `2H_Ranged_Shoot`（32 帧/1.07s 单发）与 `2H_Ranged_Reload`（48 帧/1.6s 换弹），沿用 n97 两阶段跨骨架重定向（非 hips 骨只转旋转 + 逐骨 rest 段 qcorr），四肢段世界方向误差 0.0°；两 GLB 各 12 个 action

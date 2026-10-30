@@ -58,7 +58,10 @@ func _process(delta: float) -> void:
 	if z != null:
 		_face(z.global_position, delta)
 		if _fire_cd <= 0.0:
-			_fire_at(z)
+			if _main.ammo_reserve > 0.0:
+				_fire_at(z)
+			else:
+				_fire_cd = 1.0   # 备弹打光：停火等补给，每秒重试
 		_play("aim")
 		return
 	# 无威胁：回到玩家背后扇形站位
@@ -79,13 +82,15 @@ func _process(delta: float) -> void:
 		_play("aim")
 	global_position.y = _main.ground_height(global_position.x, global_position.z)
 
-## 丧尸贴身啃咬钩子：应急反杀
+## 丧尸贴身啃咬钩子：应急反杀（救命一发，不耗库存）
 func on_bitten(z: Node3D) -> void:
 	_face(z.global_position, 1.0)
-	_fire_at(z)
+	_fire_at(z, false)
 
-func _fire_at(z: Node3D) -> void:
+func _fire_at(z: Node3D, consume := true) -> void:
 	_fire_cd = FIRE_CD
+	if consume:
+		_main.ammo_reserve -= 1.0
 	var from := _muzzle.global_position
 	var dir := (z.global_position + Vector3(0, 1.1, 0) - from).normalized()
 	_main.spawn_bullet(from, dir, 600.0, [])

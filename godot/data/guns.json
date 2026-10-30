@@ -85,5 +85,12 @@
 	"npc_gunner": {
 		"mag_size": 30,
 		"reload_time": 1.7
+	},
+	"ammo": {
+		"start": 120,
+		"craft_parts": [1, 2],
+		"craft_ammo": [20, 35],
+		"pickup_min": 30,
+		"pickup_max": 60
 	}
 }

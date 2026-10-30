@@ -12,6 +12,7 @@ const COLORS := {
 	"fuel": Color(1.0, 0.45, 0.12),
 	"food": Color(0.75, 0.6, 0.3),
 	"repair": Color(0.55, 0.75, 0.85),
+	"ammo": Color(0.85, 0.72, 0.3),
 }
 ## 统一视觉高度（米）：小道具按真实比例放大到路边醒目尺寸
 const MODEL_HEIGHT := 0.95
@@ -27,11 +28,16 @@ var _base_y := 0.0
 func _ready() -> void:
 	_t = randf() * TAU
 	_base_y = position.y
-	var model: Node3D = MODELS[kind].instantiate()
-	# glb 原点在底面，按包围盒高度等比放大到 MODEL_HEIGHT
-	var _aabb := _node_aabb(model)
-	var s := MODEL_HEIGHT / maxf(_aabb.size.y, 0.001)
-	model.scale = Vector3(s, s, s)
+	var model: Node3D
+	if kind == "ammo":
+		# 弹药箱无现成 GLB：代码生成军绿铁箱 + 箱顶两排黄铜子弹
+		model = _build_ammo_crate()
+	else:
+		model = MODELS[kind].instantiate()
+		# glb 原点在底面，按包围盒高度等比放大到 MODEL_HEIGHT
+		var _aabb := _node_aabb(model)
+		var s := MODEL_HEIGHT / maxf(_aabb.size.y, 0.001)
+		model.scale = Vector3(s, s, s)
 	add_child(model)
 	var col: Color = COLORS[kind]
 	var light := OmniLight3D.new()
@@ -50,6 +56,57 @@ func _ready() -> void:
 	area.add_child(cs)
 	area.body_entered.connect(_on_body)
 	add_child(area)
+
+## 弹药箱：军绿铁箱（箱盖略浅、棱边深色包角）+ 箱顶两排黄铜子弹，总高对齐 MODEL_HEIGHT
+func _build_ammo_crate() -> Node3D:
+	var root := Node3D.new()
+	var olive := StandardMaterial3D.new()
+	olive.albedo_color = Color(0.31, 0.34, 0.2)
+	olive.roughness = 0.7
+	var lid_mat := StandardMaterial3D.new()
+	lid_mat.albedo_color = Color(0.38, 0.41, 0.25)
+	lid_mat.roughness = 0.7
+	var brass := StandardMaterial3D.new()
+	brass.albedo_color = Color(0.83, 0.66, 0.28)
+	brass.metallic = 0.7
+	brass.roughness = 0.35
+	var s := MODEL_HEIGHT / 0.62   # 造型高 0.62（箱 0.5 + 弹 0.12），放大到统一拾取高度
+	root.scale = Vector3(s, s, s)
+	var box := MeshInstance3D.new()
+	box.mesh = BoxMesh.new()
+	box.mesh.size = Vector3(0.62, 0.5, 0.42)
+	box.position.y = 0.25
+	box.material_override = olive
+	root.add_child(box)
+	var lid := MeshInstance3D.new()
+	lid.mesh = BoxMesh.new()
+	lid.mesh.size = Vector3(0.66, 0.06, 0.46)
+	lid.position.y = 0.52
+	lid.material_override = lid_mat
+	root.add_child(lid)
+	# 两排子弹（小圆柱 + 尖头锥）
+	var body_mesh := CylinderMesh.new()
+	body_mesh.top_radius = 0.018
+	body_mesh.bottom_radius = 0.018
+	body_mesh.height = 0.09
+	var tip_mesh := CylinderMesh.new()
+	tip_mesh.top_radius = 0.0
+	tip_mesh.bottom_radius = 0.018
+	tip_mesh.height = 0.035
+	for rz in [-0.07, 0.07]:
+		for i in 9:
+			var rx := -0.24 + i * 0.06
+			var rd := MeshInstance3D.new()
+			rd.mesh = body_mesh
+			rd.material_override = brass
+			rd.position = Vector3(rx, 0.595, rz)
+			root.add_child(rd)
+			var tip := MeshInstance3D.new()
+			tip.mesh = tip_mesh
+			tip.material_override = brass
+			tip.position = Vector3(rx, 0.657, rz)
+			root.add_child(tip)
+	return root
 
 func _node_aabb(n: Node) -> AABB:
 	var out := AABB()
