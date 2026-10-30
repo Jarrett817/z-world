@@ -52,7 +52,12 @@ static func _role_key(cid: String) -> String:
 		return cid
 	# role1 写实：医生/司机/教练；role2 洋装：记者/外贸跟单（优雅都市人设）
 	var roles := {"lin_wan": "role1", "shen_man": "role1", "tang_tang": "role1", "ye_lan": "role2", "ivory": "role2"}
-	return roles.get(cid, "role1")
+	if roles.has(cid):
+		return roles[cid]
+	# 泛型幸存者 gen<序号>：两基底按序号奇偶轮换，车厢里外观有区分
+	if cid.begins_with("gen"):
+		return "role2" if int(cid.trim_prefix("gen")) % 2 == 1 else "role1"
+	return "role1"
 
 ## 队友步枪：AKM GLB（guns.json ak 同源 0.066 缩放；GLB 枪口朝 -Z，绕 Y 转 180° 对齐枪手 +Z 瞄准向；grip 对齐原程序化枪握把位）
 static func build_gun() -> Node3D:

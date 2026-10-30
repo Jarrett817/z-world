@@ -39,6 +39,8 @@ const RV_MODEL_FOOT := 1.557   # GLB 轮底到模型原点的距离
 const RV_ROOF_Y := 2.077       # 实测 gs_001.glb 主车壳(Object_16)顶面局部高度，天窗站立用
 const INTERIOR_SCALE := Vector3(1.18, 1.0, 1.12)  # 实际扩大舱内宽度与长度，仍留在外壳包络内
 const CREW_ORDER := ["lin_wan", "shen_man", "ye_lan", "tang_tang", "ivory"]
+const CREW_MAX := 20
+const ARMED_STATIONS := 10   # 前 10 槽为持枪战斗位（副驾/车顶/窗射孔/车尾哨），其余为舱内生活位
 
 # 场景音乐（六种处境各一首，交叉淡入淡出切换）
 const MUSIC_TRACKS := {
@@ -157,6 +159,8 @@ var sfx: Sfx
 
 var banter_t := 9.0
 var banter_busy := false
+
+var _wander_t := 8.0   # 舱内闲置队员随机漫游计时（仅非战斗的生活位）
 
 var _shot_at := -1.0  # --shot=路径 命令行截帧：启动后计时保存并退出
 var _shot_path := ""
@@ -728,8 +732,8 @@ func _process(delta: float) -> void:
 		else:
 			start_combat(1)
 	_t_down = tk
-	# 车顶哨兵在行驶/驻车/战斗/玩家车内走动时都持续自动射击
-	_update_roof_gunners(delta)
+	# 车顶/射孔/遇袭生活位射手在行驶/驻车/战斗/玩家车内走动时都持续自动射击
+	_update_auto_gunners(delta)
 	if combat_active:
 		_sync_player_to_rv(delta)
 		trauma = maxf(0.0, trauma - delta * 1.4)
@@ -757,12 +761,13 @@ func _process(delta: float) -> void:
 	rv_model.visible = view_mode == 0
 	interior.visible = view_mode != 0
 	for i in crew_figures.size():
-		# 车顶哨兵随外露车壳一起可见（追尾视角）；舱内岗位只在车厢视角可见
-		var on_roof: bool = crew_figures[i].get_meta("duty", "") == "gun"
-		crew_figures[i].visible = i < crew_members.size() and ((on_roof and view_mode == 0) or view_mode == 2)
+		# 车顶哨随外露车壳一起可见（追尾视角）；舱内槽位只在车厢视角可见
+		var on_roof: bool = crew_figures[i].get_meta("exterior", false)
+		crew_figures[i].visible = i < crew_members.size() and ((on_roof and view_mode == 0) or (not on_roof and view_mode == 2))
 	if driver_figure != null:
 		driver_figure.visible = view_mode == 2 and not combat_active
 	_update_banter(delta)
+	_update_crew_wander(delta)
 	if view_mode == 1:
 		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -1.9) * INTERIOR_SCALE)
 		cam.look_at(rv.to_global(Vector3(-0.55, 0.9, -30.0) * INTERIOR_SCALE))
@@ -1051,7 +1056,10 @@ func _apply_save(sv: Dictionary) -> void:
 	day = int(sv.get("day", day))
 	hour = float(sv.get("hour", hour))
 	for id in sv.get("crew_ids", []):
-		var d: Dictionary = survivors_data.get(String(id), {})
+		var sid := String(id)
+		var d: Dictionary = survivors_data.get(sid, {})
+		if d.is_empty() and sid.begins_with("gen"):
+			d = _make_generic_member(int(sid.trim_prefix("gen")))
 		if not d.is_empty():
 			crew_members.append(d)
 	var fl: Dictionary = sv.get("facility_levels", {})
@@ -1603,19 +1611,39 @@ func _build_interior() -> void:
 		if bed_part != null:
 			bed_part.visible = false
 
-## 车内岗位制：副驾瞭望 / 灶台做饭 / 货架收拾 / 车顶双哨兵持枪戒备（自动开火见 _update_roof_gunners）
+## 车内岗位制：20 槽大巴编制。前 10 槽持枪战斗位（副驾瞭望/车顶四哨/四窗射孔/车尾哨），
+## 后 10 槽舱内生活位（后排座/灶台/货架/贴墙长凳/过道站）；战斗时生活位全员领枪开火（_update_auto_gunners）
 func _build_crew() -> void:
 	crew_font = SystemFont.new()
 	crew_font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "sans-serif"])
-	# [本地坐标, 朝向, 岗位, 岗位名牌]；GLB 正面朝 +Z，副驾朝车头(-Z)故转 180°
-	# 地板顶面 y=-0.4：舱内站位 root 落地板；车顶哨兵 root 踩车顶(RV_ROOF_Y)，各守一侧 180°
+	# 每槽：[本地坐标, 朝向y, 岗位, 名牌, 是否舱外(车顶)]；duty: sit=坐姿 idle=站活 gun=持枪哨 port=窗射孔
+	# 地板顶面 y=-0.4；车顶哨 root 踩车顶(RV_ROOF_Y)。GLB 正面朝 +Z，朝车头(-Z)的槽转 PI
 	var stations := [
-		# sit 动画髋部在 root 后方约 0.324：副驾 root 需再靠前 0.33，髋才落在坐垫(z -3.04..-2.50)后 1/3 处
-		[Vector3(0.55, -0.4, -3.18) * INTERIOR_SCALE, PI, "sit", "瞭望"],          # 副驾（坐姿朝车头，首位队友；座椅已前移贴方向盘）
-		[Vector3(-0.55, -0.4, -0.1) * INTERIOR_SCALE, -PI * 0.5, "cook", "做饭"],  # 灶台前，朝 -X
-		[Vector3(0.55, -0.4, 0.4) * INTERIOR_SCALE, PI * 0.5, "tidy", "收拾"],     # 货架前，朝 +X
-		[Vector3(-0.82, RV_ROOF_Y, 0.55), -PI * 0.5, "gun", "哨兵"],               # 车顶左哨：守 -X 一侧半平面
-		[Vector3(0.82, RV_ROOF_Y, 0.55), PI * 0.5, "gun", "哨兵"],                 # 车顶右哨：守 +X 一侧半平面
+		# ---- 10 个持枪战斗位 ----
+		# 副驾（坐姿朝车头；座椅已前移贴方向盘，sit 髋部在 root 后方 0.324 故 root 再靠前 0.33）
+		[Vector3(0.55, -0.4, -3.18) * INTERIOR_SCALE, PI, "sit", "瞭望", false],
+		# 车顶：四哨各守一侧半平面，尾哨守正后方弧
+		[Vector3(-0.82, RV_ROOF_Y, 0.55), -PI * 0.5, "gun", "哨兵", true],
+		[Vector3(0.82, RV_ROOF_Y, 0.55), PI * 0.5, "gun", "哨兵", true],
+		[Vector3(-0.82, RV_ROOF_Y, 1.95), -PI * 0.5, "gun", "哨兵", true],
+		[Vector3(0.82, RV_ROOF_Y, 1.95), PI * 0.5, "gun", "哨兵", true],
+		[Vector3(0.0, RV_ROOF_Y, 2.55), PI, "gun", "尾哨", true],
+		# 四窗射孔：两前窗格 + 右后窗格（左后被上下铺挡住）+ 尾门射孔，站据枪朝窗外/车后
+		[Vector3(-1.08, -0.4, -2.55), -PI * 0.5, "port", "射孔", false],
+		[Vector3(1.08, -0.4, -2.55), PI * 0.5, "port", "射孔", false],
+		[Vector3(0.0, -0.4, 2.45), 0.0, "port", "尾射孔", false],
+		[Vector3(1.05, -0.4, 1.60), PI * 0.5, "port", "射孔", false],
+		# ---- 10 个舱内生活位 ----
+		[Vector3(0.55, -0.4, -1.30) * INTERIOR_SCALE, PI, "sit", "乘员", false],   # 后排座椅（原 seat_b0 前移后）
+		[Vector3(-0.55, -0.4, -0.10) * INTERIOR_SCALE, -PI * 0.5, "idle", "做饭", false],  # 灶台前
+		[Vector3(0.55, -0.4, 0.40) * INTERIOR_SCALE, PI * 0.5, "idle", "收拾", false],     # 货架前
+		[Vector3(1.00, -0.4, 2.00), PI * 0.5, "sit", "乘员", false],   # 右墙长凳（储物箱之后）
+		[Vector3(1.00, -0.4, 2.55), PI * 0.5, "sit", "乘员", false],
+		[Vector3(-0.30, -0.4, 0.55), 0.0, "idle", "休整", false],      # 过道/餐桌区站活
+		[Vector3(0.35, -0.4, 0.95), 0.0, "idle", "休整", false],
+		[Vector3(-0.45, -0.4, 1.25), 0.0, "idle", "休整", false],
+		[Vector3(0.20, -0.4, 0.20), 0.0, "idle", "休整", false],
+		[Vector3(0.0, -0.4, 1.55), PI, "idle", "休整", false],
 	]
 	for st in stations:
 		var fig := Node3D.new()
@@ -1637,6 +1665,9 @@ func _build_crew() -> void:
 		fig.set_meta("seated", seated)
 		fig.set_meta("duty", st[2])
 		fig.set_meta("duty_label", st[3])
+		fig.set_meta("exterior", st[4])
+		fig.set_meta("face", st[1])
+		fig.set_meta("home_pos", st[0])
 		fig.visible = false
 		rv.add_child(fig)
 		crew_figures.append(fig)
@@ -1810,9 +1841,9 @@ func _build_life_props() -> void:
 	cyl.call(0.012, 0.012, 0.14, Vector3(0, 1.92, 0.4), Color(0.2, 0.2, 0.2), 0.6)
 	# 左墙照片板（旅途记忆）
 	box.call(Vector3(0.02, 0.30, 0.40), Vector3(-1.29, 1.0, 0.5), Color(0.85, 0.80, 0.70), 1.0)
-	# 右后角储物箱堆 + 帆布袋
-	box.call(Vector3(0.45, 0.34, 0.50), Vector3(0.88, -0.23, 2.30), wood.darkened(0.1))
-	box.call(Vector3(0.35, 0.26, 0.40), Vector3(0.88, 0.07, 2.32), Color(0.50, 0.42, 0.30))
+	# 右后角储物箱堆（贴尾墙摞放，避开右墙长凳与尾射孔火线）+ 帆布袋压箱顶
+	box.call(Vector3(0.45, 0.34, 0.50), Vector3(0.52, -0.23, 2.50), wood.darkened(0.1))
+	box.call(Vector3(0.35, 0.26, 0.40), Vector3(0.52, 0.07, 2.52), Color(0.50, 0.42, 0.30))
 	var sack := MeshInstance3D.new()
 	var sm2 := SphereMesh.new()
 	sm2.radius = 0.17
@@ -1823,11 +1854,46 @@ func _build_life_props() -> void:
 	smat.roughness = 1.0
 	sack.material_override = smat
 	sack.scale = Vector3(1.0, 0.72, 1.0)
-	sack.position = Vector3(0.50, -0.28, 2.52)
+	sack.position = Vector3(0.52, 0.05, 2.50)
 	interior.add_child(sack)
+	# 右墙贴墙长凳：两个坐姿生活位（本地 z≈1.79/2.28，对应乘员槽 13/14）
+	box.call(Vector3(0.50, 0.12, 1.05), Vector3(1.00, -0.16, 1.95), mattress_col)
+	box.call(Vector3(0.08, 0.62, 1.05), Vector3(1.23, 0.15, 1.95), wood.darkened(0.05))
+	# 四处射击孔：深色开孔板 + 枪灰钢框（两侧窗前射孔 ×2、右后窗、尾门）；坐标为内饰本地
+	var port_metal := StandardMaterial3D.new()
+	port_metal.albedo_color = Color(0.22, 0.21, 0.19)
+	port_metal.metallic = 0.25
+	port_metal.roughness = 0.55
+	var port_dark := StandardMaterial3D.new()
+	port_dark.albedo_color = Color(0.04, 0.05, 0.06)
+	port_dark.roughness = 0.9
+	var mbox := func(size: Vector3, pos: Vector3, m: Material) -> void:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = size
+		mi.mesh = bm
+		mi.material_override = m
+		mi.position = pos
+		interior.add_child(mi)
+	# side=±1 侧窗射孔（x 为玻璃面），z_c 为射孔中心；开孔 0.60×0.24，中心 y=0.90（站姿据枪胸位）
+	for p in [[-1.0, -2.55 / INTERIOR_SCALE.z], [1.0, -2.55 / INTERIOR_SCALE.z], [1.0, 1.60 / INTERIOR_SCALE.z]]:
+		var sx: float = p[0]
+		var zc: float = p[1]
+		mbox.call(Vector3(0.02, 0.24, 0.60), Vector3(sx * 1.30, 0.90, zc), port_dark)
+		mbox.call(Vector3(0.06, 0.05, 0.66), Vector3(sx * 1.26, 1.045, zc), port_metal)
+		mbox.call(Vector3(0.06, 0.05, 0.66), Vector3(sx * 1.26, 0.755, zc), port_metal)
+		mbox.call(Vector3(0.06, 0.34, 0.05), Vector3(sx * 1.26, 0.90, zc - 0.325), port_metal)
+		mbox.call(Vector3(0.06, 0.34, 0.05), Vector3(sx * 1.26, 0.90, zc + 0.325), port_metal)
+	# 尾门射孔：贴尾墙内面（墙本地 z≈2.77）
+	mbox.call(Vector3(0.60, 0.24, 0.02), Vector3(0.0, 0.90, 2.79), port_dark)
+	mbox.call(Vector3(0.66, 0.05, 0.06), Vector3(0.0, 1.045, 2.75), port_metal)
+	mbox.call(Vector3(0.66, 0.05, 0.06), Vector3(0.0, 0.755, 2.75), port_metal)
+	mbox.call(Vector3(0.05, 0.34, 0.06), Vector3(-0.325, 0.90, 2.75), port_metal)
+	mbox.call(Vector3(0.05, 0.34, 0.06), Vector3(0.325, 0.90, 2.75), port_metal)
 
-## 队员加入/刷新时：按 id 实例化对应 VRM 基底（播 sit/idle）并更新名牌
+## 队员加入/刷新时：按 id 实例化对应 VRM 基底并更新名牌；gun/port 槽永久持枪（muzzle 供自动开火取用）
 func _sync_crew() -> void:
+	_stop_crew_wander()   # 重建 Char 前漫游者先回岗，避免新模型落在过道点
 	for i in crew_figures.size():
 		var f: Node3D = crew_figures[i]
 		var lb: Label3D = f.get_meta("label")
@@ -1844,26 +1910,61 @@ func _sync_crew() -> void:
 			var anim_name := "idle"
 			match duty:
 				"sit": anim_name = "sit"
-				"gun": anim_name = "aim"
+				"gun", "port": anim_name = "aim"
 			var made := CharUtil.instantiate(String(m.get("id", "")), anim_name, m.get("expression", {}))
 			var char: Node3D = made["node"]
 			char.name = "Char"
 			f.add_child(char)
-			# 哨兵持枪：枪口节点供 _update_roof_gunners 取世界坐标
-			if duty == "gun":
-				var gun := CharUtil.build_gun()
-				gun.position = Vector3(-0.12, 1.30, 0.33)
-				char.add_child(gun)
-				var mz := Node3D.new()
-				mz.position = Vector3(0, 0.0, 0.62)  # AKM 枪口（build_gun 变换后枪管末端）
-				gun.add_child(mz)
-				f.set_meta("muzzle", mz)
-				f.set_meta("gun_node", gun)   # 换弹时枪口下垂用
-				# 新队员满弹上岗：清掉上任射手遗留的弹药状态
-				f.remove_meta("npc_ammo")
-				f.remove_meta("reload_until")
+			# 固定射手位持枪：枪口节点供 _update_auto_gunners 取世界坐标
+			if duty == "gun" or duty == "port":
+				_equip_fig_gun(f)
+			f.set_meta("life_combat", false)
 		else:
 			lb.text = ""
+
+## 给槽位模型挂步枪 + muzzle，并清掉上任射手遗留的弹药/换弹状态
+func _equip_fig_gun(f: Node3D) -> void:
+	var gun := CharUtil.build_gun()
+	gun.position = Vector3(-0.12, 1.30, 0.33)
+	f.get_node("Char").add_child(gun)
+	var mz := Node3D.new()
+	mz.position = Vector3(0, 0.0, 0.62)  # AKM 枪口（build_gun 变换后枪管末端）
+	gun.add_child(mz)
+	f.set_meta("muzzle", mz)
+	f.set_meta("gun_node", gun)
+	f.remove_meta("npc_ammo")
+	f.remove_meta("reload_until")
+
+## 战斗启停：生活位（index≥ARMED_STATIONS）的坐姿队员起身、全员领枪/收枪，遇袭时满舱开火
+func _set_life_combat(on: bool) -> void:
+	for i in range(ARMED_STATIONS, crew_figures.size()):
+		if i >= crew_members.size():
+			continue
+		var f: Node3D = crew_figures[i]
+		if bool(f.get_meta("life_combat", false)) == on:
+			continue
+		f.set_meta("life_combat", on)
+		var char: Node3D = f.get_node_or_null("Char")
+		if char == null:
+			continue
+		var ap := char.find_child("AnimationPlayer", true, false) as AnimationPlayer
+		if on:
+			if not f.has_meta("muzzle"):
+				_equip_fig_gun(f)
+			if ap != null and ap.has_animation("aim"):
+				ap.play("aim", 0.2)
+		else:
+			if f.has_meta("muzzle"):
+				var gn: Node = f.get_meta("gun_node")
+				f.remove_child(gn)
+				gn.queue_free()
+				f.remove_meta("muzzle")
+				f.remove_meta("gun_node")
+				f.remove_meta("npc_ammo")
+				f.remove_meta("reload_until")
+			var back := "sit" if String(f.get_meta("duty")) == "sit" else "idle"
+			if ap != null and ap.has_animation(back):
+				ap.play(back, 0.2)
 
 ## 主角驾驶位：hero 坐主驾播 drive 动画（坐姿+双手握方向盘已烘焙，仅车内视角可见）
 func _build_driver() -> void:
@@ -1937,7 +2038,7 @@ func _start_banter() -> void:
 	fb.rotation.y = atan2(dir.x, dir.z)
 	var tw := create_tween()
 	tw.tween_interval(4.5)
-	# 哨兵闲聊期间暂停朝向接管与开火（_update_roof_gunners 读此 meta）
+	# 哨兵闲聊期间暂停朝向接管与开火（_update_auto_gunners 读此 meta）
 	fb.set_meta("banter_until", Time.get_ticks_msec() / 1000.0 + 4.5)
 	tw.tween_callback(func() -> void:
 		bubble.visible = false
@@ -1945,8 +2046,105 @@ func _start_banter() -> void:
 		banter_busy = false
 	)
 
-## 车顶哨兵：各守一侧 180° 半平面内 22m 最近丧尸自动开火（CD 1.3s，全向转身无墙体限制）；弹匣打空停火换弹；无目标回朝车外戒备；闲聊暂停
-func _update_roof_gunners(delta: float) -> void:
+## 舱内生活位队员自行走动：非战斗时隔段时间起身走到过道另一处，站几秒再走回岗位（漫游中不参与开火）
+var _wander_points := [
+	Vector3(-0.35, -0.4, -0.9) * INTERIOR_SCALE,
+	Vector3(0.35, -0.4, 0.3) * INTERIOR_SCALE,
+	Vector3(-0.3, -0.4, 1.5) * INTERIOR_SCALE,
+	Vector3(0.25, -0.4, 1.05) * INTERIOR_SCALE,
+]
+
+func _update_crew_wander(delta: float) -> void:
+	if combat_active or rv_walk_active or game_over or story_active or crew_members.size() <= ARMED_STATIONS:
+		return
+	_wander_t -= delta
+	if _wander_t > 0.0:
+		return
+	_wander_t = randf_range(6.0, 11.0)
+	var now := Time.get_ticks_msec() / 1000.0
+	var candidates: Array = []
+	for i in range(ARMED_STATIONS, mini(crew_members.size(), crew_figures.size())):
+		var f: Node3D = crew_figures[i]
+		if bool(f.get_meta("wandering", false)) or f.get_meta("banter_until", 0.0) > now:
+			continue
+		candidates.append(f)
+	if candidates.is_empty():
+		return
+	var f: Node3D = candidates[randi() % candidates.size()]
+	var home: Vector3 = f.get_meta("home_pos")
+	var target: Vector3 = _wander_points[randi() % _wander_points.size()]
+	var ap := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	f.set_meta("wandering", true)
+	(f.get_meta("label") as Label3D).text = crew_members[crew_figures.find(f)].get("name", "") + " · 走动"
+	_wander_step(f, home, target, ap)
+
+## 战斗/接管等打断：杀掉所有漫游 tween，队员瞬回岗位与岗位动作
+func _stop_crew_wander() -> void:
+	for tw in get_tree().get_processed_tweens():
+		if tw is Tween and tw.is_running() and tw.has_meta("wander"):
+			tw.kill()
+	for i in range(ARMED_STATIONS, mini(crew_members.size(), crew_figures.size())):
+		var f: Node3D = crew_figures[i]
+		if not bool(f.get_meta("wandering", false)):
+			continue
+		f.set_meta("wandering", false)
+		f.position = f.get_meta("home_pos")
+		f.rotation.y = float(f.get_meta("face", 0.0))
+		var ap := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
+		var back := "sit" if String(f.get_meta("duty")) == "sit" else "idle"
+		if ap != null and ap.has_animation(back):
+			ap.play(back, 0.1)
+		if i < crew_members.size():
+			(f.get_meta("label") as Label3D).text = "%s · %s" % [crew_members[i].get("name", ""), f.get_meta("duty_label")]
+
+## 漫游一段：home(岗位) → wp(过道点) 停顿 → home，到点播回岗位动作并清 wandering
+func _wander_step(f: Node3D, home: Vector3, wp: Vector3, ap: AnimationPlayer) -> void:
+	var leg := func(dst: Vector3, after: Callable) -> void:
+		f.rotation.y = atan2(dst.x - f.position.x, dst.z - f.position.z)
+		if ap != null and ap.has_animation("walk"):
+			ap.play("walk", 0.2)
+		var tw := create_tween()
+		tw.set_meta("wander", true)
+		tw.tween_property(f, "position", dst, f.position.distance_to(dst) / 0.9)
+		tw.tween_callback(after)
+	leg.call(wp, func() -> void:
+		if not is_instance_valid(f) or not bool(f.get_meta("wandering", false)):
+			return
+		var ap2 := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
+		if ap2 != null and ap2.has_animation("idle"):
+			ap2.play("idle", 0.2)
+		var tw2 := create_tween()
+		tw2.set_meta("wander", true)
+		tw2.tween_interval(randf_range(2.5, 5.0))
+		tw2.tween_callback(func() -> void:
+			if not is_instance_valid(f) or not bool(f.get_meta("wandering", false)):
+				return
+			var ap3 := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
+			f.rotation.y = atan2(home.x - f.position.x, home.z - f.position.z)
+			if ap3 != null and ap3.has_animation("walk"):
+				ap3.play("walk", 0.2)
+			var tw3 := create_tween()
+			tw3.set_meta("wander", true)
+			tw3.tween_property(f, "position", home, f.position.distance_to(home) / 0.9)
+			tw3.tween_callback(func() -> void:
+				if not is_instance_valid(f):
+					return
+				f.rotation.y = float(f.get_meta("face", 0.0))
+				var ap4 := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
+				var back := "sit" if String(f.get_meta("duty")) == "sit" else "idle"
+				if ap4 != null and ap4.has_animation(back):
+					ap4.play(back, 0.2)
+				var fi: int = crew_figures.find(f)
+				if fi >= 0 and fi < crew_members.size():
+					(f.get_meta("label") as Label3D).text = "%s · %s" % [crew_members[fi].get("name", ""), f.get_meta("duty_label")]
+				f.set_meta("wandering", false)
+			)
+		)
+	)
+
+## 自动射手：固定战斗位（车顶 gun / 窗射孔 port）与遇袭领枪的生活位各自索敌开火。
+## 车顶侧哨守一侧半平面、尾哨守后扇、射孔守侧窗锥、生活位全向 14m；弹匣打空停火换弹；闲聊/漫游暂停
+func _update_auto_gunners(delta: float) -> void:
 	if game_over or story_active:
 		return
 	if _npc_gun_cfg.is_empty():
@@ -1957,12 +2155,16 @@ func _update_roof_gunners(delta: float) -> void:
 	var reload_time := float(_npc_gun_cfg.get("reload_time", 2.4))
 	var now := Time.get_ticks_msec() / 1000.0
 	for f in crew_figures:
-		if f.get_meta("duty", "") != "gun" or not f.has_node("Char"):
+		var fi: int = crew_figures.find(f)
+		if fi >= crew_members.size() or not f.has_node("Char") or not f.has_meta("muzzle"):
 			continue
-		if f.get_meta("banter_until", 0.0) > now:
+		var duty := String(f.get_meta("duty", ""))
+		var life_gun: bool = fi >= ARMED_STATIONS and bool(f.get_meta("life_combat", false))
+		if duty != "gun" and duty != "port" and not life_gun:
+			continue
+		if f.get_meta("banter_until", 0.0) > now or bool(f.get_meta("wandering", false)):
 			continue
 		var cd: float = f.get_meta("fire_cd", 0.0) - delta
-		var side: float = signf(f.position.x)
 		# 换弹中：枪口下垂停火，到点补满弹匣、枪回平、名牌恢复
 		var reload_until: float = f.get_meta("reload_until", 0.0)
 		if reload_until > 0.0:
@@ -1977,24 +2179,10 @@ func _update_roof_gunners(delta: float) -> void:
 			var gn2: Node3D = f.get_meta("gun_node", null)
 			if gn2 != null:
 				gn2.rotation.x = 0.0
-			var ri := crew_figures.find(f)
-			if ri >= 0 and ri < crew_members.size():
-				(f.get_meta("label") as Label3D).text = "%s · %s" % [String(crew_members[ri].get("name", "")), f.get_meta("duty_label")]
-		var best: Node3D = null
-		var best_d := 22.0
-		for z in zombies:
-			if not is_instance_valid(z) or z.dead:
-				continue
-			var rel: Vector3 = rv.to_local(z.global_position) - f.position
-			# 车顶无墙：各守一侧半平面（含前后 180°），左右哨兵合盖全车
-			if signf(rel.x) != side:
-				continue
-			var d: float = f.global_position.distance_to(z.global_position)
-			if d < best_d:
-				best_d = d
-				best = z
+			(f.get_meta("label") as Label3D).text = "%s · %s" % [String(crew_members[fi].get("name", "")), f.get_meta("duty_label")]
+		var best: Node3D = _gunner_target(f, duty, life_gun)
 		if best == null:
-			f.rotation.y = lerp_angle(f.rotation.y, side * PI * 0.5, delta * 4.0)
+			f.rotation.y = lerp_angle(f.rotation.y, float(f.get_meta("face", 0.0)), delta * 4.0)
 			f.set_meta("fire_cd", cd)
 			continue
 		var to: Vector3 = rv.to_local(best.global_position) - f.position
@@ -2006,9 +2194,7 @@ func _update_roof_gunners(delta: float) -> void:
 				# 弹匣打空：开始换弹（期间停火）
 				f.set_meta("reload_until", now + reload_time)
 				sfx.play3d("reload", f.global_position, 1.0, 0.05)
-				var mi := crew_figures.find(f)
-				if mi >= 0 and mi < crew_members.size():
-					(f.get_meta("label") as Label3D).text = "%s · 换弹中" % String(crew_members[mi].get("name", ""))
+				(f.get_meta("label") as Label3D).text = "%s · 换弹中" % String(crew_members[fi].get("name", ""))
 				f.set_meta("fire_cd", cd)
 				continue
 			f.set_meta("npc_ammo", ammo_left - 1)
@@ -2018,6 +2204,40 @@ func _update_roof_gunners(delta: float) -> void:
 			spawn_muzzle_flash(from)
 			sfx.play3d("gunshot", f.global_position, 0.9, 0.08)
 		f.set_meta("fire_cd", cd)
+
+## 射手槽按射界选最近活尸：车顶侧哨=本侧半平面22m，尾哨=后扇22m，侧窗射孔=侧窗锥18m，尾门射孔=后扇18m，生活位=全向14m
+func _gunner_target(f: Node3D, duty: String, life_gun: bool) -> Node3D:
+	var range_m := 22.0
+	if duty == "port":
+		range_m = 18.0
+	elif life_gun:
+		range_m = 14.0
+	var side: float = signf(f.position.x)
+	var best: Node3D = null
+	var best_d := range_m
+	for z in zombies:
+		if not is_instance_valid(z) or z.dead:
+			continue
+		var rel: Vector3 = rv.to_local(z.global_position) - f.position
+		if duty == "gun":
+			if side != 0.0:
+				if signf(rel.x) != side:
+					continue
+			elif not (rel.z > 0.0 and absf(rel.x) < rel.z * 1.5):
+				continue   # 尾哨：只打正后方约 112° 扇区
+		elif duty == "port":
+			if side == 0.0:
+				# 尾门射孔：只打正后方约 112° 扇区
+				if not (rel.z > 0.0 and absf(rel.x) < rel.z * 1.5):
+					continue
+			elif signf(rel.x) != side or absf(rel.z) > absf(rel.x) * 1.6:
+				# 侧窗射孔：本侧且落在以窗法线为轴的约 116° 锥内（避免枪口扫向车内/前后墙）
+				continue
+		var d: float = f.global_position.distance_to(z.global_position)
+		if d < best_d:
+			best_d = d
+			best = z
+	return best
 
 ## --gunnertest：无头实弹验证 NPC 射手弹匣/换弹。两侧射界内持续补怪，跟踪打空→换弹→复火，全过或超时自动退出
 func _gunner_test_tick(delta: float) -> void:
@@ -2387,12 +2607,18 @@ func start_combat(m: int) -> void:
 	rv.combat_in = true
 	p.aim_yaw = rv.rotation.y
 	p.aim_pitch = -0.32
-	# 第三人称战斗：强制显示车壳、隐藏内饰；舱内队友隐藏，车顶哨兵继续持枪站岗
+	# 第三人称战斗：强制显示车壳、隐藏内饰；只有车顶哨外露站岗，舱内槽位全部隐藏
 	rv_model.visible = true
 	interior.visible = false
 	for i in crew_figures.size():
-		var roof_duty: bool = crew_figures[i].get_meta("duty", "") == "gun"
+		var roof_duty: bool = bool(crew_figures[i].get_meta("exterior", false))
 		crew_figures[i].visible = i < crew_members.size() and roof_duty and m == 1
+	# 天窗守卫(m=1)时舱内生活位全员领枪，从射孔/座位朝窗外开火；下车(m=0)队友在车外协同，不在车内开枪
+	_stop_crew_wander()
+	if m == 1:
+		_set_life_combat(true)
+	else:
+		_set_life_combat(false)
 	if driver_figure != null:
 		driver_figure.visible = false
 	p._enter()
@@ -2430,6 +2656,7 @@ func end_combat() -> void:
 	mates.clear()
 	combat_active = false
 	rv.combat_in = false
+	_set_life_combat(false)   # 战斗结束：生活位队员收枪回闲置动作
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	cam.make_current()
 	if to_walk and was_roof:
@@ -2445,7 +2672,7 @@ func end_combat() -> void:
 		rv_model.visible = false
 		interior.visible = true
 		for i in crew_figures.size():
-			crew_figures[i].visible = i < crew_members.size() and crew_figures[i].get_meta("duty", "") != "gun"
+			crew_figures[i].visible = i < crew_members.size() and not crew_figures[i].get_meta("exterior", false)
 		if driver_figure != null:
 			driver_figure.visible = false
 		np.aim_yaw = 0.0
@@ -2462,8 +2689,8 @@ func end_combat() -> void:
 	rv_model.visible = view_mode == 0
 	interior.visible = view_mode != 0
 	for i in crew_figures.size():
-		var roof2: bool = crew_figures[i].get_meta("duty", "") == "gun"
-		crew_figures[i].visible = i < crew_members.size() and ((roof2 and view_mode == 0) or view_mode == 2)
+		var on_roof2: bool = crew_figures[i].get_meta("exterior", false)
+		crew_figures[i].visible = i < crew_members.size() and ((on_roof2 and view_mode == 0) or (not on_roof2 and view_mode == 2))
 	if driver_figure != null:
 		driver_figure.visible = view_mode == 2
 	# 驻车状态下恢复设施面板（start_combat 时收起了）
@@ -2494,7 +2721,7 @@ func start_rv_walk() -> void:
 	interior.visible = true
 	for i in crew_figures.size():
 		# 车厢视角只显示舱内岗位；车顶哨兵在车外，藏起避免穿顶
-		crew_figures[i].visible = i < crew_members.size() and crew_figures[i].get_meta("duty", "") != "gun"
+		crew_figures[i].visible = i < crew_members.size() and not crew_figures[i].get_meta("exterior", false)
 	if driver_figure != null:
 		driver_figure.visible = false   # 主角起身，驾驶位空出
 	if not parked:
@@ -3729,28 +3956,31 @@ func on_pickup(kind: String, boost := 1.0) -> void:
 func try_recruit(survivor: Node3D) -> void:
 	if game_over or not is_instance_valid(survivor):
 		return
+	if crew >= CREW_MAX:
+		hud.toast("车厢满员（%d/%d），无法再收人" % [crew, CREW_MAX])
+		return
 	# 苏薇·谈判：招募食物消耗 3 → 2
 	var cost := 2.0 if _has_passive("ivory") else 3.0
 	if food < cost:
 		hud.toast("食物不足，无法招募幸存者")
 		return
+	var member := _next_crew_member()
+	if member.is_empty():
+		return
 	food -= cost
 	crew += 1
 	survivor.board()
-	var member := _next_crew_member()
-	if not member.is_empty():
-		crew_members.append(member)
-		hud.set_crew(crew_members)
-		hud.toast("%s（%s）加入队伍 · 分食 -%d" % [member.get("name", ""), member.get("skill", ""), int(cost)])
-	else:
-		hud.toast("幸存者上车！队伍 %d 人（分食 -%d）" % [crew, int(cost)])
+	crew_members.append(member)
+	hud.set_crew(crew_members)
+	hud.toast("%s（%s）加入队伍 · 分食 -%d" % [member.get("name", ""), member.get("skill", ""), int(cost)])
 	_sync_crew()
 	hud.update_stats(self)
-	# 上车短对话：recruit_<id> 事件无 at/weight，只在此处手动触发
-	if not member.is_empty():
-		var ev_id := "recruit_" + String(member.get("id", ""))
-		if story.events.has(ev_id):
-			story._open(ev_id)
+	# 上车短对话：recruit_<id> 事件无 at/weight，只在此处手动触发（泛型幸存者无专属剧情）
+	if String(member.get("id", "")).begins_with("gen"):
+		return
+	var ev_id := "recruit_" + String(member.get("id", ""))
+	if story.events.has(ev_id):
+		story._open(ev_id)
 
 ## 队友专长是否已在车上
 func _has_passive(id: String) -> bool:
@@ -3791,7 +4021,28 @@ func _next_crew_member() -> Dictionary:
 				break
 		if not taken:
 			return d
-	return {}
+	if crew_members.size() >= CREW_MAX:
+		return {}
+	return _make_generic_member(crew_members.size() - CREW_ORDER.size())
+
+## 命名角色收齐后的泛型幸存者：id=gen<序号>，属性按序号确定性随机，外观在 role1/role2 两基底间轮换
+func _make_generic_member(gidx: int) -> Dictionary:
+	var cfg: Dictionary = survivors_data.get("_generic", {})
+	var names: Array = cfg.get("names", ["幸存者"])
+	var titles: Array = cfg.get("titles", ["流浪者"])
+	var skills: Array = cfg.get("skills", ["杂活"])
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1729 + gidx
+	return {
+		"id": "gen%d" % gidx,
+		"name": names[gidx % names.size()],
+		"title": titles[rng.randi_range(0, titles.size() - 1)],
+		"skill": skills[rng.randi_range(0, skills.size() - 1)],
+		"atk": rng.randi_range(1, 3),
+		"med": rng.randi_range(0, 2),
+		"driver": false,
+		"banter": cfg.get("banter", []),
+	}
 
 # ---------- 初始景物 ----------
 func _spawn_initial_scenery() -> void:

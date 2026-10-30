@@ -82,6 +82,11 @@ blender --background --addons vrm_addon --python run_pipeline.py -- <in.vrm> <ou
 24. **跨骨架动作重定向：世界空间 delta 旋转法（2026-10-25 验证，KayKit→VRM J_Bip）**：两套骨架都是 T-pose 时逐骨 `delta = src_pose_world_rot @ src_rest_world_rot⁻¹`、`tgt_world_rot = delta @ tgt_rest_world_rot`，用第 9 条 `pb.matrix = arm.matrix_world.inverted() @ m` 写法按**父先子后**写回，每骨写后 `view_layer.update()`；髋骨另写位置 `tgt_rest + (src髋世界位移)×(tgt髋高/src髋高)`。源骨架必须 `frame_set` 采样（第 11/21 条禁令只针对被手改姿势的目标骨架）。**验收用数值不用截图**：逐帧对比两骨架对应肢体段的世界方向向量（upperarm/forearm/thigh/shin 的 head→head 归一化），逐骨 <5° 即对；关节世界**位置**受骨长/比例影响不可直接比（chibi↔写实比例差数倍，位置必然不同）。坑：KayKit 手腕关节名是 wrist（hand 是手掌附件点）、无肩无颈；VRoid 脚掌骨是 ToeBase 不是 Toes；KayKit 宽步幅动作会让 VRM 长外套蒙皮帐篷化（外观取舍，非姿势错误，启用前先带外套渲染验收）。动作源：KayKit Adventurers（CC0，GitHub 免登录克隆，75 个动作内嵌每个角色 GLB）。动作是否齐全以 GLB 实际动画清单为准，不能按角色骨架相同推断
 
 25. **非 T-pose 源动作与动作转移（2026-10-29）**：role1/role2 原本不含 `drive`，本轮从 hero 重定向补齐，逐帧四肢方向误差分别为 0.0343°、0.0°。hero 的 `prone` 来自 TurboSquid 免费 **Soldier prone idle**（作者 imocap，产品 ID 1070018，Royalty Free License，2026-10-29 下载）；该文件只有单个卧姿待机，不是射击/换弹战斗动作包。源骨架 rest 不是 T-pose，不能套第 24 条的 rest delta，改用源/目标 rest 的解剖方向正交基校准，最大四肢方向误差 0.0°；保留原角色网格、材质与绑定
+26. **跨骨架重定向三条踩坑定版（2026-10-30，KayKit `2H_Ranged_Aiming`→VRM，四肢段误差 138°→0.025°）**：
+    - **非 hips 骨禁止 keyframe location**：首轮给每根骨都插 location 且把骨 head 钉在 rest 世界坐标，父骨旋转后子骨不跟随，四肢恒为 T-pose（max err 138°）。定版：每帧先全部 `matrix_basis=Identity` + `update`，父先子后只写旋转；hips 写 location+rotation，其余骨只 `keyframe_insert("rotation_quaternion")`，head 用传播后真实值 `tarm.matrix_world @ tpb.head`
+    - **逐骨 rest 段对齐 qcorr（补第 24/25 条）**：Q 版（KayKit）与写实（VRM）骨架即使同 T-pose，「骨 head→子骨 head」rest 段轴向也不一致，单纯 delta 旋转后脚段仍偏 16.4°。对每根有映射子骨的骨预算 `qcorr = tgt_rest段方向.rotation_difference(src_rest段方向)`，烘焙写 `want_world_rot = delta @ qcorr @ tgt_rest_world_rot`，修后全部段 0.00–0.02°
+    - **两阶段采样（单 Blender 会话不能二次 import glTF）**：第二次 `bpy.ops.import_scene.gltf` 报 "Please select a file"。必须 PHASE1 导源骨架、采样全部帧世界矩阵**以及源 rest 段方向**到 dict，`bpy.ops.wm.read_factory_settings(use_empty=True)` 重开场后 PHASE2 导目标烘焙——重开场后源 Object 的 StructRNA 已释放，PHASE2 再引用源 armature 必崩 ReferenceError
+    - VRoid 双手手指局部卷曲轴同向（均局部 +Z），镜像骨不需要反号；实握据枪屈角定版：指节 0.85/1.15/0.95、拇指 0.35、Thumb1 额外绕 Y 0.45 对握
 
 ### 4.2 截帧验收法
 
