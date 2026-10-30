@@ -65,6 +65,7 @@ var hud: CanvasLayer
 var terrain: MeshInstance3D
 var rain: CPUParticles3D
 var snow: CPUParticles3D
+var motes: CPUParticles3D   # 晴天空气漂浮光点（花粉/尘光）
 var headlight: SpotLight3D
 
 # ---- 游戏状态 ----
@@ -2069,6 +2070,40 @@ func _build_weather() -> void:
 	snow.visible = false
 	add_child(snow)
 
+	# 晴天空气光点：随 RV 漂浮的暖色微尘，低重力缓慢升降，明媚光线下的原神式空气感
+	motes = CPUParticles3D.new()
+	motes.amount = 80
+	motes.lifetime = 8.0
+	motes.preprocess = 3.0
+	motes.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	motes.emission_box_extents = Vector3(28, 4, 38)
+	motes.direction = Vector3(0.3, 0.1, 0)
+	motes.spread = 180.0
+	motes.gravity = Vector3(0.15, 0.1, 0)
+	motes.initial_velocity_min = 0.12
+	motes.initial_velocity_max = 0.4
+	motes.scale_amount_min = 0.5
+	motes.scale_amount_max = 1.2
+	var dot := QuadMesh.new()
+	dot.size = Vector2(0.18, 0.18)
+	# 程序化径向柔光贴图：中心亮、平滑衰减到全透，远看是圆光点而非方块
+	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	for py in 32:
+		for px in 32:
+			var d: float = Vector2(px - 15.5, py - 15.5).length() / 15.5
+			var a: float = clampf(1.0 - smoothstep(0.0, 1.0, d), 0.0, 1.0)
+			img.set_pixel(px, py, Color(1, 1, 1, a * a))
+	var mote_mat := StandardMaterial3D.new()
+	mote_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mote_mat.albedo_color = Color(1.0, 0.94, 0.7, 0.8)
+	mote_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mote_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mote_mat.albedo_texture = ImageTexture.create_from_image(img)
+	dot.material = mote_mat
+	motes.mesh = dot
+	motes.emitting = true
+	add_child(motes)
+
 func _apply_weather() -> void:
 	var raining := weather in ["rain", "heavy_rain"]
 	var heavy := weather == "heavy_rain"
@@ -2083,6 +2118,9 @@ func _apply_weather() -> void:
 	rain.visible = raining
 	snow.emitting = weather == "snow"
 	snow.visible = weather == "snow"
+	var clear := weather == "clear"
+	motes.emitting = clear
+	motes.visible = clear
 	match weather:
 		"rain": hud.toast("下起了冷雨，路面湿滑")
 		"heavy_rain": hud.toast("暴雨倾盆，能见度与抓地力下降")
@@ -2094,6 +2132,7 @@ func _apply_weather() -> void:
 func _update_weather(delta: float) -> void:
 	rain.global_position = rv.global_position + Vector3(0, 9.0, -14.0)
 	snow.global_position = rv.global_position + Vector3(0, 9.0, -14.0)
+	motes.global_position = rv.global_position + Vector3(0, 2.5, -10.0)
 	weather_timer -= delta
 	if weather_timer > 0.0:
 		return
