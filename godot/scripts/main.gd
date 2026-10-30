@@ -17,7 +17,6 @@ const ZOMBIE_SCRIPT := preload("res://scripts/zombie.gd")
 const HUD_SCRIPT := preload("res://scripts/hud.gd")
 const PICKUP_SCRIPT := preload("res://scripts/pickup.gd")
 const SURVIVOR_SCRIPT := preload("res://scripts/survivor.gd")
-const DUTY_MOTION := preload("res://scripts/duty_motion.gd")
 const STORY_SCRIPT := preload("res://scripts/story.gd")
 const QUEST_SCRIPT := preload("res://scripts/quest.gd")
 const PLAYER_SCRIPT := preload("res://scripts/player.gd")
@@ -54,6 +53,7 @@ const MUSIC_VOLUME := -10.0
 
 var rv: CharacterBody3D
 var rv_model: Node3D
+var roof_rig: Node3D   # 车顶护栏/踏板挂点：跟 rv_model 一起俯仰侧倾，避免与车壳分离悬空
 var interior: Node3D
 var cam: Camera3D
 var sun: DirectionalLight3D
@@ -1556,6 +1556,11 @@ func _build_rv() -> void:
 	for n in rv_model.find_children("*skirt*", "Node3D", true, false) + rv_model.find_children("*bumper*", "Node3D", true, false):
 		n.visible = false
 	rv.add_child(rv_model)
+	# 车顶件挂到 rv_model 下：车壳加速俯仰/转向侧倾时护栏踏板随车一起动
+	roof_rig = Node3D.new()
+	roof_rig.name = "RoofRig"
+	roof_rig.rotation.y = PI   # 抵消 rv_model 的 y=PI，子件仍用 rv 本地坐标（护栏 z 不对称），只继承 x/z 倾斜
+	rv_model.add_child(roof_rig)
 	rv.position = Vector3(0, GROUND_Y + RV_MODEL_FOOT, 0)
 	headlight = SpotLight3D.new()
 	headlight.light_color = Color(1.0, 0.93, 0.78)
@@ -1679,22 +1684,23 @@ func _build_roof_props() -> void:
 	var pad_mat := StandardMaterial3D.new()
 	pad_mat.albedo_color = Color(0.16, 0.17, 0.16)
 	pad_mat.roughness = 0.9
-	# 两侧护栏：立柱 + 两道横杆（仅后舱生活段，车头驾驶舱留空不挡视线）
+	# 两侧护栏：立柱 + 两道横杆（仅后舱生活段，车头驾驶舱留空不挡视线）；挂 roof_rig 随车壳倾斜
+	# 立柱高 0.88、中心 RV_ROOF_Y+0.38，底端插入车顶 0.06 消除悬空缝隙
 	for side in [-1.0, 1.0]:
 		for zz in [-1.6, -0.2, 1.2, 2.6]:
 			var post := MeshInstance3D.new()
 			post.mesh = BoxMesh.new()
-			post.mesh.size = Vector3(0.07, 0.82, 0.07)
+			post.mesh.size = Vector3(0.07, 0.88, 0.07)
 			post.material_override = rail_mat
-			post.position = Vector3(side * 1.34, RV_ROOF_Y + 0.41, zz)
-			rv.add_child(post)
+			post.position = Vector3(side * 1.34, RV_ROOF_Y + 0.38, zz)
+			roof_rig.add_child(post)
 		for hy in [0.55, 0.8]:
 			var bar := MeshInstance3D.new()
 			bar.mesh = BoxMesh.new()
 			bar.mesh.size = Vector3(0.05, 0.05, 4.25)
 			bar.material_override = rail_mat
 			bar.position = Vector3(side * 1.34, RV_ROOF_Y + hy, 0.5)
-			rv.add_child(bar)
+			roof_rig.add_child(bar)
 	# 哨兵踏板：脚下暗圆垫，标识固定哨位
 	for side in [-1.0, 1.0]:
 		var pad := MeshInstance3D.new()
@@ -1704,8 +1710,8 @@ func _build_roof_props() -> void:
 		cm.height = 0.04
 		pad.mesh = cm
 		pad.material_override = pad_mat
-		pad.position = Vector3(side * 0.82, RV_ROOF_Y + 0.02, 0.55)
-		rv.add_child(pad)
+		pad.position = Vector3(side * 0.82, RV_ROOF_Y, 0.55)
+		roof_rig.add_child(pad)
 
 ## 生活道具：床铺/吊柜/地毯/水壶/罐头/盆栽/吊灯罩/照片墙/储物箱（纯装饰，随内饰显隐；坐标为 rv 本地，地板顶 y=-0.4）
 func _build_life_props() -> void:
@@ -1843,9 +1849,6 @@ func _sync_crew() -> void:
 			var char: Node3D = made["node"]
 			char.name = "Char"
 			f.add_child(char)
-			# 做饭/收拾：挂岗位程序化微动，不再死站着
-			if duty == "cook" or duty == "tidy":
-				char.add_child(DUTY_MOTION.new(duty, char))
 			# 哨兵持枪：枪口节点供 _update_roof_gunners 取世界坐标
 			if duty == "gun":
 				var gun := CharUtil.build_gun()
