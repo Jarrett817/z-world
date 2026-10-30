@@ -50,6 +50,7 @@ class Joystick:
 		queue_redraw()
 
 var rv: Node
+var hud_root: Control   # 游戏内 HUD 根（剧情全屏对话时整体隐藏）
 var speed_label: Label
 var res_label: Label
 var info_label: Label
@@ -101,11 +102,15 @@ var _hit_tween: Tween
 # 电台剧情对话框
 var story_node: Node
 var story_root: Panel
-var story_pic: TextureRect
+var story_pic: TextureRect          # 左半屏全身立绘
+var story_divider: ColorRect        # 立绘/对话分隔线
+var story_right: Control            # 右半屏对话区（无立绘时铺满）
 var story_speaker: Label
 var story_text: Label
+var story_options_scroll: ScrollContainer
 var story_options: VBoxContainer
 var story_event_id := ""
+var _story_has_pic := false
 var _full_text := ""
 var _shown := 0
 var _type_t := 0.0
@@ -127,6 +132,7 @@ func build(rv_node: Node) -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.theme = theme
 	add_child(root)
+	hud_root = root
 
 	# 左上状态面板
 	var panel := _panel(Vector2(12, 12), Vector2(348, 164))
@@ -693,36 +699,34 @@ func flash_hit_marker(killed := true, headshot := false) -> void:
 	_hit_tween.tween_property(crosshair, "modulate", TEXT_MAIN, 0.18).set_delay(0.08)
 	_hit_tween.tween_property(crosshair, "scale", Vector2.ONE, 0.18).set_delay(0.08)
 
-## 电台剧情对话框：底部通栏，左侧立绘 + 说话人名，右侧打字机正文与选项
+## 电台剧情对话框：全屏沉浸，左侧全身立绘 + 右侧说话人名、打字机正文与选项
 func _build_story(root: Control) -> void:
 	story_root = Panel.new()
-	# 对话框居中偏下：940 宽水平居中，底边距屏 40（anchor 顶/底均为 1，offset 相对屏幕底边）
-	story_root.anchor_left = 0.5
-	story_root.anchor_right = 0.5
-	story_root.anchor_top = 1.0
-	story_root.anchor_bottom = 1.0
-	story_root.offset_left = -470
-	story_root.offset_right = 470
-	story_root.offset_top = -360
-	story_root.offset_bottom = -40
+	# 全屏沉浸对话：整屏暗色遮罩（明媚末日里把视线收回人物与台词）
+	story_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	story_root.offset_left = 0
+	story_root.offset_top = 0
+	story_root.offset_right = 0
+	story_root.offset_bottom = 0
 	story_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.105, 0.085, 0.07, 0.96)
-	sb.set_border_width_all(2)
-	sb.border_color = Color(0.91, 0.53, 0.18, 0.75)
-	sb.set_corner_radius_all(12)
-	sb.content_margin_left = 26
-	sb.content_margin_right = 26
-	sb.content_margin_top = 20
-	sb.content_margin_bottom = 18
+	sb.bg_color = Color(0.07, 0.06, 0.05, 0.97)
 	story_root.add_theme_stylebox_override("panel", sb)
 	story_root.visible = false
-	root.add_child(story_root)
+	story_root.theme = root.theme
+	# 挂 CanvasLayer 本体而非 hud_root：剧情显示时 hud_root 整体隐藏，对话框仍在
+	add_child(story_root)
 
-	# 对话框内左侧立绘（3:4 竖幅缩略，与队伍头像同风格）
+	# 左半屏全身立绘（3:4 原图几乎铺满左半，COVERED 只裁极小边）
 	story_pic = TextureRect.new()
-	story_pic.position = Vector2(20, 18)
-	story_pic.size = Vector2(150, 200)
+	story_pic.anchor_left = 0.0
+	story_pic.anchor_right = 0.42
+	story_pic.anchor_top = 0.0
+	story_pic.anchor_bottom = 1.0
+	story_pic.offset_left = 40
+	story_pic.offset_top = 24
+	story_pic.offset_right = -24
+	story_pic.offset_bottom = -24
 	story_pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	story_pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	story_pic.clip_contents = true
@@ -730,30 +734,68 @@ func _build_story(root: Control) -> void:
 	story_pic.visible = false
 	story_root.add_child(story_pic)
 
-	story_speaker = _label("", 22, ACCENT, Vector2(26, 18))
-	story_root.add_child(story_speaker)
-	story_text = _label("", 19, TEXT_MAIN, Vector2(26, 52))
-	story_text.size = Vector2(888, 128)
+	# 立绘右缘暖色分隔线（0.42 屏宽处，宽 3px）
+	story_divider = ColorRect.new()
+	story_divider.anchor_left = 0.42
+	story_divider.anchor_right = 0.42
+	story_divider.anchor_top = 0.0
+	story_divider.anchor_bottom = 1.0
+	story_divider.offset_left = 0
+	story_divider.offset_right = 3
+	story_divider.color = Color(0.91, 0.53, 0.18, 0.65)
+	story_divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	story_divider.visible = false
+	story_root.add_child(story_divider)
+
+	# 右半屏对话区（无立绘时左右扩边铺满）
+	story_right = Control.new()
+	story_right.anchor_left = 0.46
+	story_right.anchor_right = 1.0
+	story_right.anchor_top = 0.0
+	story_right.anchor_bottom = 1.0
+	story_right.offset_right = -56
+	story_right.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	story_root.add_child(story_right)
+
+	story_speaker = _label("", 30, ACCENT, Vector2(0, 96))
+	story_right.add_child(story_speaker)
+	# 名字下的暖色短杠
+	var accent_bar := ColorRect.new()
+	accent_bar.position = Vector2(2, 142)
+	accent_bar.size = Vector2(64, 3)
+	accent_bar.color = ACCENT
+	accent_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	story_right.add_child(accent_bar)
+
+	story_text = _label("", 21, TEXT_MAIN, Vector2(0, 168))
 	story_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	story_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	story_root.add_child(story_text)
+	story_right.add_child(story_text)
 
+	story_options_scroll = ScrollContainer.new()
+	story_options_scroll.position = Vector2(0, 336)
+	story_options_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	story_options_scroll.mouse_filter = Control.MOUSE_FILTER_PASS
+	story_right.add_child(story_options_scroll)
 	story_options = VBoxContainer.new()
-	story_options.position = Vector2(26, 188)
-	story_options.size = Vector2(888, 138)
-	story_options.add_theme_constant_override("separation", 8)
+	story_options.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	story_options.add_theme_constant_override("separation", 10)
 	story_options.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	story_root.add_child(story_options)
+	story_options_scroll.add_child(story_options)
 
-	var hint := _label("点击选项继续", 13, TEXT_DIM)
-	hint.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	hint.offset_left = -150
-	hint.offset_top = -30
-	hint.offset_right = -22
-	hint.offset_bottom = -6
+	var hint := _label("点击 / 空格 继续", 14, TEXT_DIM)
+	hint.anchor_left = 1.0
+	hint.anchor_top = 1.0
+	hint.anchor_right = 1.0
+	hint.anchor_bottom = 1.0
+	hint.offset_left = -200
+	hint.offset_top = -40
+	hint.offset_right = -28
+	hint.offset_bottom = -14
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	story_root.add_child(hint)
+	story_right.add_child(hint)
 	story_root.gui_input.connect(_on_story_gui_input)
+	story_root.resized.connect(_layout_story_right)
 
 ## 打字机效果：正文逐字显示，显示完再放出选项按钮
 func _process(delta: float) -> void:
@@ -791,6 +833,17 @@ func _on_story_gui_input(ev: InputEvent) -> void:
 			story_text.text = _full_text
 			_show_options()
 
+## 按有无立绘重排右侧对话区：有立绘收在右半屏，无立绘横向铺满；选项超出高度时滚动
+func _layout_story_right() -> void:
+	story_right.anchor_left = 0.46 if _story_has_pic else 0.06
+	story_right.offset_left = 0
+	# 同帧锚点改动尚未触发布局，直接按全屏尺寸推算右区宽度（anchor_right=1，offset_right=-56）
+	var w: float = story_root.size.x * (1.0 - story_right.anchor_left) - 56.0
+	story_text.size.x = w
+	story_options_scroll.size.x = w
+	# 选项区顶在正文下方，底部留出右下提示
+	story_options_scroll.size.y = maxf(120.0, story_root.size.y - 336.0 - 48.0)
+
 func show_story(ev: Dictionary) -> void:
 	story_event_id = String(ev.get("id", ""))
 	_full_text = String(ev.get("text", ""))
@@ -804,21 +857,18 @@ func show_story(ev: Dictionary) -> void:
 	story_speaker.text = String(ev.get("speaker", ""))
 	for c in story_options.get_children():
 		c.queue_free()
-	# 对话框内嵌立绘：有立绘时正文/选项右移让位
+	# 有全身立绘时左侧铺图，右半屏对话；无立绘（电台旁白）时对话区横向铺满
 	var pic := String(ev.get("portrait", ""))
 	var path := "res://assets/portraits/" + pic
-	var has_pic := pic != "" and ResourceLoader.exists(path)
-	story_pic.visible = has_pic
-	if has_pic:
+	_story_has_pic = pic != "" and ResourceLoader.exists(path)
+	story_pic.visible = _story_has_pic
+	story_divider.visible = _story_has_pic
+	if _story_has_pic:
 		story_pic.texture = load(path)
-	var tx := 190.0 if has_pic else 26.0
-	var tw := 724.0 if has_pic else 888.0
-	story_speaker.position.x = tx
-	story_text.position.x = tx
-	story_text.size.x = tw
-	story_options.position.x = tx
-	story_options.size.x = tw
+	hud_root.visible = false
 	story_root.visible = true
+	_layout_story_right()
+	story_options_scroll.scroll_vertical = 0
 
 ## 正文显示完毕后生成选项按钮（条件不足置灰）
 func _show_options() -> void:
@@ -826,10 +876,6 @@ func _show_options() -> void:
 		c.queue_free()
 	var ev: Dictionary = story_node.events.get(story_event_id, {})
 	var opts: Array = ev.get("options", [])
-	# 选项过多时（如终章 7 个分支结局）面板自适应加高
-	var panel_h: float = maxf(334.0, 208.0 + opts.size() * 49.0)
-	story_root.offset_top = -(panel_h + 40.0)
-	story_options.size.y = panel_h - 208.0
 	for i in opts.size():
 		var b := Button.new()
 		b.text = "  " + String(opts[i].get("t", "")) + "  "
@@ -856,6 +902,7 @@ func _show_options() -> void:
 
 func hide_story() -> void:
 	story_root.visible = false
+	hud_root.visible = true
 
 # ---------- 暂停菜单 ----------
 ## Esc 开关暂停菜单（HUD 常驻处理：暂停时本体收不到输入，HUD 才能关）

@@ -175,6 +175,8 @@ var _shot_seat := false     # --shotseat：截帧前切车内视角看副驾队�
 var _shot_cabin := false    # --shotcabin：截帧前切车内视角整舱俯拍（验收岗位布局）
 var _shot_seat_cam := false # --shotseat：截帧专用近距离侧拍副驾相机
 var _shot_bunk_cam := false # --shotbunk：截帧专用后舱床铺隔间相机
+var _shot_story_id := ""    # --shotstory=ID：截帧前打开指定剧情事件
+var _shot_story_shown := false
 var _jump_km := 0.0         # --jump=KM：直达指定里程（配合 --shot 截帧验收）
 var _debug_crew := 0        # --crew=N：调试直接补 N 名队友（配合截帧验收座位角色）
 var _dump := false          # --dump：截帧时刻打印房车周边节点并退出（验收定位异常物）
@@ -214,6 +216,8 @@ func _ready() -> void:
 		elif a == "--shotbunk":
 			_shot_bunk_cam = true
 			_shot_cabin = true
+		elif a.begins_with("--shotstory="):
+			_shot_story_id = a.trim_prefix("--shotstory=")
 		elif a.begins_with("--jump="):
 			_jump_km = float(a.trim_prefix("--jump="))
 		elif a.begins_with("--hour="):
@@ -624,8 +628,24 @@ func _process(delta: float) -> void:
 				_shot_at = 1.5
 				_shot_t = 0.0
 				return
+			if _shot_story_id != "":
+				# --shotstory=ID：驻车打开指定剧情，打字机直接出全文露出选项，稳定 1s 截帧
+				var sid := _shot_story_id
+				_shot_story_id = ""
+				parked = true
+				rv.parked = true
+				rv.speed_kmh = 0.0
+				story.set_process(false)
+				story._open(sid)
+				hud._shown = hud._full_text.length()
+				hud.story_text.text = hud._full_text
+				hud._show_options()
+				_shot_story_shown = true
+				_shot_at = 1.0
+				_shot_t = 0.0
+				return
 			# 剧情可能在截帧准备阶段再次触发，保存前始终收起，避免挡住验收画面
-			if story != null:
+			if story != null and not _shot_story_shown:
 				story.set_process(false)
 				story.active = false
 				story_active = false
