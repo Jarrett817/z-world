@@ -13,6 +13,8 @@ var _i2d := 0
 var _pool3d: Array[AudioStreamPlayer3D] = []
 var _i3d := 0
 var _engine: AudioStreamPlayer
+var rv_growl_attenuation_db := 0.0
+var _rv_interior := false
 
 func _ready() -> void:
 	for k in KEYS:
@@ -59,8 +61,18 @@ func play3d(key: String, pos: Vector3, pitch := 1.0, var_ := 0.07, vol := 0.0) -
 	p.stream = _streams[key]
 	p.global_position = pos
 	p.pitch_scale = pitch * (1.0 + randf_range(-var_, var_))
-	p.volume_db = vol
+	p.set_meta("base_vol", vol)
+	p.volume_db = vol - (rv_growl_attenuation_db if _rv_interior and key == "zombie_growl" else 0.0)
 	p.play()
+
+## 房车隔音只压叫声；切换视角时已播放的叫声也立即调整，拍打等反馈不变
+func set_rv_interior(active: bool) -> void:
+	if _rv_interior == active:
+		return
+	_rv_interior = active
+	for p in _pool3d:
+		if p.stream == _streams["zombie_growl"]:
+			p.volume_db = float(p.get_meta("base_vol", 0.0)) - (rv_growl_attenuation_db if active else 0.0)
 
 ## 引擎音随车速：speed01 = speed_kmh / 极速
 func set_engine(speed01: float) -> void:

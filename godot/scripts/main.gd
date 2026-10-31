@@ -130,6 +130,7 @@ var _places: Array = []            # 沿途地点（km 升序，data/world.json�
 var _detours: Array = []           # 可探索支路 POI 类型表（data/world.json）
 var _hamlet_cfg: Dictionary = {}   # 小聚落填充配置（data/world.json hamlets）
 var _time_rates := Vector2(0.03, 0.15)  # 时间流速（现实秒→游戏小时）：x=行驶 y=驻车（data/world.json time）
+var _rv_growl_attenuation_db := 0.0     # 车内丧尸叫声衰减（data/world.json audio）
 var _hamlet_km := 0.0              # 下一个小聚落里程（0=未初始化/已结束）
 var _place_idx := 0                # 下一个待生成地点
 var _place_sign_idx := 0           # 下一个待出预告牌的地点（预告牌在地点前 1.5km）
@@ -288,6 +289,7 @@ func _ready() -> void:
 		_sync_crew()
 		hud.set_crew(crew_members)
 	sfx = Sfx.new()
+	sfx.rv_growl_attenuation_db = _rv_growl_attenuation_db
 	add_child(sfx)
 	_spawn_initial_scenery()
 	if weather == "clear":
@@ -415,6 +417,8 @@ func _load_world() -> void:
 		_hamlet_cfg = parsed.get("hamlets", {})
 		var tm: Dictionary = parsed.get("time", {})
 		_time_rates = Vector2(float(tm.get("drive_rate", 0.03)), float(tm.get("park_rate", 0.15)))
+		var audio: Dictionary = parsed.get("audio", {})
+		_rv_growl_attenuation_db = float(audio.get("rv_growl_attenuation_db", 0.0))
 		if not _hamlet_cfg.is_empty():
 			var kr: Array = _hamlet_cfg.get("km_range", [3.0, 5.0])
 			_hamlet_km = lerpf(float(kr[0]), float(kr[1]), _jh(31))
@@ -712,6 +716,8 @@ func _process(delta: float) -> void:
 		return
 	_update_music()
 	sfx.set_engine(clampf(rv.speed_kmh / 55.0, 0.0, 1.0))
+	# 驾驶舱/车厢/车内行走隔音；下车与车顶战斗保持原音量
+	sfx.set_rv_interior(view_mode != 0 and not combat_active)
 	# G：驻车时下车战斗 / 战斗中回到驾驶座或车内走动（player.gd 内部也处理结束）
 	var gk := Input.is_physical_key_pressed(KEY_G)
 	if gk and not _g_down and not game_over and not story_active:

@@ -1,6 +1,7 @@
 {
 	"world_seed": 20261023,
 	"time": { "drive_rate": 0.03, "park_rate": 0.15 },
+	"audio": { "rv_growl_attenuation_db": 12.0 },
 	"places": [
 		{ "name": "七里铺加油站", "km": 12.0,  "type": "gas" },
 		{ "name": "枫桥镇",       "km": 30.0,  "type": "town" },
