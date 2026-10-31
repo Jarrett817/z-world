@@ -121,6 +121,7 @@ func _process(delta: float) -> void:
 ## 被招募上车：脱离战斗，收起求救光柱跑向房车
 func board() -> void:
 	_state = St.BOARD
+	remove_from_group("survivor")
 	_beam.visible = false
 	_play("run")
 

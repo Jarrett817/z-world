@@ -89,6 +89,8 @@ var _res_opt: OptionButton
 var drive_joystick: Control
 var drive_view_btn: Button
 var rvwalk_btn: Button
+var crew_drive_btn: Button
+var combat_exit_btn: Button
 var drive_misc_buttons: Array[Button] = []   # 视角/驻车/天窗/下车/车内（战斗时连同驾驶摇杆一起收起）
 var combat_fire_buttons: Array[Button] = []   # 车内行走时要藏起来的开火类按钮
 var rvwalk_fire_buttons: Array[Button] = []   # 车内射击点附近开放的开火/换弹
@@ -170,7 +172,7 @@ func build(rv_node: Node) -> void:
 	panel.add_child(info_label)
 
 	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 起身走动/回座接管 · E 设施 · V 射击视角 · J 任务 · Tab 队伍 · Esc 菜单", 14, TEXT_DIM)
+	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 起身/回座 · E 设施 · V 射击视角 · J 任务 · Tab 队伍 · Esc 菜单", 14, TEXT_DIM)
 	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	hint.offset_left = -1042
 	hint.offset_right = -410
@@ -238,6 +240,8 @@ func build(rv_node: Node) -> void:
 	drive_misc_buttons.append(_touch_button(root, "下车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -284, 78, 56), "exitveh"))
 	rvwalk_btn = _touch_button(root, "起身", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -346, 78, 56), "rvwalk")
 	drive_misc_buttons.append(rvwalk_btn)
+	crew_drive_btn = _touch_button(root, "队友开", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -346, 78, 56), "crewdrive")
+	drive_misc_buttons.append(crew_drive_btn)
 	# 右上：任务 / 署名 / 队伍 / 设施（手游触屏替代 J/Tab/E 快捷键）
 	_touch_button(root, "任务", Control.PRESET_TOP_RIGHT, Rect2(-388, 14, 88, 46), "quest")
 	_touch_button(root, "署名", Control.PRESET_TOP_RIGHT, Rect2(-292, 14, 88, 46), "credits")
@@ -611,7 +615,7 @@ func _build_combat(root: Control) -> void:
 	var crouch_btn := _touch_button(combat_root, "下蹲", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -76, 150, 54), "crouch")
 	combat_fire_buttons.append(crouch_btn)
 	combat_stance_buttons.append(crouch_btn)
-	_touch_button(combat_root, "上车", Control.PRESET_TOP_RIGHT, Rect2(-170, 64, 146, 54), "exitcombat")
+	combat_exit_btn = _touch_button(combat_root, "上车", Control.PRESET_TOP_RIGHT, Rect2(-170, 64, 146, 54), "exitcombat")
 	rvwalk_roof_btn = _touch_button(combat_root, "车顶", Control.PRESET_TOP_RIGHT, Rect2(-170, 128, 146, 54), "rvwalkroof")
 	rvwalk_roof_btn.visible = false
 	combat_fire_buttons.append(_touch_button(combat_root, "视角", Control.PRESET_TOP_RIGHT, Rect2(-170, 128, 146, 54), "fps"))
@@ -659,7 +663,7 @@ func set_combat_active(active: bool, ammo: int, hp: float) -> void:
 	combat_root.visible = active
 	rvwalk_roof_btn.visible = false
 	# 战斗时收起整个驾驶面板；结束按驻车状态恢复
-	drive_joystick.visible = not active and not _is_parked()
+	drive_joystick.visible = not active and not _is_parked() and not rv.main_node.crew_driving
 	if active:
 		drive_joystick.release()
 	for b in drive_misc_buttons:
@@ -676,9 +680,10 @@ func set_combat_active(active: bool, ammo: int, hp: float) -> void:
 func _is_parked() -> bool:
 	return rv != null and rv.main_node != null and rv.main_node.parked
 
-## 车内行走：复用战斗 HUD 底板，默认只留摇杆与「上车」撤离，射击点附近再开放开火/换弹
+## 车内行走：复用战斗 HUD 底板，只留移动与底部「回座」，射击点附近再开放开火/换弹
 func set_rv_walk_active(v: bool) -> void:
 	combat_root.visible = v
+	combat_exit_btn.visible = not v
 	if v:
 		combat_joystick.visible = true
 		# 行走时相机由玩家接管，驾驶视角循环无效，藏「视角」避免点了没反应
@@ -1378,8 +1383,10 @@ func update_stats(main: Node3D) -> void:
 	var h := int(main.hour)
 	var m := int((main.hour - h) * 60.0)
 	info_label.text = "里程 %.1f km · 第 %d 天 %02d:%02d%s" % [main.dist_km, main.day, h, m, " · 驻车中" if main.parked else ""]
+	crew_drive_btn.visible = not main.crew_members.is_empty() and not main.combat_active
+	crew_drive_btn.text = "自己开" if main.crew_driving else "队友开"
 	if main.crew_driving and not main.parked:
-		info_label.text += "\n%s 代驾中 · 定速巡航 · Q 接管" % main.crew_members[0].get("name", "")
+		info_label.text += "\n%s 代驾中 · 自动拾取/救人 · 自己开接管" % main.crew_members[0].get("name", "")
 	var legs := PackedStringArray()
 	for pl in main.next_places(3):
 		legs.append("%s %.0fkm" % [pl[0], pl[1]])
@@ -1526,6 +1533,9 @@ func _on_btn_down(action: String) -> void:
 					rv.main_node.end_rv_walk()
 				else:
 					rv.main_node.start_rv_walk()
+		"crewdrive":
+			if rv.main_node != null:
+				rv.main_node.set_crew_driving(not rv.main_node.crew_driving)
 		"sunroof":
 			if rv.main_node != null:
 				if rv.main_node.combat_active:

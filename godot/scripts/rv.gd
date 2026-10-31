@@ -5,7 +5,7 @@ extends CharacterBody3D
 const ACCEL := 55.0
 const BRAKE := 120.0
 const DRAG := 10.0
-const REVERSE_MAX_KMH := 45.0
+const REVERSE_MAX_KMH := 30.0
 const WATER_MAX_KMH := 26.0   # 水上最高速（水陆两栖，水面慢驶）
 const WATER_ACCEL := 26.0     # 水上推进加速度
 const WATER_DRAG := 34.0      # 水上水阻
@@ -31,6 +31,9 @@ func _ready() -> void:
 	# 独占碰撞层 2 + 仅撞层1（地面/障碍）：丧尸在层3 不参与物理碰撞，碾压由触发区接管，消除顿帧
 	collision_layer = 2
 	collision_mask = 1
+	# 长车壳不参与高度图碰撞：地形高度函数负责四轮贴地，障碍物仍正常碰撞
+	for body in get_tree().get_nodes_in_group("terrain_collision"):
+		add_collision_exception_with(body as CollisionObject3D)
 	# 碾压触发区：覆盖车头与车身，进区的丧尸直接撞飞
 	var kill := Area3D.new()
 	kill.collision_layer = 0
@@ -81,7 +84,7 @@ func _add_hub_marker(axle: MeshInstance3D) -> void:
 
 func _physics_process(delta: float) -> void:
 	_spin_wheels(delta)
-	if not main_node.rv_walk_active:
+	if not main_node.crew_driving:
 		_crew_cruise_kmh = 0.0
 	var grip := 1.0
 	var braking := 1.0
@@ -118,35 +121,58 @@ func _physics_process(delta: float) -> void:
 		main_node.rv_model.rotation.x = lerpf(main_node.rv_model.rotation.x, 0.0, delta * 3.0)
 		main_node.rv_model.rotation.z = lerpf(main_node.rv_model.rotation.z, 0.0, delta * 4.0)
 		return
-	if parked or combat_in or main_node.rv_walk_active:
+	if parked or combat_in or main_node.crew_driving:
 		if parked:
 			# 驻车 = 绝对锚定：不调 move_and_slide（重叠的残骸会把车持续顶开），只贴地
 			speed_kmh = 0.0
 			reversing = false
 			velocity = Vector3.ZERO
 		else:
-			if combat_in:
-				# 天窗射击：无驾驶输入，惯性滑行（水上水阻更大）
+			if combat_in and not main_node.crew_driving:
+				# 无代驾的天窗射击：忽略驾驶输入，惯性滑行
 				speed_kmh = maxf(speed_kmh - lerpf(DRAG, WATER_DRAG, _water_f) * delta, 0.0)
 			else:
-				# 车内行走·队友代驾：接管当前车速，静止时自动起步；剧情结束继续巡航
+				# 队友独立代驾：沿公路巡航，主动靠近前方物资与未招募幸存者
 				reversing = false
 				if _crew_cruise_kmh <= 0.0:
 					_crew_cruise_kmh = maxf(speed_kmh, CREW_CRUISE_KMH)
+				var target_pos := Vector3.ZERO
+				var best_dist := 85.0
+				for group in ["pickup", "survivor"]:
+					for node in get_tree().get_nodes_in_group(group):
+						var local: Vector3 = to_local((node as Node3D).global_position)
+						if local.z > -3.0 or local.z < -85.0 or absf(local.x) > 24.0:
+							continue
+						var dist := Vector2(local.x, local.z).length()
+						if dist < best_dist:
+							best_dist = dist
+							target_pos = (node as Node3D).global_position
+				var has_target := best_dist < 85.0
+				var target_yaw := rotation.y
+				if has_target:
+					var to_target := target_pos - global_position
+					target_yaw = atan2(-to_target.x, -to_target.z)
+				elif absf(position.x - main_node.road_x(position.z)) < main_node.ROAD_HALF + 3.0:
+					var d := 0.6
+					var bx: float = main_node.road_x(position.z + d) - main_node.road_x(position.z - d)
+					target_yaw = atan2(bx, 2.0 * d)
+				if speed_kmh > 1.0:
+					rotation.y = lerp_angle(rotation.y, target_yaw, minf(delta * 2.0, 1.0))
+				var desired_speed := _crew_cruise_kmh
+				if has_target and best_dist < 35.0:
+					desired_speed = minf(desired_speed, 35.0)
+				if absf(angle_difference(rotation.y, target_yaw)) > 0.45:
+					desired_speed = minf(desired_speed, 25.0)
 				if main_node._park_brake:
 					speed_kmh = maxf(speed_kmh - BRAKE * braking * delta, 0.0)
 				elif engine_dead:
 					speed_kmh = maxf(speed_kmh - lerpf(DRAG, WATER_DRAG, _water_f) * delta, 0.0)
-				elif speed_kmh < _crew_cruise_kmh:
+				elif speed_kmh < desired_speed:
 					var climb := 1.0 + maxf(slope, 0.0) * 0.5
 					var accel := lerpf(ACCEL * grip * climb, WATER_ACCEL, _water_f)
-					speed_kmh = minf(speed_kmh + accel * delta, _crew_cruise_kmh)
+					speed_kmh = minf(speed_kmh + accel * delta, desired_speed)
 				else:
-					speed_kmh = maxf(speed_kmh - lerpf(DRAG, WATER_DRAG, _water_f) * delta, _crew_cruise_kmh)
-				if speed_kmh > 1.0 and absf(position.x - main_node.road_x(position.z)) < main_node.ROAD_HALF + 3.0:
-					var d: float = 0.6
-					var bx: float = main_node.road_x(position.z + d) - main_node.road_x(position.z - d)
-					rotation.y = lerp_angle(rotation.y, atan2(bx, 2.0 * d), delta * 1.2)
+					speed_kmh = maxf(speed_kmh - lerpf(DRAG, WATER_DRAG, _water_f) * delta, desired_speed)
 			var fwd1 := -global_transform.basis.z
 			fwd1.y = 0.0
 			var drive_dir := -1.0 if reversing else 1.0
@@ -156,7 +182,7 @@ func _physics_process(delta: float) -> void:
 				_report_collisions()
 				if is_on_wall():
 					speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd1 * drive_dir) / KMH_TO_UNITS))
-		_update_water(0.0)   # 移动后用新位置重算支撑高度，姿态与贴地保持同帧
+		_update_water(0.0)
 		position.y = _support_y
 		_align_to_terrain(_water_f)
 		main_node.rv_model.rotation.x = lerpf(main_node.rv_model.rotation.x, 0.0, delta * 3.0)
@@ -179,7 +205,7 @@ func _physics_process(delta: float) -> void:
 			var slope_along := -slope if reversing else slope
 			var climb := 1.0 + maxf(slope_along, 0.0) * 0.5
 			var max_speed: float = REVERSE_MAX_KMH if reversing else lerpf(main_node.MAX_KMH, WATER_MAX_KMH, _water_f)
-			var accel := ACCEL * grip * climb
+			var accel := ACCEL * (0.58 if reversing else 1.0) * grip * climb
 			if _water_f > 0.0:
 				accel = WATER_ACCEL
 			speed_kmh = minf(speed_kmh + accel * absf(throttle) * delta, max_speed)
@@ -195,7 +221,10 @@ func _physics_process(delta: float) -> void:
 	if speed_kmh > 1.0:
 		# 高速转向迟滞：速度越快打舵越缓，倒退时按实际行进方向反向打舵；水上舵效减半
 		var ratio: float = speed_kmh / main_node.MAX_KMH
-		rotation.y += steer_in * drive_dir * delta * lerpf(1.5, 0.8, _water_f) * (1.0 - 0.55 * ratio)
+		var steer_rate := lerpf(1.5, 0.8, _water_f) * (1.0 - 0.55 * ratio)
+		if reversing:
+			steer_rate *= 0.55
+		rotation.y += steer_in * drive_dir * delta * steer_rate
 		if not reversing and _water_f < 0.3 and absf(steer_in) < 0.05 and absf(position.x - main_node.road_x(position.z)) < main_node.ROAD_HALF + 3.0:
 			# 松手自动回正：对齐道路切线（仅在公路前进时生效，野地里/水上不抢方向盘）
 			var d: float = 0.6

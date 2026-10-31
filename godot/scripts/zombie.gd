@@ -7,6 +7,7 @@ const WALK := &"Walk"
 const ATTACK := &"Attack"
 const DEATH := &"Death"
 const BITE_RANGE := 4.4
+const RV_BITE_RANGE := 1.25
 const BITE_INTERVAL := 0.8
 const WANDER_SPEED := 0.9
 const CHASE_SPEED_BASE := 5.2
@@ -204,9 +205,23 @@ func _chase(delta: float) -> void:
 		target_pos = hunt.global_position
 	elif is_instance_valid(player):
 		target_pos = player.global_position
+	var bite_range := BITE_RANGE
+	if hunt == null and not is_instance_valid(player):
+		# 房车是 3.8×10m 长方体：追到车壳表面即停，不能按中心距离钻进车厢
+		var local := rv.to_local(global_position)
+		var surface := Vector2(clampf(local.x, -1.95, 1.95), clampf(local.z, -5.05, 5.05))
+		if surface.is_equal_approx(Vector2(local.x, local.z)):
+			var gap_x := 1.95 - absf(local.x)
+			var gap_z := 5.05 - absf(local.z)
+			if gap_x < gap_z:
+				surface.x = signf(local.x) * 2.35
+			else:
+				surface.y = signf(local.z) * 5.45
+		target_pos = rv.to_global(Vector3(surface.x, 0.0, surface.y))
+		bite_range = RV_BITE_RANGE
 	var to_t := target_pos - global_position
 	var d_xz := Vector2(to_t.x, to_t.z).length()
-	if d_xz > BITE_RANGE:
+	if d_xz > bite_range:
 		var dir := Vector3(to_t.x, 0.0, to_t.z).normalized()
 		linear_velocity = Vector3(dir.x * speed, linear_velocity.y, dir.z * speed)
 		rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 8.0)

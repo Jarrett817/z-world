@@ -33,6 +33,7 @@ const COL_ROWS_PER_FRAME := 12
 func _ready() -> void:
 	# 静态碰撞体常驻，shape 随 rebuild 换新（真实地形高度，丧尸/车/人贴地）
 	var col := StaticBody3D.new()
+	col.add_to_group("terrain_collision")
 	_col_shape = CollisionShape3D.new()
 	col.add_child(_col_shape)
 	add_child(col)

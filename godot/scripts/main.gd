@@ -743,14 +743,11 @@ func _process(delta: float) -> void:
 		elif parked:
 			start_combat(0)
 	_g_down = gk
-	# Q：车内行走（驻车起身 / 有队友时行驶中代驾巡航）；驻车行走中 Q 仅提示出发方式
+	# Q：起身/回座；是否由队友驾驶由独立驾驶权按钮决定
 	var qk := Input.is_physical_key_pressed(KEY_Q)
 	if qk and not _q_down and not game_over and not story_active and not combat_active:
 		if rv_walk_active:
-			if parked:
-				hud.toast("驻车休整中 · 按驻车键出发")
-			else:
-				end_rv_walk()
+			end_rv_walk()
 		else:
 			start_rv_walk()
 	_q_down = qk
@@ -795,7 +792,7 @@ func _process(delta: float) -> void:
 		var on_roof: bool = crew_figures[i].get_meta("exterior", false)
 		crew_figures[i].visible = i < crew_members.size() and ((on_roof and view_mode == 0) or (not on_roof and view_mode == 2))
 	if driver_figure != null:
-		driver_figure.visible = view_mode == 2 and not combat_active
+		driver_figure.visible = view_mode == 2 and not combat_active and not crew_driving
 	_update_banter(delta)
 	_update_crew_wander(delta)
 	if view_mode == 1:
@@ -852,7 +849,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_fv_yaw -= event.relative.x * 0.005
 		_fv_pitch = clampf(_fv_pitch - event.relative.y * 0.005, -0.9, 0.75)
 
-## 驻车休整：按一下即可——超速时自动重刹，停稳即驻车；车内行走中按 F 回驾驶座；在驾驶座再按 F 出发
+## 驻车休整：按一下即可——超速时自动重刹，停稳即驻车；车内行走中按 F 刹车/回座；在驾驶座再按 F 出发
 func _toggle_park() -> void:
 	if story_active:
 		return   # 剧情弹窗期间不响应：防止 parked 隐形翻转（start_rv_walk 会被 story 拦截）
@@ -872,8 +869,8 @@ func _toggle_park() -> void:
 				set_facilities_ui(true)
 				hud.toast("已驻车 · 再按驻车键出发")
 			return
-		end_rv_walk()   # 驻车行走中按驻车键 = 回驾驶座保持驻车（不直接出发，防误触闪退）
-		hud.toast("已回驾驶座 · 再按驻车键出发")
+		end_rv_walk()   # 驻车行走中按驻车键 = 回座保持驻车（不直接出发，防误触闪退）
+		hud.toast("已回座 · 再按驻车键出发")
 		return
 	if not parked:
 		if rv.speed_kmh > 6.0:
@@ -1069,11 +1066,6 @@ func _update_crew_fatigue(delta: float) -> void:
 	crew_members[replacement] = member
 	_shift_cd = float(_fatigue_cfg.get("shift_cooldown", 4.0))
 	_sync_crew()
-	if crew_driving:
-		var driver_anim := crew_figures[0].find_child("AnimationPlayer", true, false) as AnimationPlayer
-		if driver_anim != null:
-			driver_anim.play("drive", 0.15)
-		(crew_figures[0].get_meta("label") as Label3D).text = "%s · 代驾" % crew_members[0].get("name", "")
 	hud.set_crew(crew_members)
 	hud.toast("%s 接替 %s · 疲劳队员回座休整" % [relief_name, tired_name])
 
@@ -1883,7 +1875,7 @@ func _build_roof_props() -> void:
 		top_beam.material_override = rail_mat
 		top_beam.position = Vector3(side * 1.10, 2.77, 0.95)
 		roof_rig.add_child(top_beam)
-	for zz in [-1.6, 0.1, 1.8, 3.5]:
+	for zz in [-1.04, -0.02, 1.0, 2.02, 3.04]:
 		var cross_beam := MeshInstance3D.new()
 		cross_beam.mesh = BoxMesh.new()
 		cross_beam.mesh.size = Vector3(2.25, 0.06, 0.07)
@@ -1896,7 +1888,15 @@ func _build_roof_props() -> void:
 		panel.name = "SolarPanel%d" % i
 		panel.scale = Vector3(1.30, 1.0, 1.0)
 		panel.rotation.x = deg_to_rad(-24.0)
-		panel.position = Vector3(0.0, 2.82, -1.04 + i * 1.02)
+		panel.position = Vector3(0.0, 2.86, -1.04 + i * 1.02)
+		# 每块板由两根短支座落在横梁上，支座上下均与板/梁相交，不留视觉悬浮缝
+		for side in [-1.0, 1.0]:
+			var mount := MeshInstance3D.new()
+			mount.mesh = BoxMesh.new()
+			mount.mesh.size = Vector3(0.10, 0.14, 0.14)
+			mount.material_override = rail_mat
+			mount.position = Vector3(side * 0.85, 2.83, panel.position.z)
+			roof_rig.add_child(mount)
 		var ground_frame := panel.find_child("solar-panel-on-frame-steel", true, false) as MeshInstance3D
 		ground_frame.hide()
 		var cells := panel.find_child("solar-panel-on-frame-charcoal", true, false) as MeshInstance3D
@@ -2107,6 +2107,14 @@ func _sync_crew() -> void:
 					lively.play_combat(&"aim")
 		else:
 			lb.text = ""
+	if crew_driving and not crew_members.is_empty():
+		# 招募/换班重建人物后，代驾队友仍留在主驾
+		var f: Node3D = crew_figures[0]
+		f.position = Vector3(-0.55, -0.42, -2.85) * INTERIOR_SCALE
+		f.rotation.y = PI
+		var driver_anim := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
+		driver_anim.play("drive", 0.15)
+		(f.get_meta("label") as Label3D).text = "%s · 代驾" % crew_members[0].get("name", "")
 
 ## 给槽位模型挂步枪 + muzzle；只在首次领枪时装满弹匣，之后重建/收枪均保留余弹
 func _equip_fig_gun(f: Node3D, prone := false) -> void:
@@ -2920,7 +2928,7 @@ func end_combat() -> void:
 		hud.set_drive_buttons_visible(false)
 		if parked:
 			set_facilities_ui(true)
-		hud.toast("已回到车内" if not crew_driving else "%s 代驾中 · Q 接管 · F 刹车驻车" % crew_members[0].get("name", ""))
+		hud.toast("已回到车内" if not crew_driving else "%s 代驾中 · 自己开可接管 · F 刹车驻车" % crew_members[0].get("name", ""))
 		return
 	# 恢复当前视图模式下的车壳/内饰/队友显隐
 	rv_model.visible = view_mode == 0
@@ -2929,13 +2937,41 @@ func end_combat() -> void:
 		var on_roof2: bool = crew_figures[i].get_meta("exterior", false)
 		crew_figures[i].visible = i < crew_members.size() and ((on_roof2 and view_mode == 0) or (not on_roof2 and view_mode == 2))
 	if driver_figure != null:
-		driver_figure.visible = view_mode == 2
+		driver_figure.visible = view_mode == 2 and not crew_driving
 	# 驻车状态下恢复设施面板（start_combat 时收起了）
 	if parked:
 		set_facilities_ui(true)
 
 # ---------- 车内行走 ----------
-## Q/「车内」按钮：驻车起身车内转；有队友时行驶中也可（首位队友挪到主驾代驾，定速巡航）
+## 独立驾驶权：无队友只能玩家驾驶；有队友可随时切换，行驶中接管会先回座
+func set_crew_driving(v: bool) -> void:
+	if v == crew_driving:
+		return
+	if v and crew_members.is_empty():
+		hud.toast("还没有队友，只能自己驾驶")
+		return
+	if not v and rv_walk_active and not parked:
+		end_rv_walk()
+	crew_driving = v
+	if not crew_members.is_empty():
+		var f: Node3D = crew_figures[0]
+		var driver_anim := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
+		var lb: Label3D = f.get_meta("label")
+		if crew_driving:
+			f.position = Vector3(-0.55, -0.42, -2.85) * INTERIOR_SCALE
+			f.rotation.y = PI
+			driver_anim.play("drive", 0.15)
+			lb.text = "%s · 代驾" % crew_members[0].get("name", "")
+		else:
+			f.position = f.get_meta("home_pos")
+			f.rotation.y = float(f.get_meta("face", 0.0))
+			driver_anim.play("sit", 0.15)
+			lb.text = "%s · %s" % [crew_members[0].get("name", ""), f.get_meta("duty_label")]
+	if driver_figure != null:
+		driver_figure.visible = view_mode == 2 and not combat_active and not rv_walk_active and not crew_driving
+	hud.set_drive_buttons_visible(not parked and not combat_active and not rv_walk_active and not crew_driving)
+
+## Q/「起身」按钮：驻车可自由起身；行驶中起身会自动让首位队友代驾
 func start_rv_walk() -> void:
 	if rv_walk_active or combat_active or game_over or story_active:
 		return
@@ -2946,6 +2982,8 @@ func start_rv_walk() -> void:
 		hud.toast("行驶中需要队友代驾才能起身走动（先招募幸存者）")
 		return
 	set_facilities_ui(false)
+	if not parked and not crew_driving:
+		set_crew_driving(true)
 	var p := CharacterBody3D.new()
 	p.set_script(PLAYER_SCRIPT)
 	p.setup(self, 2)   # Mode.RV_WALK
@@ -2961,15 +2999,6 @@ func start_rv_walk() -> void:
 		crew_figures[i].visible = i < crew_members.size() and not crew_figures[i].get_meta("exterior", false)
 	if driver_figure != null:
 		driver_figure.visible = false   # 主角起身，驾驶位空出
-	if not parked:
-		# 队友代驾：首位队友挪到主驾，切换双手握方向盘的驾驶动作
-		crew_driving = true
-		crew_figures[0].position = Vector3(-0.55, -0.42, -2.85) * INTERIOR_SCALE
-		crew_figures[0].rotation.y = PI
-		var driver_anim := crew_figures[0].find_child("AnimationPlayer", true, false) as AnimationPlayer
-		driver_anim.play("drive", 0.15)
-		var lb0: Label3D = crew_figures[0].get_meta("label")
-		lb0.text = "%s · 代驾" % crew_members[0].get("name", "")
 	p.aim_yaw = 0.0    # 面朝车头（车内 -Z）
 	p.aim_pitch = 0.0
 	p._enter()
@@ -2983,10 +3012,11 @@ func start_rv_walk() -> void:
 		else:
 			hud.toast("已起身 · WASD 走动 · 右键拖动环顾 · E 设施 · F 出发")
 	elif DisplayServer.is_touchscreen_available():
-		hud.toast("%s 代驾中 · 左下摇杆移动 · 车内键接管 · 驻车键刹车" % crew_members[0].get("name", ""))
+		hud.toast("%s 代驾中 · 左下摇杆移动 · 自己开可接管 · 驻车键刹车" % crew_members[0].get("name", ""))
 	else:
-		hud.toast("%s 代驾中 · 自动起步/跟弯 · Q 接管 · F 刹车驻车" % crew_members[0].get("name", ""))
+		hud.toast("%s 代驾中 · 自动拾取/救人 · 自己开可接管 · F 刹车驻车" % crew_members[0].get("name", ""))
 
+## 回座只结束车内行走，不改变当前驾驶权
 func end_rv_walk() -> void:
 	if not rv_walk_active:
 		return
@@ -2998,23 +3028,16 @@ func end_rv_walk() -> void:
 	rv_walk_active = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	cam.make_current()
-	if crew_driving:
-		crew_driving = false
-		# 代驾结束：队友挪回副驾岗位（-3.18 与岗位表一致），坐姿与名牌还原
-		crew_figures[0].position = Vector3(0.55, -0.4, -3.18) * INTERIOR_SCALE
-		var driver_anim := crew_figures[0].find_child("AnimationPlayer", true, false) as AnimationPlayer
-		driver_anim.play("sit", 0.15)
-		var lb0: Label3D = crew_figures[0].get_meta("label")
-		lb0.text = "%s · %s" % [crew_members[0].get("name", ""), crew_figures[0].get_meta("duty_label")]
-	# 回驾驶座：驻车回车内视角，行驶回追尾视角
+	# 回座：驻车回车内视角，行驶回追尾视角
 	view_mode = 2 if parked else 0
-	rv_model.visible = true
-	interior.visible = false
-	for f in crew_figures:
-		f.visible = false
+	rv_model.visible = view_mode == 0
+	interior.visible = view_mode != 0
+	for i in crew_figures.size():
+		var on_roof: bool = crew_figures[i].get_meta("exterior", false)
+		crew_figures[i].visible = i < crew_members.size() and ((on_roof and view_mode == 0) or (not on_roof and view_mode == 2))
 	if driver_figure != null:
-		driver_figure.visible = false
-	hud.set_drive_buttons_visible(not parked)
+		driver_figure.visible = view_mode == 2 and not crew_driving
+	hud.set_drive_buttons_visible(not parked and not crew_driving)
 	if parked:
 		set_facilities_ui(true)
 
