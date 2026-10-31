@@ -95,8 +95,13 @@ func _physics_process(delta: float) -> void:
 		"snow":
 			grip = 0.55
 			braking = 0.6
-	# 坡度姿态：前后 5m 地面高差算俯仰（车头朝 -Z，前方更高即上坡抬车头）
-	var slope := atan2(main_node.ground_height(position.x, position.z - 2.5) - main_node.ground_height(position.x, position.z + 2.5), 5.0)
+	# 沿车头方向取前后 5m 高差，转弯后坡度仍与真实行驶方向一致
+	var forward := -global_transform.basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var front := position + forward * 2.5
+	var back := position - forward * 2.5
+	var slope := atan2(main_node.ground_height(front.x, front.z) - main_node.ground_height(back.x, back.z), 5.0)
 	_update_water(delta)
 	# 剧情对话期间：世界冻结，强制刹停并贴地（忽略一切驾驶输入）
 	if main_node.story_active:
@@ -107,6 +112,7 @@ func _physics_process(delta: float) -> void:
 		var drive_dir := -1.0 if reversing else 1.0
 		velocity = fwd0.normalized() * (speed_kmh * KMH_TO_UNITS * drive_dir)
 		move_and_slide()
+		_update_water(0.0)   # 移动后用新位置重算支撑高度，姿态与贴地保持同帧
 		position.y = _support_y
 		_align_to_terrain(_water_f)
 		main_node.rv_model.rotation.x = lerpf(main_node.rv_model.rotation.x, 0.0, delta * 3.0)
@@ -132,7 +138,7 @@ func _physics_process(delta: float) -> void:
 				elif engine_dead:
 					speed_kmh = maxf(speed_kmh - lerpf(DRAG, WATER_DRAG, _water_f) * delta, 0.0)
 				elif speed_kmh < _crew_cruise_kmh:
-					var climb := 1.0 + maxf(slope, 0.0) * 2.2
+					var climb := 1.0 + maxf(slope, 0.0) * 0.5
 					var accel := lerpf(ACCEL * grip * climb, WATER_ACCEL, _water_f)
 					speed_kmh = minf(speed_kmh + accel * delta, _crew_cruise_kmh)
 				else:
@@ -150,6 +156,7 @@ func _physics_process(delta: float) -> void:
 				_report_collisions()
 				if is_on_wall():
 					speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd1 * drive_dir) / KMH_TO_UNITS))
+		_update_water(0.0)   # 移动后用新位置重算支撑高度，姿态与贴地保持同帧
 		position.y = _support_y
 		_align_to_terrain(_water_f)
 		main_node.rv_model.rotation.x = lerpf(main_node.rv_model.rotation.x, 0.0, delta * 3.0)
@@ -170,7 +177,7 @@ func _physics_process(delta: float) -> void:
 		else:
 			# 沿当前运动方向爬坡补偿；倒退时坡向取反；水上不做爬坡补偿
 			var slope_along := -slope if reversing else slope
-			var climb := 1.0 + maxf(slope_along, 0.0) * 2.2
+			var climb := 1.0 + maxf(slope_along, 0.0) * 0.5
 			var max_speed: float = REVERSE_MAX_KMH if reversing else lerpf(main_node.MAX_KMH, WATER_MAX_KMH, _water_f)
 			var accel := ACCEL * grip * climb
 			if _water_f > 0.0:
@@ -203,6 +210,7 @@ func _physics_process(delta: float) -> void:
 		speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd * drive_dir) / KMH_TO_UNITS))
 
 	# 贴靠：陆地跟随地形高度，入水后平滑抬到水面（岸边不跳变）
+	_update_water(0.0)
 	position.y = _support_y
 
 	# 物理车身只贴合地形坡度；水面上保持水平。加速俯仰/转向侧倾仅作用于外壳

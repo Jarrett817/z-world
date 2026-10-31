@@ -1492,10 +1492,7 @@ func _on_btn_down(action: String) -> void:
 		"rvwalk":
 			if rv.main_node != null:
 				if rv.main_node.rv_walk_active:
-					if rv.main_node.parked:
-						toast("驻车休整中 · 按驻车键出发")
-					else:
-						rv.main_node.end_rv_walk()
+					rv.main_node.end_rv_walk()
 				else:
 					rv.main_node.start_rv_walk()
 		"sunroof":

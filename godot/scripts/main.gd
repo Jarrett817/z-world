@@ -1657,8 +1657,8 @@ func _build_crew() -> void:
 		[Vector3(0.55, -0.4, -1.30) * INTERIOR_SCALE, PI, "sit", "乘员", false],   # 后排座椅（原 seat_b0 前移后）
 		[Vector3(-0.55, -0.4, -0.10) * INTERIOR_SCALE, -PI * 0.5, "idle", "做饭", false],  # 灶台前
 		[Vector3(0.55, -0.4, 0.40) * INTERIOR_SCALE, PI * 0.5, "idle", "收拾", false],     # 货架前
-		[Vector3(1.00, -0.4, 2.00), PI * 0.5, "sit", "乘员", false],   # 右墙长凳（储物箱之后）
-		[Vector3(1.00, -0.4, 2.55), PI * 0.5, "sit", "乘员", false],
+		[Vector3(1.00, -0.4, 2.00), -PI * 0.5, "sit", "乘员", false],   # 右墙长凳（储物箱之后）
+		[Vector3(1.00, -0.4, 2.55), -PI * 0.5, "sit", "乘员", false],
 		[Vector3(-0.30, -0.4, 0.55), 0.0, "idle", "休整", false],      # 过道/餐桌区站活
 		[Vector3(0.35, -0.4, 0.95), 0.0, "idle", "休整", false],
 		[Vector3(-0.45, -0.4, 1.25), 0.0, "idle", "休整", false],
@@ -1947,8 +1947,19 @@ func _sync_crew() -> void:
 ## 给槽位模型挂步枪 + muzzle，并清掉上任射手遗留的弹药/换弹状态。prone=true 车顶趴哨：挂点对齐卧姿握把
 func _equip_fig_gun(f: Node3D, prone := false) -> void:
 	var gun := CharUtil.build_gun()
-	gun.position = PLAYER_SCRIPT.GUN_POS_PRONE if prone else Vector3(-0.12, 1.30, 0.33)
-	f.get_node("Char").add_child(gun)
+	var char: Node3D = f.get_node("Char")
+	if prone:
+		gun.position = PLAYER_SCRIPT.GUN_POS_PRONE
+		char.add_child(gun)
+	else:
+		var skel := char.find_child("Skeleton3D", true, false) as Skeleton3D
+		var bone := skel.find_bone("J_Bip_R_Hand")
+		var attach := BoneAttachment3D.new()
+		attach.bone_name = "J_Bip_R_Hand"
+		skel.add_child(attach)
+		attach.add_child(gun)
+		# 握把对齐右手骨，并抵消骨骼姿态旋转，保持 aim 下原有枪管朝向
+		gun.basis = skel.get_bone_global_pose(bone).basis.inverse()
 	var mz := Node3D.new()
 	mz.position = Vector3(0, 0.0, 0.62)  # AKM 枪口（build_gun 变换后枪管末端）
 	gun.add_child(mz)
@@ -1979,7 +1990,7 @@ func _set_life_combat(on: bool) -> void:
 		else:
 			if f.has_meta("muzzle"):
 				var gn: Node = f.get_meta("gun_node")
-				f.remove_child(gn)
+				gn.get_parent().remove_child(gn)
 				gn.queue_free()
 				f.remove_meta("muzzle")
 				f.remove_meta("gun_node")
