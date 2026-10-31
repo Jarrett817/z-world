@@ -217,13 +217,16 @@ func build(rv_node: Node) -> void:
 	root.add_child(toast_label)
 
 	# 左侧驾驶摇杆（动态）：左半屏任意位置按下即出现，前推前进，后拉先刹停再倒车，左右转向
+	# 矩形只覆盖左半屏：全屏 PASS 会截断右半屏下层按钮的触摸（PASS 不穿透兄弟节点）
 	drive_joystick = Joystick.new()
-	drive_joystick.set_anchors_preset(Control.PRESET_FULL_RECT)
+	drive_joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	drive_joystick.anchor_right = 0.5
+	drive_joystick.anchor_top = 0.42
 	drive_joystick.mouse_filter = Control.MOUSE_FILTER_PASS
 	root.add_child(drive_joystick)
-	drive_joystick.touch_zone = Rect2(0.0, root.size.y * 0.42, root.size.x * 0.5, root.size.y * 0.58)
+	drive_joystick.touch_zone = Rect2(0.0, 0.0, drive_joystick.size.x, drive_joystick.size.y)
 	drive_joystick.resized.connect(func() -> void:
-		drive_joystick.touch_zone = Rect2(0.0, root.size.y * 0.42, root.size.x * 0.5, root.size.y * 0.58))
+		drive_joystick.touch_zone = Rect2(0.0, 0.0, drive_joystick.size.x, drive_joystick.size.y))
 	drive_joystick.moved.connect(func(v: Vector2) -> void:
 		rv.touch_throttle = -v.y
 		rv.touch_steer = -v.x)
@@ -608,14 +611,16 @@ func _build_combat(root: Control) -> void:
 	rvwalk_roof_btn.visible = false
 	combat_fire_buttons.append(_touch_button(combat_root, "视角", Control.PRESET_TOP_RIGHT, Rect2(-170, 128, 146, 54), "fps"))
 	combat_fire_buttons.append(_touch_button(combat_root, "手雷", Control.PRESET_TOP_RIGHT, Rect2(-170, 192, 146, 54), "grenade"))
-	# 左下：动态虚拟摇杆（左半屏按下即在落点出现）
+	# 左下：动态虚拟摇杆（左半屏按下即在落点出现）。矩形只限左半屏，全屏 PASS 会吞掉右半屏下层驾驶按钮
 	var js := Joystick.new()
 	combat_joystick = js
-	js.set_anchors_preset(Control.PRESET_FULL_RECT)
+	js.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	js.anchor_right = 0.5
+	js.anchor_top = 0.42
 	js.mouse_filter = Control.MOUSE_FILTER_PASS
-	js.touch_zone = Rect2(0.0, combat_root.size.y * 0.42, combat_root.size.x * 0.5, combat_root.size.y * 0.58)
+	js.touch_zone = Rect2(0.0, 0.0, js.size.x, js.size.y)
 	js.resized.connect(func() -> void:
-		js.touch_zone = Rect2(0.0, combat_root.size.y * 0.42, combat_root.size.x * 0.5, combat_root.size.y * 0.58))
+		js.touch_zone = Rect2(0.0, 0.0, js.size.x, js.size.y))
 	js.moved.connect(func(v: Vector2) -> void:
 		var p: Node3D = rv.main_node.get_player_body()
 		if p != null:

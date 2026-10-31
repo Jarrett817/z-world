@@ -75,7 +75,7 @@ func _process(delta: float) -> void:
 		_hold = _base
 		_anim.play(_variants[randi() % _variants.size()], 0.3)
 
-## 战斗动作：shoot 一次性、结束回 aim；reload 一次性、结束停在末帧等逻辑切回；aim 据枪循环
+## 战斗动作：shoot 一次性、结束回据枪姿态（aim/prone）；reload 一次性、结束停在末帧等逻辑切回；aim/prone 据枪循环
 func play_combat(anim: StringName) -> void:
 	if _anim == null or not _anim.has_animation(anim):
 		return
@@ -87,7 +87,8 @@ func play_combat(anim: StringName) -> void:
 		&"shoot":
 			if _anim.current_animation == &"reload" or (_anim.current_animation == &"shoot" and _anim.is_playing()):
 				return
-			_hold = &"aim"
+			# 回当前据枪循环：车顶趴哨 prone，其余 aim
+			_hold = &"prone" if _base == &"prone" else &"aim"
 			if not _anim.is_connected("animation_finished", _on_one_shot_done):
 				_anim.animation_finished.connect(_on_one_shot_done)
 			_anim.play(&"shoot", 0.1)
@@ -95,9 +96,9 @@ func play_combat(anim: StringName) -> void:
 			if _anim.current_animation != &"reload":
 				_hold = &""
 				_anim.play(&"reload", 0.2)
-		&"aim":
-			if _anim.current_animation != &"aim":
-				_anim.play(&"aim", 0.25)
+		&"aim", &"prone":
+			if _anim.current_animation != anim:
+				_anim.play(anim, 0.25)
 
 ## 收枪结束战斗：恢复闲置插播并回基础姿态
 func end_combat() -> void:

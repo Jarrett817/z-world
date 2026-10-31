@@ -10,6 +10,7 @@ const ROLE_SCENES := {
 const AK_SCENE := preload("res://assets/guns/ak.glb")
 
 static var _scene_cache: Dictionary = {}
+static var _prone_anim: Animation
 
 ## 返回 {"node": 角色根 Node3D, "anim": AnimationPlayer}；anim_name 不存在时保持静息。
 ## expr 为 morph 常态表情参数（如 {"Fcl_ALL_Joy": 0.15}），自动挂 CharLively 活感组件；lively=false 跳过（战斗态自管动画）。
@@ -17,6 +18,14 @@ static func instantiate(cid: String, anim_name := "idle", expr: Dictionary = {},
 	var packed: PackedScene = _get_scene(cid)
 	var char: Node3D = packed.instantiate()
 	var anim: AnimationPlayer = char.find_child("AnimationPlayer", true, false)
+	# 核心骨架同源：队友直接复用 hero 的现成卧姿轨道，避免跨骨架重定向扭曲
+	if anim != null and anim_name == "prone" and _role_key(cid) != "hero":
+		if _prone_anim == null:
+			var hero: Node3D = _get_scene("hero").instantiate()
+			var hero_anim := hero.find_child("AnimationPlayer", true, false) as AnimationPlayer
+			_prone_anim = hero_anim.get_animation("prone")
+			hero.free()
+		anim.get_animation_library("").add_animation("prone", _prone_anim)
 	if anim != null and anim_name != "" and anim.has_animation(anim_name):
 		# idle/sit 必须循环，否则播完停在末帧，人物变成静止人偶
 		anim.get_animation(anim_name).loop_mode = Animation.LOOP_LINEAR

@@ -36,7 +36,8 @@ const MAX_KMH := 140.0
 const VIEW_AHEAD := 260.0
 const VIEW_BEHIND := 40.0
 const RV_MODEL_FOOT := 1.557   # GLB 轮底到模型原点的距离
-const RV_ROOF_Y := 2.077       # 实测 gs_001.glb 主车壳(Object_16)顶面局部高度，天窗站立用
+const RV_ROOF_Y := 1.51        # 实测 gs_001.glb 主车顶平面局部高度（物理射线），天窗/平顶哨位用
+const RV_RAISED_ROOF_Y := 2.04 # 车顶中部凸起舱顶（rv z≈0.55）实测高度
 const INTERIOR_SCALE := Vector3(1.18, 1.0, 1.12)  # 实际扩大舱内宽度与长度，仍留在外壳包络内
 const CREW_ORDER := ["lin_wan", "shen_man", "ye_lan", "tang_tang", "ivory"]
 const CREW_MAX := 20
@@ -1629,18 +1630,18 @@ func _build_interior() -> void:
 func _build_crew() -> void:
 	crew_font = SystemFont.new()
 	crew_font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "sans-serif"])
-	# 每槽：[本地坐标, 朝向y, 岗位, 名牌, 是否舱外(车顶)]；duty: sit=坐姿 idle=站活 gun=持枪哨 port=窗射孔
-	# 地板顶面 y=-0.4；车顶哨 root 踩车顶(RV_ROOF_Y)。GLB 正面朝 +Z，朝车头(-Z)的槽转 PI
+	# 每槽：[本地坐标, 朝向y, 岗位, 名牌, 是否舱外(车顶)]；duty: sit=坐姿 idle=站活 roof=车顶卧哨 port=窗射孔
+	# 地板顶面 y=-0.4；车顶哨 root 踩车顶(RV_ROOF_Y)、播 prone 趴卧据枪。GLB 正面朝 +Z，朝车头(-Z)的槽转 PI
 	var stations := [
 		# ---- 10 个持枪战斗位 ----
 		# 副驾（坐姿朝车头；座椅已前移贴方向盘，sit 髋部在 root 后方 0.324 故 root 再靠前 0.33）
 		[Vector3(0.55, -0.4, -3.18) * INTERIOR_SCALE, PI, "sit", "瞭望", false],
-		# 车顶：四哨各守一侧半平面，尾哨守正后方弧
-		[Vector3(-0.82, RV_ROOF_Y, 0.55), -PI * 0.5, "gun", "哨兵", true],
-		[Vector3(0.82, RV_ROOF_Y, 0.55), PI * 0.5, "gun", "哨兵", true],
-		[Vector3(-0.82, RV_ROOF_Y, 1.95), -PI * 0.5, "gun", "哨兵", true],
-		[Vector3(0.82, RV_ROOF_Y, 1.95), PI * 0.5, "gun", "哨兵", true],
-		[Vector3(0.0, RV_ROOF_Y, 2.55), PI, "gun", "尾哨", true],
+		# 车顶：四哨趴卧各守一侧半平面，尾哨趴卧守正后方弧
+		[Vector3(-0.82, RV_RAISED_ROOF_Y, 0.55), -PI * 0.5, "roof", "哨兵", true],
+		[Vector3(0.82, RV_RAISED_ROOF_Y, 0.55), PI * 0.5, "roof", "哨兵", true],
+		[Vector3(-0.82, 1.48, 1.95), -PI * 0.5, "roof", "哨兵", true],
+		[Vector3(0.82, 1.48, 1.95), PI * 0.5, "roof", "哨兵", true],
+		[Vector3(0.0, RV_ROOF_Y, 2.55), PI, "roof", "尾哨", true],
 		# 四窗射孔：两前窗格 + 右后窗格（左后被上下铺挡住）+ 尾门射孔，站据枪朝窗外/车后
 		[Vector3(-1.08, -0.4, -2.55), -PI * 0.5, "port", "射孔", false],
 		[Vector3(1.08, -0.4, -2.55), PI * 0.5, "port", "射孔", false],
@@ -1669,8 +1670,9 @@ func _build_crew() -> void:
 		lb.no_depth_test = false
 		lb.modulate = Color(1.0, 0.93, 0.84)
 		var seated: bool = st[2] == "sit"
-		# 坐姿头顶(rv 本地)约 0.79，名牌 1.30 悬顶 0.5 内不穿挡风；站姿头顶约 1.6，用 1.72
-		lb.position = Vector3(0, 1.30 if seated else 1.72, 0)
+		var prone: bool = st[2] == "roof"
+		# 坐姿头顶(rv 本地)约 0.79，名牌 1.30 悬顶 0.5 内不穿挡风；站姿头顶约 1.6，用 1.72；趴卧贴车顶用 0.62
+		lb.position = Vector3(0, 1.30 if seated else (0.62 if prone else 1.72), 0)
 		fig.add_child(lb)
 		fig.position = st[0]
 		fig.rotation.y = st[1]
@@ -1719,7 +1721,7 @@ func _build_duty_props() -> void:
 	_build_roof_props()
 	_build_life_props()
 
-## 车顶哨兵台：两侧低矮护栏 + 两个哨兵踏板（rv 本地坐标，车顶 y=RV_ROOF_Y）
+## 车顶哨兵台：两侧低矮护栏 + 两个哨兵踏板（rv 本地坐标，主车顶 y=RV_ROOF_Y）
 func _build_roof_props() -> void:
 	var rail_mat := StandardMaterial3D.new()
 	rail_mat.albedo_color = Color(0.24, 0.22, 0.2)
@@ -1729,21 +1731,21 @@ func _build_roof_props() -> void:
 	pad_mat.albedo_color = Color(0.16, 0.17, 0.16)
 	pad_mat.roughness = 0.9
 	# 两侧护栏：立柱 + 两道横杆（仅后舱生活段，车头驾驶舱留空不挡视线）；挂 roof_rig 随车壳倾斜
-	# 立柱高 0.88、中心 RV_ROOF_Y+0.38，底端插入车顶 0.06 消除悬空缝隙
+	# 实测车顶半宽约 1.19：x=±1.10 落在顶面内；立柱底 y=1.20 低于各截面顶面，确保插入车壳而非悬空
 	for side in [-1.0, 1.0]:
 		for zz in [-1.6, -0.2, 1.2, 2.6]:
 			var post := MeshInstance3D.new()
 			post.mesh = BoxMesh.new()
-			post.mesh.size = Vector3(0.07, 0.88, 0.07)
+			post.mesh.size = Vector3(0.07, 1.12, 0.07)
 			post.material_override = rail_mat
-			post.position = Vector3(side * 1.34, RV_ROOF_Y + 0.38, zz)
+			post.position = Vector3(side * 1.10, RV_ROOF_Y + 0.25, zz)
 			roof_rig.add_child(post)
-		for hy in [0.55, 0.8]:
+		for hy in [0.54, 0.79]:
 			var bar := MeshInstance3D.new()
 			bar.mesh = BoxMesh.new()
 			bar.mesh.size = Vector3(0.05, 0.05, 4.25)
 			bar.material_override = rail_mat
-			bar.position = Vector3(side * 1.34, RV_ROOF_Y + hy, 0.5)
+			bar.position = Vector3(side * 1.10, RV_ROOF_Y + hy, 0.5)
 			roof_rig.add_child(bar)
 	# 哨兵踏板：脚下暗圆垫，标识固定哨位
 	for side in [-1.0, 1.0]:
@@ -1754,7 +1756,7 @@ func _build_roof_props() -> void:
 		cm.height = 0.04
 		pad.mesh = cm
 		pad.material_override = pad_mat
-		pad.position = Vector3(side * 0.82, RV_ROOF_Y, 0.55)
+		pad.position = Vector3(side * 0.82, RV_RAISED_ROOF_Y, 0.55)
 		roof_rig.add_child(pad)
 
 ## 生活道具：床铺/吊柜/地毯/水壶/罐头/盆栽/吊灯罩/照片墙/储物箱（纯装饰，随内饰显隐；坐标为 rv 本地，地板顶 y=-0.4）
@@ -1923,22 +1925,23 @@ func _sync_crew() -> void:
 			var anim_name := "idle"
 			match duty:
 				"sit": anim_name = "sit"
-				"gun", "port": anim_name = "aim"
+				"roof": anim_name = "prone"
+				"port": anim_name = "aim"
 			var made := CharUtil.instantiate(String(m.get("id", "")), anim_name, m.get("expression", {}))
 			var char: Node3D = made["node"]
 			char.name = "Char"
 			f.add_child(char)
 			# 固定射手位持枪：枪口节点供 _update_auto_gunners 取世界坐标
-			if duty == "gun" or duty == "port":
-				_equip_fig_gun(f)
+			if duty == "roof" or duty == "port":
+				_equip_fig_gun(f, duty == "roof")
 			f.set_meta("life_combat", false)
 		else:
 			lb.text = ""
 
-## 给槽位模型挂步枪 + muzzle，并清掉上任射手遗留的弹药/换弹状态
-func _equip_fig_gun(f: Node3D) -> void:
+## 给槽位模型挂步枪 + muzzle，并清掉上任射手遗留的弹药/换弹状态。prone=true 车顶趴哨：挂点对齐卧姿握把
+func _equip_fig_gun(f: Node3D, prone := false) -> void:
 	var gun := CharUtil.build_gun()
-	gun.position = Vector3(-0.12, 1.30, 0.33)
+	gun.position = PLAYER_SCRIPT.GUN_POS_PRONE if prone else Vector3(-0.12, 1.30, 0.33)
 	f.get_node("Char").add_child(gun)
 	var mz := Node3D.new()
 	mz.position = Vector3(0, 0.0, 0.62)  # AKM 枪口（build_gun 变换后枪管末端）
@@ -2177,7 +2180,7 @@ func _update_auto_gunners(delta: float) -> void:
 			continue
 		var duty := String(f.get_meta("duty", ""))
 		var life_gun: bool = fi >= ARMED_STATIONS and bool(f.get_meta("life_combat", false))
-		if duty != "gun" and duty != "port" and not life_gun:
+		if duty != "roof" and duty != "port" and not life_gun:
 			continue
 		if f.get_meta("banter_until", 0.0) > now or bool(f.get_meta("wandering", false)):
 			continue
@@ -2241,14 +2244,18 @@ func _update_auto_gunners(delta: float) -> void:
 			sfx.play3d("gunshot", f.global_position, 0.9, 0.08)
 		f.set_meta("fire_cd", cd)
 
-## 射手动作播放：shoot 一次性动作（结束由 CharLively 自动回 aim）；reload/aim 直接切换
+## 射手动作播放：shoot 一次性动作（结束由 CharLively 自动回据枪姿态）；reload 直接切换；
+## 窗射孔站姿回 aim，车顶趴哨回 prone（CharLively 持枪手已随卧姿握住枪挂点）
 func _gunner_anim(f: Node3D, anim: String) -> void:
 	var char: Node = f.get_node_or_null("Char")
 	if char == null:
 		return
+	var play := anim
+	if anim == "aim" and String(f.get_meta("duty", "")) == "roof":
+		play = "prone"
 	var lively := char.get_node_or_null("CharLively") as CharLively
 	if lively != null:
-		lively.play_combat(StringName(anim))
+		lively.play_combat(StringName(play))
 
 ## 射手槽按射界选最近活尸：车顶侧哨=本侧半平面22m，尾哨=后扇22m，侧窗射孔=侧窗锥18m，尾门射孔=后扇18m，生活位=全向14m
 func _gunner_target(f: Node3D, duty: String, life_gun: bool) -> Node3D:
@@ -2264,7 +2271,7 @@ func _gunner_target(f: Node3D, duty: String, life_gun: bool) -> Node3D:
 		if not is_instance_valid(z) or z.dead:
 			continue
 		var rel: Vector3 = rv.to_local(z.global_position) - f.position
-		if duty == "gun":
+		if duty == "roof":
 			if side != 0.0:
 				if signf(rel.x) != side:
 					continue
@@ -2319,8 +2326,8 @@ func _gunner_test_tick(delta: float) -> void:
 	var all_pass := true
 	var dry_count := 0
 	for f in crew_figures:
-		# 只统计有人在岗的射手（空槽位 duty 仍为 gun，但无 Char 模型，永不开火）
-		if f.get_meta("duty", "") != "gun" or not f.has_node("Char") or not f.has_meta("muzzle"):
+		# 只统计有人在岗的射手（空槽位 duty 仍为 roof，但无 Char 模型，永不开火）
+		if f.get_meta("duty", "") != "roof" or not f.has_node("Char") or not f.has_meta("muzzle"):
 			continue
 		gunner_count += 1
 		if not _gt_state.has(f):
