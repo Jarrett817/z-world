@@ -12,6 +12,7 @@ const WTRUCK_SCENE := preload("res://assets/props/wtruck.glb")
 const BARRIERS_SCENE := preload("res://assets/props/barriers.glb")
 const BARRICADE_SCENE := preload("res://assets/props/barricade.glb")
 const FOOD_CRATE_SCENE := preload("res://assets/props/pickup_food.glb")
+const SOLAR_PANEL_SCENE := preload("res://assets/props/solar_panel.glb")
 const RV_SCRIPT := preload("res://scripts/rv.gd")
 const TERRAIN_SCRIPT := preload("res://scripts/terrain.gd")
 const ZOMBIE_SCRIPT := preload("res://scripts/zombie.gd")
@@ -1846,7 +1847,7 @@ func _build_duty_props() -> void:
 	_build_roof_props()
 	_build_life_props()
 
-## 车顶哨兵台：两侧低矮护栏 + 两个哨兵踏板（rv 本地坐标，主车顶 y=RV_ROOF_Y）
+## 车顶哨兵台：护栏延伸为太阳能板低棚，主车顶可半蹲、凸起舱顶保留卧姿净空
 func _build_roof_props() -> void:
 	var rail_mat := StandardMaterial3D.new()
 	rail_mat.albedo_color = Color(0.24, 0.22, 0.2)
@@ -1855,15 +1856,19 @@ func _build_roof_props() -> void:
 	var pad_mat := StandardMaterial3D.new()
 	pad_mat.albedo_color = Color(0.16, 0.17, 0.16)
 	pad_mat.roughness = 0.9
+	var solar_mat := StandardMaterial3D.new()
+	solar_mat.albedo_color = Color(0.035, 0.09, 0.16)
+	solar_mat.metallic = 0.35
+	solar_mat.roughness = 0.42
 	# 两侧护栏：立柱 + 两道横杆（仅后舱生活段，车头驾驶舱留空不挡视线）；挂 roof_rig 随车壳倾斜
-	# 实测车顶半宽约 1.19：x=±1.10 落在顶面内；立柱底 y=1.20 低于各截面顶面，确保插入车壳而非悬空
+	# 实测车顶半宽约 1.19：x=±1.10 落在顶面内；立柱底 y=1.20 插入车壳，顶端 y=2.80 托住棚架
 	for side in [-1.0, 1.0]:
 		for zz in [-1.6, -0.2, 1.2, 2.6]:
 			var post := MeshInstance3D.new()
 			post.mesh = BoxMesh.new()
-			post.mesh.size = Vector3(0.07, 1.12, 0.07)
+			post.mesh.size = Vector3(0.07, 1.60, 0.07)
 			post.material_override = rail_mat
-			post.position = Vector3(side * 1.10, RV_ROOF_Y + 0.25, zz)
+			post.position = Vector3(side * 1.10, RV_ROOF_Y + 0.49, zz)
 			roof_rig.add_child(post)
 		for hy in [0.54, 0.79]:
 			var bar := MeshInstance3D.new()
@@ -1872,6 +1877,32 @@ func _build_roof_props() -> void:
 			bar.material_override = rail_mat
 			bar.position = Vector3(side * 1.10, RV_ROOF_Y + hy, 0.5)
 			roof_rig.add_child(bar)
+		var top_beam := MeshInstance3D.new()
+		top_beam.mesh = BoxMesh.new()
+		top_beam.mesh.size = Vector3(0.06, 0.06, 5.15)
+		top_beam.material_override = rail_mat
+		top_beam.position = Vector3(side * 1.10, 2.77, 0.95)
+		roof_rig.add_child(top_beam)
+	for zz in [-1.6, 0.1, 1.8, 3.5]:
+		var cross_beam := MeshInstance3D.new()
+		cross_beam.mesh = BoxMesh.new()
+		cross_beam.mesh.size = Vector3(2.25, 0.06, 0.07)
+		cross_beam.material_override = rail_mat
+		cross_beam.position = Vector3(0.0, 2.77, zz)
+		roof_rig.add_child(cross_beam)
+	# CC0 现成板面：隐藏落地钢架，只保留太阳能板；原板面倾斜 24°，转平后五板连续覆盖五个卧姿哨位
+	for i in 5:
+		var panel := SOLAR_PANEL_SCENE.instantiate() as Node3D
+		panel.name = "SolarPanel%d" % i
+		panel.scale = Vector3(1.30, 1.0, 1.0)
+		panel.rotation.x = deg_to_rad(-24.0)
+		panel.position = Vector3(0.0, 2.82, -1.04 + i * 1.02)
+		var ground_frame := panel.find_child("solar-panel-on-frame-steel", true, false) as MeshInstance3D
+		ground_frame.hide()
+		var cells := panel.find_child("solar-panel-on-frame-charcoal", true, false) as MeshInstance3D
+		cells.position = Vector3.ZERO
+		cells.material_override = solar_mat
+		roof_rig.add_child(panel)
 	# 哨兵踏板：脚下暗圆垫，标识固定哨位
 	for side in [-1.0, 1.0]:
 		var pad := MeshInstance3D.new()
