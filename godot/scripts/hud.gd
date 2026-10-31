@@ -91,6 +91,7 @@ var drive_view_btn: Button
 var rvwalk_btn: Button
 var drive_misc_buttons: Array[Button] = []   # 视角/驻车/天窗/下车/车内（战斗时连同驾驶摇杆一起收起）
 var combat_fire_buttons: Array[Button] = []   # 车内行走时要藏起来的开火类按钮
+var rvwalk_fire_buttons: Array[Button] = []   # 车内射击点附近开放的开火/换弹
 var combat_stance_buttons: Array[Button] = [] # 跳跃/下蹲：车顶卧姿时隐藏
 var combat_joystick: Control
 var rvwalk_roof_btn: Button   # 车内行走时专用：爬上车顶守卫（队友继续代驾）
@@ -597,11 +598,15 @@ func _build_combat(root: Control) -> void:
 	gun_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	combat_root.add_child(gun_label)
 	# 触屏战斗按钮组：开火（大）/ 跳跃 / 换弹 / 换枪 / 下蹲 / 上车撤离
-	combat_fire_buttons.append(_touch_button(combat_root, "开火", Control.PRESET_BOTTOM_RIGHT, Rect2(-170, -140, 146, 116), "fire"))
+	var fire_btn := _touch_button(combat_root, "开火", Control.PRESET_BOTTOM_RIGHT, Rect2(-170, -140, 146, 116), "fire")
+	combat_fire_buttons.append(fire_btn)
+	rvwalk_fire_buttons.append(fire_btn)
 	var jump_btn := _touch_button(combat_root, "跳跃", Control.PRESET_BOTTOM_RIGHT, Rect2(-170, -262, 146, 62), "jump")
 	combat_fire_buttons.append(jump_btn)
 	combat_stance_buttons.append(jump_btn)
-	combat_fire_buttons.append(_touch_button(combat_root, "换弹", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -204, 150, 54), "reload"))
+	var reload_btn := _touch_button(combat_root, "换弹", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -204, 150, 54), "reload")
+	combat_fire_buttons.append(reload_btn)
+	rvwalk_fire_buttons.append(reload_btn)
 	combat_fire_buttons.append(_touch_button(combat_root, "换枪", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -140, 150, 54), "swapgun"))
 	var crouch_btn := _touch_button(combat_root, "下蹲", Control.PRESET_BOTTOM_RIGHT, Rect2(-336, -76, 150, 54), "crouch")
 	combat_fire_buttons.append(crouch_btn)
@@ -671,7 +676,7 @@ func set_combat_active(active: bool, ammo: int, hp: float) -> void:
 func _is_parked() -> bool:
 	return rv != null and rv.main_node != null and rv.main_node.parked
 
-## 车内行走：复用战斗 HUD 底板，但只留摇杆与「上车」撤离（无法开枪/跳跃/换枪）
+## 车内行走：复用战斗 HUD 底板，默认只留摇杆与「上车」撤离，射击点附近再开放开火/换弹
 func set_rv_walk_active(v: bool) -> void:
 	combat_root.visible = v
 	if v:
@@ -689,6 +694,14 @@ func set_rv_walk_active(v: bool) -> void:
 	gun_label.visible = not v
 	combat_hint.visible = not v
 	rvwalk_roof_btn.visible = v
+
+func set_rv_walk_fire_enabled(v: bool) -> void:
+	for b in rvwalk_fire_buttons:
+		b.visible = v
+	ammo_label.visible = v
+	gun_label.visible = v
+	combat_hint.text = "射击点 · 左键 开火 · R 换弹"
+	combat_hint.visible = v
 
 ## 瞄准数据（相机已直接朝向，准星居中即可；保留接口）
 func set_combat_aim(_dir: Vector3, _pos: Vector3) -> void:

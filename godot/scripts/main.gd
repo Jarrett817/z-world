@@ -11,6 +11,7 @@ const WCAR_SCENE := preload("res://assets/props/wcar.glb")
 const WTRUCK_SCENE := preload("res://assets/props/wtruck.glb")
 const BARRIERS_SCENE := preload("res://assets/props/barriers.glb")
 const BARRICADE_SCENE := preload("res://assets/props/barricade.glb")
+const FOOD_CRATE_SCENE := preload("res://assets/props/pickup_food.glb")
 const RV_SCRIPT := preload("res://scripts/rv.gd")
 const TERRAIN_SCRIPT := preload("res://scripts/terrain.gd")
 const ZOMBIE_SCRIPT := preload("res://scripts/zombie.gd")
@@ -38,10 +39,17 @@ const VIEW_BEHIND := 40.0
 const RV_MODEL_FOOT := 1.557   # GLB 轮底到模型原点的距离
 const RV_ROOF_Y := 1.51        # 实测 gs_001.glb 主车顶平面局部高度（物理射线），天窗/平顶哨位用
 const RV_RAISED_ROOF_Y := 2.04 # 车顶中部凸起舱顶（rv z≈0.55）实测高度
-const INTERIOR_SCALE := Vector3(1.18, 1.0, 1.12)  # 实际扩大舱内宽度与长度，仍留在外壳包络内
+const INTERIOR_SCALE := Vector3(1.18, 1.0, 1.55)  # 10 米车壳内约 8.4 米有效舱长，30 人编制
 const CREW_ORDER := ["lin_wan", "shen_man", "ye_lan", "tang_tang", "ivory"]
-const CREW_MAX := 20
+const CREW_MAX := 30
 const ARMED_STATIONS := 10   # 前 10 槽为持枪战斗位（副驾/车顶/窗射孔/车尾哨），其余为舱内生活位
+const RV_PORT_POINTS := [
+	Vector3(-1.08, -0.4, -2.55),
+	Vector3(1.08, -0.4, -2.55),
+	Vector3(0.0, -0.4, 2.45) * INTERIOR_SCALE,
+	Vector3(1.05, -0.4, 1.60),
+]
+const RV_PORT_RANGE := 0.85
 
 # 场景音乐（六种处境各一首，交叉淡入淡出切换）
 const MUSIC_TRACKS := {
@@ -1600,6 +1608,7 @@ func _build_rv() -> void:
 	headlight.rotation_degrees = Vector3(-11, 0, 0)
 	rv.add_child(headlight)
 	_build_interior()
+	_build_underbody_storage()
 	_build_crew()
 	add_child(rv)
 
@@ -1631,8 +1640,48 @@ func _build_interior() -> void:
 		if bed_part != null:
 			bed_part.visible = false
 
-## 车内岗位制：20 槽大巴编制。前 10 槽持枪战斗位（副驾瞭望/车顶四哨/四窗射孔/车尾哨），
-## 后 10 槽舱内生活位（后排座/灶台/货架/贴墙长凳/过道站）；战斗时生活位全员领枪开火（_update_auto_gunners）
+## 车底两侧侧开式储物柜：地板与轮底之间囤水和物资，挂在车壳上随俯仰/侧倾一起运动
+func _build_underbody_storage() -> void:
+	var rack := Node3D.new()
+	rack.name = "UnderbodyStorage"
+	rack.rotation.y = PI   # 与 RoofRig 相同，子件使用 rv 本地坐标
+	rv_model.add_child(rack)
+	var metal := StandardMaterial3D.new()
+	metal.albedo_color = Color(0.22, 0.24, 0.25)
+	metal.metallic = 0.45
+	metal.roughness = 0.62
+	var box := func(size: Vector3, pos: Vector3, material: Material) -> void:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = size
+		mi.mesh = bm
+		mi.material_override = material
+		mi.position = pos
+		rack.add_child(mi)
+	var water_mat := StandardMaterial3D.new()
+	water_mat.albedo_color = Color(0.20, 0.48, 0.62)
+	water_mat.roughness = 0.72
+	for side in [-1.0, 1.0]:
+		# 无外侧门板的柜体让内容物可见；底板、顶板、背板和中层搁架组成真实储物格
+		box.call(Vector3(0.56, 0.06, 2.40), Vector3(side * 1.30, -1.31, 0.30), metal)
+		box.call(Vector3(0.56, 0.05, 2.40), Vector3(side * 1.30, -0.58, 0.30), metal)
+		box.call(Vector3(0.05, 0.73, 2.40), Vector3(side * 1.03, -0.94, 0.30), metal)
+		box.call(Vector3(0.52, 0.04, 2.32), Vector3(side * 1.31, -0.94, 0.30), metal)
+		for zz in [-0.90, 1.50]:
+			box.call(Vector3(0.06, 0.73, 0.06), Vector3(side * 1.56, -0.94, zz), metal)
+		# 向下翻开的舱门形成托板，仍高于轮底
+		box.call(Vector3(0.62, 0.04, 2.36), Vector3(side * 1.48, -1.42, 0.30), metal)
+		for i in 3:
+			box.call(Vector3(0.34, 0.30, 0.34), Vector3(side * 1.32, -1.12, -0.55 + float(i) * 0.43), water_mat)
+			box.call(Vector3(0.12, 0.05, 0.12), Vector3(side * 1.32, -0.945, -0.55 + float(i) * 0.43), metal)
+		for zz in [0.60, 1.15]:
+			var crate := FOOD_CRATE_SCENE.instantiate() as Node3D
+			crate.scale = Vector3.ONE * 0.30
+			crate.position = Vector3(side * 1.32, -0.91, zz)
+			rack.add_child(crate)
+
+## 车内岗位制：30 槽大巴编制。前 10 槽持枪战斗位（副驾瞭望/车顶四哨/四窗射孔/车尾哨），
+## 后 20 槽舱内生活位（右侧五排双座/灶台/货架/贴墙长凳/左侧过道）；战斗时生活位全员领枪开火
 func _build_crew() -> void:
 	crew_font = SystemFont.new()
 	crew_font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "sans-serif"])
@@ -1649,22 +1698,26 @@ func _build_crew() -> void:
 		[Vector3(0.82, 1.48, 1.95), PI * 0.5, "roof", "哨兵", true],
 		[Vector3(0.0, RV_ROOF_Y, 2.55), PI, "roof", "尾哨", true],
 		# 四窗射孔：两前窗格 + 右后窗格（左后被上下铺挡住）+ 尾门射孔，站据枪朝窗外/车后
-		[Vector3(-1.08, -0.4, -2.55), -PI * 0.5, "port", "射孔", false],
-		[Vector3(1.08, -0.4, -2.55), PI * 0.5, "port", "射孔", false],
-		[Vector3(0.0, -0.4, 2.45), 0.0, "port", "尾射孔", false],
-		[Vector3(1.05, -0.4, 1.60), PI * 0.5, "port", "射孔", false],
-		# ---- 10 个舱内生活位 ----
+		[RV_PORT_POINTS[0], -PI * 0.5, "port", "射孔", false],
+		[RV_PORT_POINTS[1], PI * 0.5, "port", "射孔", false],
+		[RV_PORT_POINTS[2], 0.0, "port", "尾射孔", false],
+		[RV_PORT_POINTS[3], PI * 0.5, "port", "射孔", false],
+		# ---- 20 个舱内生活位 ----
 		[Vector3(0.55, -0.4, -1.30) * INTERIOR_SCALE, PI, "sit", "乘员", false],   # 后排座椅（原 seat_b0 前移后）
-		[Vector3(-0.55, -0.4, -0.10) * INTERIOR_SCALE, -PI * 0.5, "idle", "做饭", false],  # 灶台前
-		[Vector3(0.55, -0.4, 0.40) * INTERIOR_SCALE, PI * 0.5, "idle", "收拾", false],     # 货架前
-		[Vector3(1.00, -0.4, 2.00), -PI * 0.5, "sit", "乘员", false],   # 右墙长凳（储物箱之后）
-		[Vector3(1.00, -0.4, 2.55), -PI * 0.5, "sit", "乘员", false],
-		[Vector3(-0.30, -0.4, 0.55), 0.0, "idle", "休整", false],      # 过道/餐桌区站活
-		[Vector3(0.35, -0.4, 0.95), 0.0, "idle", "休整", false],
-		[Vector3(-0.45, -0.4, 1.25), 0.0, "idle", "休整", false],
-		[Vector3(0.20, -0.4, 0.20), 0.0, "idle", "休整", false],
-		[Vector3(0.0, -0.4, 1.55), PI, "idle", "休整", false],
+		[Vector3(-0.90, -0.4, -0.10) * INTERIOR_SCALE, -PI * 0.5, "idle", "做饭", false],  # 灶台前
+		[Vector3(0.35, -0.4, 2.15) * INTERIOR_SCALE, PI * 0.5, "idle", "收拾", false],     # 尾部物资区
+		[Vector3(1.00, -0.4, 1.79) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],   # 右墙长凳
+		[Vector3(1.00, -0.4, 2.28) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],
+		[Vector3(-0.30, -0.4, -1.45) * INTERIOR_SCALE, 0.0, "idle", "休整", false],      # 左侧过道，避开右侧座椅排
+		[Vector3(-0.30, -0.4, -0.85) * INTERIOR_SCALE, 0.0, "idle", "休整", false],
+		[Vector3(-0.30, -0.4, -0.25) * INTERIOR_SCALE, 0.0, "idle", "休整", false],
+		[Vector3(-0.30, -0.4, 0.35) * INTERIOR_SCALE, 0.0, "idle", "休整", false],
+		[Vector3(-0.30, -0.4, 0.95) * INTERIOR_SCALE, PI, "idle", "休整", false],
 	]
+	# 右侧五排双座：与车尾长凳、右后射孔错位，左侧保留贯通过道
+	for row in 5:
+		for sx in [0.25, 0.75]:
+			stations.append([Vector3(sx, -0.4, -0.85 + float(row) * 0.50) * INTERIOR_SCALE, PI, "sit", "乘员", false])
 	for st in stations:
 		var fig := Node3D.new()
 		var lb := Label3D.new()
@@ -1880,6 +1933,14 @@ func _build_life_props() -> void:
 	# 右墙贴墙长凳：两个坐姿生活位（本地 z≈1.79/2.28，对应乘员槽 13/14）
 	box.call(Vector3(0.50, 0.12, 1.05), Vector3(1.00, -0.16, 1.95), mattress_col)
 	box.call(Vector3(0.08, 0.62, 1.05), Vector3(1.23, 0.15, 1.95), wood.darkened(0.05))
+	# 右侧五排双座：十个新增坐姿岗位一一对应；左侧过道与床铺入口保持畅通
+	for row in 5:
+		var sz := -0.85 + float(row) * 0.50
+		for sx in [0.25, 0.75]:
+			box.call(Vector3(0.43, 0.12, 0.42), Vector3(sx, -0.16, sz), mattress_col)
+			box.call(Vector3(0.43, 0.62, 0.08), Vector3(sx, 0.15, sz + 0.21), wood.darkened(0.05))
+		for lx in [0.12, 0.88]:
+			box.call(Vector3(0.05, 0.24, 0.05), Vector3(lx, -0.28, sz), wood.darkened(0.12))
 	# 四处射击孔：深色开孔板 + 枪灰钢框（两侧窗前射孔 ×2、右后窗、尾门）；坐标为内饰本地
 	var port_metal := StandardMaterial3D.new()
 	port_metal.albedo_color = Color(0.22, 0.21, 0.19)
@@ -2085,10 +2146,10 @@ func _start_banter() -> void:
 
 ## 舱内生活位队员自行走动：非战斗时隔段时间起身走到过道另一处，站几秒再走回岗位（漫游中不参与开火）
 var _wander_points := [
-	Vector3(-0.35, -0.4, -0.9) * INTERIOR_SCALE,
-	Vector3(0.35, -0.4, 0.3) * INTERIOR_SCALE,
-	Vector3(-0.3, -0.4, 1.5) * INTERIOR_SCALE,
-	Vector3(0.25, -0.4, 1.05) * INTERIOR_SCALE,
+	Vector3(-0.30, -0.4, -1.40) * INTERIOR_SCALE,
+	Vector3(-0.30, -0.4, -0.70) * INTERIOR_SCALE,
+	Vector3(-0.30, -0.4, 0.00) * INTERIOR_SCALE,
+	Vector3(-0.30, -0.4, 0.70) * INTERIOR_SCALE,
 ]
 
 func _update_crew_wander(delta: float) -> void:
@@ -4113,6 +4174,7 @@ func _next_crew_member() -> Dictionary:
 func _make_generic_member(gidx: int) -> Dictionary:
 	var cfg: Dictionary = survivors_data.get("_generic", {})
 	var names: Array = cfg.get("names", ["幸存者"])
+	var avatars: Array = cfg.get("avatars", [])
 	var titles: Array = cfg.get("titles", ["流浪者"])
 	var skills: Array = cfg.get("skills", ["杂活"])
 	var rng := RandomNumberGenerator.new()
@@ -4120,6 +4182,7 @@ func _make_generic_member(gidx: int) -> Dictionary:
 	return {
 		"id": "gen%d" % gidx,
 		"name": names[gidx % names.size()],
+		"avatar": avatars[gidx % avatars.size()],
 		"title": titles[rng.randi_range(0, titles.size() - 1)],
 		"skill": skills[rng.randi_range(0, skills.size() - 1)],
 		"atk": rng.randi_range(1, 3),

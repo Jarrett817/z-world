@@ -265,6 +265,7 @@ func _physics_process(delta: float) -> void:
 	_c_down = ck
 	if mode == Mode.RV_WALK:
 		_move_rv(delta)
+		main_node.hud.set_rv_walk_fire_enabled(_near_rv_port())
 	elif mode == Mode.ON_FOOT:
 		_move_foot(delta)
 	else:
@@ -447,9 +448,15 @@ func _aim_and_camera(delta: float) -> void:
 	_apply_gun(delta)
 	main_node.hud.set_combat_aim(look_dir, cam.global_position)
 
+func _near_rv_port() -> bool:
+	for p in main_node.RV_PORT_POINTS:
+		if position.distance_squared_to(p) <= main_node.RV_PORT_RANGE * main_node.RV_PORT_RANGE:
+			return true
+	return false
+
 func _try_fire() -> void:
-	if mode == Mode.RV_WALK:
-		main_node.hud.toast("车内无法开枪，Q 回驾驶座后下车作战")
+	if mode == Mode.RV_WALK and not _near_rv_port():
+		main_node.hud.toast("靠近窗射孔或尾射孔开枪")
 		fire_cd = 0.8
 		return
 	if fire_cd > 0.0:
