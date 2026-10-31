@@ -113,6 +113,8 @@ func _physics_process(delta: float) -> void:
 		return
 	if flung_t > 0.0:
 		flung_t -= delta
+		if flung_t <= 0.0:
+			set_collision_mask_value(2, true)  # 击飞结束后恢复车身碰撞，避免之后步行穿进车厢
 		return
 	if stagger_t > 0.0:
 		stagger_t -= delta
@@ -195,7 +197,8 @@ func _chase(delta: float) -> void:
 		growl_t = randf_range(4.0, 9.0)
 		main_node.sfx.play3d("zombie_growl", global_position, 1.0, 0.15)
 	var target_pos: Vector3 = rv.global_position
-	var player: Node3D = main_node.get_player_body()
+	# 车内行走玩家不是可啃咬目标：追车外壳，不能穿过车厢追人
+	var player: Node3D = null if main_node.rv_walk_active else main_node.get_player_body()
 	var hunt: Node3D = hunt_target if is_instance_valid(hunt_target) else null
 	if hunt != null:
 		target_pos = hunt.global_position

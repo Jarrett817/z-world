@@ -42,7 +42,7 @@ const RV_RAISED_ROOF_Y := 2.04 # 车顶中部凸起舱顶（rv z≈0.55）实测
 const INTERIOR_SCALE := Vector3(1.18, 1.0, 1.55)  # 10 米车壳内约 8.4 米有效舱长，30 人编制
 const CREW_ORDER := ["lin_wan", "shen_man", "ye_lan", "tang_tang", "ivory"]
 const CREW_MAX := 30
-const ARMED_STATIONS := 10   # 前 10 槽为持枪战斗位（副驾/车顶/窗射孔/车尾哨），其余为舱内生活位
+const ARMED_STATIONS := 10   # 前 10 槽为战斗编制：1 个副驾瞭望 + 9 个固定射手，其余为舱内生活位
 const RV_PORT_POINTS := [
 	Vector3(-1.08, -0.4, -2.55),
 	Vector3(1.08, -0.4, -2.55),
@@ -159,6 +159,9 @@ var survivors_data := {}
 var crew_members: Array = []
 var bonds: Dictionary = {}   # 幸存者 id → 羁绊值 0..100（每 15 一颗心，3 心满）
 var crew_figures: Array = []
+var crew_fatigue: Dictionary = {}   # 幸存者 id → 疲劳 0..100；战斗积累、坐姿生活位恢复
+var _fatigue_cfg: Dictionary = {}
+var _shift_cd := 0.0
 var _npc_gun_cfg: Dictionary = {}   # guns.json "npc_gunner" 节：射手弹匣/换弹/射界（首次用到时加载）
 var driver_figure: Node3D   # 主角驾驶位模型（坐姿 + 双手 IK 握方向盘）
 var crew_font: SystemFont
@@ -270,6 +273,7 @@ func _ready() -> void:
 	var guns_parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/guns.json"))
 	if guns_parsed is Dictionary:
 		_ammo_cfg = guns_parsed.get("ammo", {})
+		_npc_gun_cfg = guns_parsed.get("npc_gunner", {})
 	ammo_reserve = float(_ammo_cfg.get("start", 0))
 	if _gunner_test:
 		ammo_reserve = 240.0   # 4 哨各领 60（首匣 30 + 换弹 30），用于验证打光停火
@@ -367,6 +371,7 @@ func _physics_process(delta: float) -> void:
 	if story_active:
 		return
 	_update_resources(delta)
+	_update_crew_fatigue(delta)
 	_update_weather(delta)
 	_update_zombies(delta)
 	_update_bullets(delta)
@@ -427,6 +432,7 @@ func _load_world() -> void:
 		_time_rates = Vector2(float(tm.get("drive_rate", 0.03)), float(tm.get("park_rate", 0.15)))
 		var audio: Dictionary = parsed.get("audio", {})
 		_rv_growl_attenuation_db = float(audio.get("rv_growl_attenuation_db", 0.0))
+		_fatigue_cfg = parsed.get("crew_fatigue", {})
 		if not _hamlet_cfg.is_empty():
 			var kr: Array = _hamlet_cfg.get("km_range", [3.0, 5.0])
 			_hamlet_km = lerpf(float(kr[0]), float(kr[1]), _jh(31))
@@ -1023,6 +1029,53 @@ func _update_resources(delta: float) -> void:
 		add_trauma(1.0)
 		story._open("deathbed")
 
+## 战斗位积累疲劳，生活位恢复；疲劳到阈值后与低疲劳的坐姿队员换班，岗位弹匣不随人转移
+func _update_crew_fatigue(delta: float) -> void:
+	_shift_cd = maxf(0.0, _shift_cd - delta)
+	var combat_rate := float(_fatigue_cfg.get("combat_rate", 0.35))
+	var rest_rate := float(_fatigue_cfg.get("rest_rate", 1.0))
+	var shift_at := float(_fatigue_cfg.get("shift_at", 80.0))
+	var tired := -1
+	var count := mini(crew_members.size(), crew_figures.size())
+	for i in count:
+		var sid := String(crew_members[i].get("id", ""))
+		var f: Node3D = crew_figures[i]
+		var active: bool = i < ARMED_STATIONS or bool(f.get_meta("life_combat", false))
+		var value := float(crew_fatigue.get(sid, 0.0))
+		value = clampf(value + delta * (combat_rate if active else -rest_rate), 0.0, 100.0)
+		crew_fatigue[sid] = value
+		if tired < 0 and active and value >= shift_at:
+			tired = i
+	if tired < 0 or _shift_cd > 0.0:
+		return
+	var replacement_below := float(_fatigue_cfg.get("replacement_below", 30.0))
+	var replacement := -1
+	var lowest := 101.0
+	for i in range(ARMED_STATIONS, count):
+		var f: Node3D = crew_figures[i]
+		if String(f.get_meta("duty", "")) != "sit" or bool(f.get_meta("life_combat", false)) or bool(f.get_meta("wandering", false)):
+			continue
+		var value := float(crew_fatigue.get(String(crew_members[i].get("id", "")), 0.0))
+		if value <= replacement_below and value < lowest:
+			lowest = value
+			replacement = i
+	if replacement < 0:
+		return
+	var tired_name := String(crew_members[tired].get("name", ""))
+	var relief_name := String(crew_members[replacement].get("name", ""))
+	var member: Dictionary = crew_members[tired]
+	crew_members[tired] = crew_members[replacement]
+	crew_members[replacement] = member
+	_shift_cd = float(_fatigue_cfg.get("shift_cooldown", 4.0))
+	_sync_crew()
+	if crew_driving:
+		var driver_anim := crew_figures[0].find_child("AnimationPlayer", true, false) as AnimationPlayer
+		if driver_anim != null:
+			driver_anim.play("drive", 0.15)
+		(crew_figures[0].get_meta("label") as Label3D).text = "%s · 代驾" % crew_members[0].get("name", "")
+	hud.set_crew(crew_members)
+	hud.toast("%s 接替 %s · 疲劳队员回座休整" % [relief_name, tired_name])
+
 func _do_game_over() -> void:
 	game_over = true
 	rv.engine_dead = true
@@ -1046,12 +1099,17 @@ func save_game() -> void:
 	var ids: Array = []
 	for m in crew_members:
 		ids.append(String(m.get("id", "")))
+	var mags: Array = []
+	for f in crew_figures:
+		mags.append(int(f.get_meta("npc_ammo", -1)))
 	var data := {
 		"version": 1,
 		"durability": durability, "fuel": fuel, "food": food,
 		"morale": morale, "parts": parts, "ammo": ammo_reserve, "crew": crew,
 		"dist_km": dist_km, "day": day, "hour": hour,
 		"crew_ids": ids,
+		"npc_mags": mags,
+		"fatigue": crew_fatigue,
 		"facility_levels": facility_levels,
 		"story_fired": story.fired,
 		"quests": quest.save_state(),
@@ -1090,6 +1148,14 @@ func _apply_save(sv: Dictionary) -> void:
 			d = _make_generic_member(int(sid.trim_prefix("gen")))
 		if not d.is_empty():
 			crew_members.append(d)
+	var saved_fatigue: Dictionary = sv.get("fatigue", {})
+	for m in crew_members:
+		var sid := String(m.get("id", ""))
+		crew_fatigue[sid] = clampf(float(saved_fatigue.get(sid, 0.0)), 0.0, 100.0)
+	var mags: Array = sv.get("npc_mags", [])
+	for i in mini(mags.size(), crew_figures.size()):
+		if int(mags[i]) >= 0:
+			crew_figures[i].set_meta("npc_ammo", int(mags[i]))
 	var fl: Dictionary = sv.get("facility_levels", {})
 	for k in fl:
 		if facility_levels.has(k):
@@ -1680,15 +1746,15 @@ func _build_underbody_storage() -> void:
 			crate.position = Vector3(side * 1.32, -0.91, zz)
 			rack.add_child(crate)
 
-## 车内岗位制：30 槽大巴编制。前 10 槽持枪战斗位（副驾瞭望/车顶四哨/四窗射孔/车尾哨），
-## 后 20 槽舱内生活位（右侧五排双座/灶台/货架/贴墙长凳/左侧过道）；战斗时生活位全员领枪开火
+## 车内岗位制：30 槽大巴编制。前 10 槽为 1 个瞭望 + 9 个固定射手，
+## 后 20 槽舱内生活位（五排三座/灶台/货架/贴墙长凳）；疲劳后与坐姿生活位自动换班
 func _build_crew() -> void:
 	crew_font = SystemFont.new()
 	crew_font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "sans-serif"])
 	# 每槽：[本地坐标, 朝向y, 岗位, 名牌, 是否舱外(车顶)]；duty: sit=坐姿 idle=站活 roof=车顶卧哨 port=窗射孔
 	# 地板顶面 y=-0.4；车顶哨 root 踩车顶(RV_ROOF_Y)、播 prone 趴卧据枪。GLB 正面朝 +Z，朝车头(-Z)的槽转 PI
 	var stations := [
-		# ---- 10 个持枪战斗位 ----
+		# ---- 10 个战斗编制：1 个瞭望 + 9 个射手 ----
 		# 副驾（坐姿朝车头；座椅已前移贴方向盘，sit 髋部在 root 后方 0.324 故 root 再靠前 0.33）
 		[Vector3(0.55, -0.4, -3.18) * INTERIOR_SCALE, PI, "sit", "瞭望", false],
 		# 车顶：四哨趴卧各守一侧半平面，尾哨趴卧守正后方弧
@@ -1708,13 +1774,13 @@ func _build_crew() -> void:
 		[Vector3(0.35, -0.4, 2.15) * INTERIOR_SCALE, PI * 0.5, "idle", "收拾", false],     # 尾部物资区
 		[Vector3(1.00, -0.4, 1.79) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],   # 右墙长凳
 		[Vector3(1.00, -0.4, 2.28) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],
-		[Vector3(-0.30, -0.4, -1.45) * INTERIOR_SCALE, 0.0, "idle", "休整", false],      # 左侧过道，避开右侧座椅排
-		[Vector3(-0.30, -0.4, -0.85) * INTERIOR_SCALE, 0.0, "idle", "休整", false],
-		[Vector3(-0.30, -0.4, -0.25) * INTERIOR_SCALE, 0.0, "idle", "休整", false],
-		[Vector3(-0.30, -0.4, 0.35) * INTERIOR_SCALE, 0.0, "idle", "休整", false],
-		[Vector3(-0.30, -0.4, 0.95) * INTERIOR_SCALE, PI, "idle", "休整", false],
+		[Vector3(-0.25, -0.4, -0.85) * INTERIOR_SCALE, PI, "sit", "休整", false],      # 五排三座的最左座，左侧留贯通过道
+		[Vector3(-0.25, -0.4, -0.35) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.25, -0.4, 0.15) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.25, -0.4, 0.65) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.25, -0.4, 1.15) * INTERIOR_SCALE, PI, "sit", "休整", false],
 	]
-	# 右侧五排双座：与车尾长凳、右后射孔错位，左侧保留贯通过道
+	# 右侧五排双座：与休整椅组成五排三座，左侧保留贯通过道
 	for row in 5:
 		for sx in [0.25, 0.75]:
 			stations.append([Vector3(sx, -0.4, -0.85 + float(row) * 0.50) * INTERIOR_SCALE, PI, "sit", "乘员", false])
@@ -1933,13 +1999,13 @@ func _build_life_props() -> void:
 	# 右墙贴墙长凳：两个坐姿生活位（本地 z≈1.79/2.28，对应乘员槽 13/14）
 	box.call(Vector3(0.50, 0.12, 1.05), Vector3(1.00, -0.16, 1.95), mattress_col)
 	box.call(Vector3(0.08, 0.62, 1.05), Vector3(1.23, 0.15, 1.95), wood.darkened(0.05))
-	# 右侧五排双座：十个新增坐姿岗位一一对应；左侧过道与床铺入口保持畅通
+	# 五排三座：十个乘员位与五个休整位一一对应；左侧过道与床铺入口保持畅通
 	for row in 5:
 		var sz := -0.85 + float(row) * 0.50
-		for sx in [0.25, 0.75]:
+		for sx in [-0.25, 0.25, 0.75]:
 			box.call(Vector3(0.43, 0.12, 0.42), Vector3(sx, -0.16, sz), mattress_col)
 			box.call(Vector3(0.43, 0.62, 0.08), Vector3(sx, 0.15, sz + 0.21), wood.darkened(0.05))
-		for lx in [0.12, 0.88]:
+		for lx in [-0.38, 0.12, 0.88]:
 			box.call(Vector3(0.05, 0.24, 0.05), Vector3(lx, -0.28, sz), wood.darkened(0.12))
 	# 四处射击孔：深色开孔板 + 枪灰钢框（两侧窗前射孔 ×2、右后窗、尾门）；坐标为内饰本地
 	var port_metal := StandardMaterial3D.new()
@@ -1973,7 +2039,7 @@ func _build_life_props() -> void:
 	mbox.call(Vector3(0.05, 0.34, 0.06), Vector3(-0.325, 0.90, 2.75), port_metal)
 	mbox.call(Vector3(0.05, 0.34, 0.06), Vector3(0.325, 0.90, 2.75), port_metal)
 
-## 队员加入/刷新时：按 id 实例化对应 VRM 基底并更新名牌；gun/port 槽永久持枪（muzzle 供自动开火取用）
+## 队员加入/刷新时：按 id 实例化对应 VRM 基底并更新名牌；岗位弹匣留在槽位，换班不补弹
 func _sync_crew() -> void:
 	_stop_crew_wander()   # 重建 Char 前漫游者先回岗，避免新模型落在过道点
 	for i in crew_figures.size():
@@ -1985,6 +2051,8 @@ func _sync_crew() -> void:
 		if old:
 			f.remove_child(old)
 			old.queue_free()
+			f.remove_meta("muzzle")
+			f.remove_meta("gun_node")
 		if i < crew_members.size():
 			var m: Dictionary = crew_members[i]
 			lb.text = "%s · %s" % [m.get("name", ""), f.get_meta("duty_label")]
@@ -2001,11 +2069,15 @@ func _sync_crew() -> void:
 			# 固定射手位持枪：枪口节点供 _update_auto_gunners 取世界坐标
 			if duty == "roof" or duty == "port":
 				_equip_fig_gun(f, duty == "roof")
-			f.set_meta("life_combat", false)
+			elif i >= ARMED_STATIONS and bool(f.get_meta("life_combat", false)):
+				_equip_fig_gun(f)
+				var lively := char.get_node_or_null("CharLively") as CharLively
+				if lively != null:
+					lively.play_combat(&"aim")
 		else:
 			lb.text = ""
 
-## 给槽位模型挂步枪 + muzzle，并清掉上任射手遗留的弹药/换弹状态。prone=true 车顶趴哨：挂点对齐卧姿握把
+## 给槽位模型挂步枪 + muzzle；只在首次领枪时装满弹匣，之后重建/收枪均保留余弹
 func _equip_fig_gun(f: Node3D, prone := false) -> void:
 	var gun := CharUtil.build_gun()
 	var char: Node3D = f.get_node("Char")
@@ -2026,9 +2098,8 @@ func _equip_fig_gun(f: Node3D, prone := false) -> void:
 	gun.add_child(mz)
 	f.set_meta("muzzle", mz)
 	f.set_meta("gun_node", gun)
-	f.remove_meta("npc_ammo")
-	f.remove_meta("reload_until")
-	f.remove_meta("no_ammo")
+	if not f.has_meta("npc_ammo"):
+		f.set_meta("npc_ammo", int(_npc_gun_cfg.get("mag_size", 30)))
 
 ## 战斗启停：生活位（index≥ARMED_STATIONS）的坐姿队员起身、全员领枪/收枪，遇袭时满舱开火
 func _set_life_combat(on: bool) -> void:
@@ -2055,8 +2126,6 @@ func _set_life_combat(on: bool) -> void:
 				gn.queue_free()
 				f.remove_meta("muzzle")
 				f.remove_meta("gun_node")
-				f.remove_meta("npc_ammo")
-				f.remove_meta("reload_until")
 			var back := "sit" if String(f.get_meta("duty")) == "sit" else "idle"
 			var ap := char.find_child("AnimationPlayer", true, false) as AnimationPlayer
 			if ap != null and ap.has_animation(back):
@@ -2146,10 +2215,10 @@ func _start_banter() -> void:
 
 ## 舱内生活位队员自行走动：非战斗时隔段时间起身走到过道另一处，站几秒再走回岗位（漫游中不参与开火）
 var _wander_points := [
-	Vector3(-0.30, -0.4, -1.40) * INTERIOR_SCALE,
-	Vector3(-0.30, -0.4, -0.70) * INTERIOR_SCALE,
-	Vector3(-0.30, -0.4, 0.00) * INTERIOR_SCALE,
-	Vector3(-0.30, -0.4, 0.70) * INTERIOR_SCALE,
+	Vector3(-0.65, -0.4, -1.40) * INTERIOR_SCALE,
+	Vector3(-0.65, -0.4, -0.70) * INTERIOR_SCALE,
+	Vector3(-0.65, -0.4, 0.00) * INTERIOR_SCALE,
+	Vector3(-0.65, -0.4, 0.70) * INTERIOR_SCALE,
 ]
 
 func _update_crew_wander(delta: float) -> void:

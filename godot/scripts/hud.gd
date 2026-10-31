@@ -1328,7 +1328,8 @@ func set_crew(members: Array) -> void:
 		return
 	# 每行 72 头像 + 10 间距；内容高超 540 后固定面板高度，滚动查看
 	crew_panel.offset_bottom = 70.0 + 24.0 + minf(members.size() * 82.0, 540.0)
-	for m in members:
+	for i in members.size():
+		var m: Dictionary = members[i]
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
 		var pic := TextureRect.new()
@@ -1352,6 +1353,16 @@ func set_crew(members: Array) -> void:
 		name_row.add_child(_label("★".repeat(hearts) + "☆".repeat(3 - hearts), 15, ACCENT))
 		box.add_child(name_row)
 		box.add_child(_label("%s · %s" % [String(m.get("skill", "")), String(m.get("passive", "工作中"))], 14, ACCENT))
+		var duty := "生活"
+		if rv != null and rv.main_node != null and i < rv.main_node.crew_figures.size():
+			duty = String(rv.main_node.crew_figures[i].get_meta("duty_label", "生活"))
+		var sid := String(m.get("id", ""))
+		var fatigue := float(rv.main_node.crew_fatigue.get(sid, 0.0)) if rv != null and rv.main_node != null else 0.0
+		var fatigue_label := _label("%s · 疲劳 %d%%" % [duty, int(fatigue)], 14, TEXT_DIM)
+		box.add_child(fatigue_label)
+		row.set_meta("member_id", sid)
+		row.set_meta("duty", duty)
+		row.set_meta("fatigue_label", fatigue_label)
 		row.add_child(box)
 		crew_rows.add_child(row)
 
@@ -1363,7 +1374,7 @@ func update_stats(main: Node3D) -> void:
 	var mr: float = main.morale / 100.0
 	morale_fill.size.x = (BAR_W - 4.0) * mr
 	morale_fill.color = Color(0.75, 0.3, 0.2).lerp(Color(0.91, 0.53, 0.18), mr)
-	res_label.text = "食物 %d · 零件 %d · 子弹 %d · 燃料 %.0f/%.0f · 队伍 %d 人" % [int(main.food), int(main.parts), int(main.ammo_reserve), main.fuel, main.fuel_cap(), main.crew]
+	res_label.text = "食物 %d · 零件 %d · 备弹 %d · 燃料 %.0f/%.0f · 队伍 %d 人" % [int(main.food), int(main.parts), int(main.ammo_reserve), main.fuel, main.fuel_cap(), main.crew]
 	var h := int(main.hour)
 	var m := int((main.hour - h) * 60.0)
 	info_label.text = "里程 %.1f km · 第 %d 天 %02d:%02d%s" % [main.dist_km, main.day, h, m, " · 驻车中" if main.parked else ""]
@@ -1373,6 +1384,13 @@ func update_stats(main: Node3D) -> void:
 	for pl in main.next_places(3):
 		legs.append("%s %.0fkm" % [pl[0], pl[1]])
 	journey_label.text = " → ".join(legs)
+	if crew_visible:
+		for row in crew_rows.get_children():
+			if not row.has_meta("fatigue_label"):
+				continue
+			var sid := String(row.get_meta("member_id", ""))
+			var fatigue := int(main.crew_fatigue.get(sid, 0.0))
+			(row.get_meta("fatigue_label") as Label).text = "%s · 疲劳 %d%%" % [String(row.get_meta("duty", "生活")), fatigue]
 
 func set_weather(w: String) -> void:
 	weather_label.text = "天气 " + {"clear": "晴", "rain": "雨", "heavy_rain": "大雨", "snow": "大雪", "fog": "雾"}.get(w, "晴")
