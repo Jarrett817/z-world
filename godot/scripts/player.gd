@@ -74,12 +74,13 @@ func setup(main: Node, m: int) -> void:
 	mode = m
 
 func _ready() -> void:
-	# 车内由本地坐标移动，不对外参与碰撞，避免房车把车内玩家当障碍推挤
-	collision_layer = 0 if mode == Mode.RV_WALK else 1
-	# 胶囊碰撞：与丧尸同款尺寸
+	# 车内/车顶玩家不参与房车碰撞，避免房车把自己的玩家胶囊当障碍；车内只检测独立内饰层
+	collision_layer = 1 if mode == Mode.ON_FOOT else 0
+	collision_mask = main_node.INTERIOR_COLLISION_LAYER if mode == Mode.RV_WALK else 1
+	# 车内胶囊略收窄，保证中央过道可通行；车外与丧尸同款尺寸
 	var col := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
-	cap.radius = 0.35
+	cap.radius = 0.24 if mode == Mode.RV_WALK else 0.35
 	cap.height = 1.5
 	col.shape = cap
 	col.position.y = 0.75
@@ -167,7 +168,7 @@ func _enter() -> void:
 	_airborne = false
 	cam.current = true
 	if mode == Mode.RV_WALK:
-		cam.fov = 80.0   # 车内广角：狭长空间显大
+		cam.fov = 86.0   # 车内广角：狭长空间显大
 		main_node.hud.set_rv_walk_active(true)
 	else:
 		main_node.hud.set_combat_active(true, ammo(), hp)
@@ -278,8 +279,8 @@ func _physics_process(delta: float) -> void:
 	_update_sway(delta)
 	_aim_and_camera(delta)
 
-## 车内行走：玩家挂在 rv 下，本地空间直接挪动（无物理）；地板顶 y=-0.4，车头 -Z
-func _move_rv(delta: float) -> void:
+## 车内行走：输入在 rv 本地空间解算，转换成世界速度后由物理引擎碰撞；地板顶 y=-0.4，车头 -Z
+func _move_rv(_delta: float) -> void:
 	var input := Vector2.ZERO
 	if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP):
 		input.y -= 1.0
@@ -293,11 +294,9 @@ func _move_rv(delta: float) -> void:
 	var yaw_basis := Basis(Vector3.UP, aim_yaw)
 	var dir := yaw_basis * Vector3(input.x, 0, input.y)
 	_move_speed = WALK_SPEED * 0.55 if dir.length() > 0.01 else 0.0
-	if dir.length() > 0.01:
-		position += dir.normalized() * WALK_SPEED * 0.55 * delta
-	# 活动范围：仪表台后到尾壁前（内饰实测尾壁 z=3.07），两侧舱壁内
-	position.x = clampf(position.x, -1.06 * main_node.INTERIOR_SCALE.x, 1.06 * main_node.INTERIOR_SCALE.x)
-	position.z = clampf(position.z, -2.72 * main_node.INTERIOR_SCALE.z, 2.68 * main_node.INTERIOR_SCALE.z)
+	var local_velocity := dir.normalized() * _move_speed if dir.length() > 0.01 else Vector3.ZERO
+	velocity = main_node.rv.global_transform.basis * local_velocity
+	move_and_slide()
 	position.y = -0.4
 	# 车内行走恒第一人称：锁端枪姿势，避免手臂摆动脱离枪挂点
 	if _cur_anim != "aim":

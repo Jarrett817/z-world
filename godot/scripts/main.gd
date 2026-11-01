@@ -42,6 +42,7 @@ const RV_MODEL_FOOT := 1.557   # GLB 轮底到模型原点的距离
 const RV_ROOF_Y := 1.51        # 实测 gs_001.glb 主车顶平面局部高度（物理射线），天窗/平顶哨位用
 const RV_RAISED_ROOF_Y := 2.04 # 车顶中部凸起舱顶（rv z≈0.55）实测高度
 const INTERIOR_SCALE := Vector3(1.18, 1.0, 1.55)  # 10 米车壳内约 8.4 米有效舱长，30 人编制
+const INTERIOR_COLLISION_LAYER := 8  # 仅供车内玩家碰撞，避免与房车外壳互相推挤
 const ROOF_ACCESS_POS := Vector3(-0.53, RV_ROOF_Y, 3.95)  # 尾舱左侧实体舱口，位于太阳能棚尾端之后
 const ROOF_RETURN_POS := Vector3(-0.45, -0.4, 2.22) * INTERIOR_SCALE
 const CREW_ORDER := ["lin_wan", "shen_man", "ye_lan", "tang_tang", "ivory"]
@@ -128,7 +129,6 @@ var _fv_pitch := 0.0
 var combat_active := false
 var rv_walk_active := false   # 车内行走中（驻车起身 / 队友代驾巡航）
 var crew_driving := false     # 首位队友是否已坐到主驾（驻车后也用于恢复原岗位）
-var _q_down := false
 var _zones: Array = []        # 固定景观段（data/terrain_zones.json）
 var _route: Array = []        # 固定道路中心线与海拔控制点（km 升序）
 var _wrecks: Array = []       # 撞飞后待落地冻结的障碍残骸
@@ -753,14 +753,6 @@ func _process(delta: float) -> void:
 		elif parked:
 			start_combat(0)
 	_g_down = gk
-	# Q：起身/回座；是否由队友驾驶由独立驾驶权按钮决定
-	var qk := Input.is_physical_key_pressed(KEY_Q)
-	if qk and not _q_down and not game_over and not story_active and not combat_active:
-		if rv_walk_active:
-			end_rv_walk()
-		else:
-			start_rv_walk()
-	_q_down = qk
 	# T：天窗/车顶守卫（行驶中也可探身开火）；车内走动中按 T = 队友继续代驾，自己爬车顶
 	var tk := Input.is_physical_key_pressed(KEY_T)
 	if tk and not _t_down and not game_over and not story_active:
@@ -808,7 +800,7 @@ func _process(delta: float) -> void:
 	if view_mode == 1:
 		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -1.9) * INTERIOR_SCALE)
 		cam.look_at(rv.to_global(Vector3(-0.55, 0.9, -30.0) * INTERIOR_SCALE))
-		cam.fov = 72.0
+		cam.fov = 82.0
 	elif view_mode == 2:
 		# 后铺上方俯拍：餐桌当前景，灶台/货架队友为中景，副驾在车头；后移+抬视线+宽 fov 保证后舱两人完整入镜
 		cam.global_position = rv.to_global(Vector3(0.0, 1.66, 2.6) * INTERIOR_SCALE)
@@ -816,7 +808,7 @@ func _process(delta: float) -> void:
 		var base_dir := Vector3(0.0, -0.148, -0.989)
 		var look_dir := Basis(Vector3.UP, _fv_yaw) * Basis(Vector3.RIGHT, _fv_pitch) * base_dir
 		cam.look_at(cam.global_position + rv.global_transform.basis * look_dir * 5.0, Vector3.UP)
-		cam.fov = 72.0
+		cam.fov = 78.0
 		if _shot_cab_cam:
 			# --shotcab：主驾正侧面近拍，验收坐姿穿模
 			cam.global_position = rv.to_global(Vector3(0.5, 0.95, -2.85) * INTERIOR_SCALE)
@@ -850,6 +842,14 @@ func add_trauma(amount: float) -> void:
 
 ## 车内自由视角：PC 按住右键拖动 / 手机单指拖动环顾（不捕获鼠标，左键仍可点设施 UI）
 func _unhandled_input(event: InputEvent) -> void:
+	# Q 走离散事件，短按在同一帧按下/释放也不会漏检
+	if event is InputEventKey and event.physical_keycode == KEY_Q:
+		if event.pressed and not event.echo and not game_over and not story_active and not combat_active:
+			if rv_walk_active:
+				end_rv_walk()
+			else:
+				start_rv_walk()
+		return
 	if view_mode != 2 or rv_walk_active:
 		return
 	if event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
@@ -1726,6 +1726,47 @@ func _build_interior() -> void:
 		var old_part: Node3D = interior.find_child(part_name, true, false)
 		if old_part != null:
 			old_part.visible = false
+	# 驾驶位前挡：车壳在车内视角隐藏，因此玻璃与窗框必须由内饰层提供
+	var glass_mat := StandardMaterial3D.new()
+	glass_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass_mat.albedo_color = Color(0.52, 0.76, 0.86, 0.16)
+	glass_mat.roughness = 0.08
+	glass_mat.metallic = 0.15
+	var frame_mat := StandardMaterial3D.new()
+	frame_mat.albedo_color = Color(0.12, 0.14, 0.15)
+	frame_mat.metallic = 0.35
+	frame_mat.roughness = 0.55
+	var windshield_part := func(size: Vector3, pos: Vector3, mat: Material) -> void:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = size
+		mi.mesh = bm
+		mi.material_override = mat
+		mi.position = pos
+		interior.add_child(mi)
+	windshield_part.call(Vector3(2.42, 1.20, 0.02), Vector3(0, 1.05, -2.89), glass_mat)
+	for y in [0.41, 1.69]:
+		windshield_part.call(Vector3(2.62, 0.08, 0.08), Vector3(0, y, -2.87), frame_mat)
+	for x in [-1.27, 0.0, 1.27]:
+		windshield_part.call(Vector3(0.08, 1.36, 0.08), Vector3(x, 1.05, -2.87), frame_mat)
+	# 车内代理碰撞与车壳隔离：地板、舱壁、仪表台后和尾壁
+	_add_interior_collision(Vector3(2.72, 0.16, 5.85), Vector3(0, -0.48, -0.02))
+	for side in [-1.0, 1.0]:
+		_add_interior_collision(Vector3(0.12, 2.30, 5.85), Vector3(side * 1.36, 0.75, -0.02))
+	_add_interior_collision(Vector3(2.72, 2.30, 0.12), Vector3(0, 0.75, -2.90))
+	_add_interior_collision(Vector3(2.72, 2.30, 0.12), Vector3(0, 0.75, 2.85))
+
+func _add_interior_collision(size: Vector3, pos: Vector3) -> void:
+	var body := StaticBody3D.new()
+	body.collision_layer = INTERIOR_COLLISION_LAYER
+	body.collision_mask = 0
+	var col := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	col.shape = box
+	body.add_child(col)
+	body.position = pos
+	interior.add_child(body)
 
 ## 车底两侧侧开式储物柜：地板与轮底之间囤水和物资，挂在车壳上随俯仰/侧倾一起运动
 func _build_underbody_storage() -> void:
@@ -2008,6 +2049,7 @@ func _build_life_props() -> void:
 	# 左墙窄灶台：保留旧模型的锅、水槽和炊具，柜体内缩到座椅之外，尾端避开床铺隔断
 	box.call(Vector3(0.48, 0.845, 2.20), Vector3(-1.06, 0.0225, -0.20), wood.darkened(0.04), 0.85)
 	box.call(Vector3(0.48, 0.05, 2.20), Vector3(-1.06, 0.47, -0.20), Color(0.65, 0.62, 0.54), 0.65)
+	_add_interior_collision(Vector3(0.48, 0.895, 2.20), Vector3(-1.06, 0.0475, -0.20))
 	# 四根角柱自地板通到上铺床板，兼作下铺支架
 	for px in [-1.30, -0.74]:
 		for pz in [1.12, 2.72]:
@@ -2030,6 +2072,8 @@ func _build_life_props() -> void:
 		box.call(Vector3(0.20, 0.035, 0.035), Vector3(-0.68, -0.10 + float(i) * 0.22, 0.96), wood.darkened(0.12))
 	# 床尾半墙隔断（左半封死，右侧留过道）
 	box.call(Vector3(1.18, 1.12, 0.06), Vector3(-0.70, 0.16, 1.04), wood.darkened(0.1), 0.9)
+	_add_interior_collision(Vector3(0.62, 1.20, 1.66), Vector3(-1.02, 0.20, 1.92))
+	_add_interior_collision(Vector3(1.18, 1.12, 0.06), Vector3(-0.70, 0.16, 1.04))
 	# 下铺布帘保留私密性；上铺作为床沿休整位，侧面保持敞开，双腿不穿帘
 	var rod_col := Color(0.2, 0.2, 0.2)
 	var canvas_col := Color(0.31, 0.27, 0.20)
@@ -2097,6 +2141,8 @@ func _build_life_props() -> void:
 	# 右墙贴墙长凳：两个朝舱内的坐姿生活位，尾部留出储物与收拾站位
 	box.call(Vector3(0.50, 0.12, 0.82), Vector3(1.00, -0.16, 1.80), mattress_col)
 	box.call(Vector3(0.08, 0.62, 0.82), Vector3(1.23, 0.15, 1.80), wood.darkened(0.05))
+	_add_interior_collision(Vector3(0.45, 0.60, 0.50), Vector3(1.00, -0.10, 2.54))
+	_add_interior_collision(Vector3(0.54, 0.86, 0.82), Vector3(1.02, 0.03, 1.80))
 	# 14 个普通座椅与生活位一一对应；椅面中心比人物 root 靠后 0.20m，中央过道保持贯通
 	var seats := [
 		Vector2(-0.55, -1.85), Vector2(-0.55, -1.30), Vector2(0.55, -1.30),
@@ -2110,6 +2156,7 @@ func _build_life_props() -> void:
 		box.call(Vector3(0.43, 0.62, 0.08), Vector3(seat.x, 0.15, seat.y + 0.21), wood.darkened(0.05))
 		for lx in [seat.x - 0.13, seat.x + 0.13]:
 			box.call(Vector3(0.05, 0.24, 0.05), Vector3(lx, -0.28, seat.y), wood.darkened(0.12))
+		_add_interior_collision(Vector3(0.43, 0.92, 0.50), Vector3(seat.x, 0.06, seat.y + 0.04))
 	# 四处射击孔：深色开孔板 + 枪灰钢框（两侧窗前射孔 ×2、右后窗、尾门）；坐标为内饰本地
 	var port_metal := StandardMaterial3D.new()
 	port_metal.albedo_color = Color(0.22, 0.21, 0.19)
@@ -3005,8 +3052,6 @@ func end_combat() -> void:
 		if not np.fps:
 			np.toggle_fps(true)
 		hud.set_drive_buttons_visible(false)
-		if parked:
-			set_facilities_ui(true)
 		hud.toast("已回到车内" if not crew_driving else "%s 代驾中 · 自己开可接管 · F 刹车驻车" % crew_members[0].get("name", ""))
 		return
 	# 恢复当前视图模式下的车壳/内饰/队友显隐
@@ -3066,7 +3111,7 @@ func start_rv_walk() -> void:
 	var p := CharacterBody3D.new()
 	p.set_script(PLAYER_SCRIPT)
 	p.setup(self, 2)   # Mode.RV_WALK
-	p.position = Vector3(-0.20, -0.4, -1.2) * INTERIOR_SCALE   # 驾驶座旁起身点（rv 本地，地板顶 y=-0.4）
+	p.position = Vector3(0.0, -0.4, -1.2) * INTERIOR_SCALE   # 驾驶座后中央过道（rv 本地，地板顶 y=-0.4）
 	rv.add_child(p)
 	player_body = p
 	rv_walk_active = true
@@ -3117,8 +3162,6 @@ func end_rv_walk() -> void:
 	if driver_figure != null:
 		driver_figure.visible = view_mode == 2 and not crew_driving
 	hud.set_drive_buttons_visible(not parked and not crew_driving)
-	if parked:
-		set_facilities_ui(true)
 
 ## 天窗模式：玩家身体每帧锚在行驶中的车顶
 func _sync_player_to_rv(_delta: float) -> void:
