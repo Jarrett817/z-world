@@ -67,6 +67,8 @@ var weather_label: Label
 var journey_label: Label
 var dur_fill: ColorRect
 var fuel_fill: ColorRect
+var battery_fill: ColorRect
+var energy_label: Label
 var toast_label: Label
 var over_root: ColorRect
 var over_stats: Label
@@ -158,17 +160,21 @@ func build(rv_node: Node) -> void:
 	hud_root = root
 
 	# 左上状态面板
-	var panel := _panel(Vector2(12, 12), Vector2(348, 164))
+	var panel := _panel(Vector2(12, 12), Vector2(348, 196))
 	root.add_child(panel)
 	panel.add_child(_label("车况", 15, TEXT_DIM, Vector2(14, 10)))
 	dur_fill = _add_bar(panel, Vector2(58, 13))
-	panel.add_child(_label("燃料", 15, TEXT_DIM, Vector2(14, 36)))
-	fuel_fill = _add_bar(panel, Vector2(58, 39))
-	panel.add_child(_label("士气", 15, TEXT_DIM, Vector2(14, 62)))
-	morale_fill = _add_bar(panel, Vector2(58, 65))
-	res_label = _label("食物 0 · 队伍 0 人", 15, TEXT_MAIN, Vector2(14, 92))
+	panel.add_child(_label("燃料", 15, TEXT_DIM, Vector2(14, 34)))
+	fuel_fill = _add_bar(panel, Vector2(58, 37))
+	panel.add_child(_label("电量", 15, TEXT_DIM, Vector2(14, 58)))
+	battery_fill = _add_bar(panel, Vector2(58, 61))
+	panel.add_child(_label("士气", 15, TEXT_DIM, Vector2(14, 82)))
+	morale_fill = _add_bar(panel, Vector2(58, 85))
+	res_label = _label("食物 0 · 队伍 0 人", 15, TEXT_MAIN, Vector2(14, 112))
 	panel.add_child(res_label)
-	info_label = _label("里程 0.0 km · 第 1 天 09:00", 15, TEXT_DIM, Vector2(14, 120))
+	energy_label = _label("燃料 0/0 · 电量 0/0", 14, TEXT_MAIN, Vector2(14, 136))
+	panel.add_child(energy_label)
+	info_label = _label("里程 0.0 km · 第 1 天 09:00", 15, TEXT_DIM, Vector2(14, 162))
 	panel.add_child(info_label)
 
 	# 右上操作提示
@@ -1376,10 +1382,14 @@ func update_stats(main: Node3D) -> void:
 	dur_fill.size.x = (BAR_W - 4.0) * ratio
 	dur_fill.color = Color(0.75, 0.3, 0.2).lerp(Color(0.55, 0.8, 0.45), ratio)
 	fuel_fill.size.x = (BAR_W - 4.0) * main.fuel / main.fuel_cap()
+	var br: float = main.battery / main.battery_cap()
+	battery_fill.size.x = (BAR_W - 4.0) * br
+	battery_fill.color = Color(0.75, 0.3, 0.2).lerp(Color(0.30, 0.75, 0.85), br)
 	var mr: float = main.morale / 100.0
 	morale_fill.size.x = (BAR_W - 4.0) * mr
 	morale_fill.color = Color(0.75, 0.3, 0.2).lerp(Color(0.91, 0.53, 0.18), mr)
-	res_label.text = "食物 %d · 零件 %d · 备弹 %d · 燃料 %.0f/%.0f · 队伍 %d 人" % [int(main.food), int(main.parts), int(main.ammo_reserve), main.fuel, main.fuel_cap(), main.crew]
+	res_label.text = "食物 %d · 零件 %d · 备弹 %d · 队伍 %d 人" % [int(main.food), int(main.parts), int(main.ammo_reserve), main.crew]
+	energy_label.text = "燃料 %.0f/%.0f · 电量 %.0f/%.0f" % [main.fuel, main.fuel_cap(), main.battery, main.battery_cap()]
 	var h := int(main.hour)
 	var m := int((main.hour - h) * 60.0)
 	info_label.text = "里程 %.1f km · 第 %d 天 %02d:%02d%s" % [main.dist_km, main.day, h, m, " · 驻车中" if main.parked else ""]

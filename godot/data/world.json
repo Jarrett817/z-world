@@ -2,6 +2,17 @@
 	"world_seed": 20261023,
 	"time": { "drive_rate": 0.03, "park_rate": 0.15 },
 	"audio": { "rv_growl_attenuation_db": 12.0 },
+	"hybrid": {
+		"battery_start": 70.0,
+		"battery_capacity": 100.0,
+		"fuel_burn_per_speed": 0.0014,
+		"battery_burn_per_speed": 0.0018,
+		"standby_drain_per_second": 0.008,
+		"solar_charge_per_second": 0.16,
+		"sunrise": 6.0,
+		"sunset": 18.0,
+		"solar_weather": { "clear": 1.0, "rain": 0.35, "heavy_rain": 0.12, "snow": 0.25, "fog": 0.5 }
+	},
 	"crew_fatigue": {
 		"combat_rate": 0.35,
 		"rest_rate": 1.0,

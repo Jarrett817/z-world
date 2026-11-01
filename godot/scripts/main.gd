@@ -83,6 +83,7 @@ var headlight: SpotLight3D
 # ---- 游戏状态 ----
 var durability := 100.0
 var fuel := 60.0
+var battery := 70.0
 var food := 10.0
 var morale := 70.0
 var parts := 3.0
@@ -125,8 +126,8 @@ var combat_active := false
 var rv_walk_active := false   # 车内行走中（驻车起身 / 队友代驾巡航）
 var crew_driving := false     # 首位队友是否已坐到主驾（驻车后也用于恢复原岗位）
 var _q_down := false
-var _zones: Array = []        # 景观段循环（data/terrain_zones.json）
-var _zones_total := 0.0
+var _zones: Array = []        # 固定景观段（data/terrain_zones.json）
+var _route: Array = []        # 固定道路中心线与海拔控制点（km 升序）
 var _wrecks: Array = []       # 撞飞后待落地冻结的障碍残骸
 var scenery_z := -20.0
 var sign_z := -50.0 * KMH_FACTOR   # 里程碑路牌：首块在 50km 处
@@ -162,6 +163,7 @@ var bonds: Dictionary = {}   # 幸存者 id → 羁绊值 0..100（每 15 一颗
 var crew_figures: Array = []
 var crew_fatigue: Dictionary = {}   # 幸存者 id → 疲劳 0..100；战斗积累、坐姿生活位恢复
 var _fatigue_cfg: Dictionary = {}
+var _hybrid_cfg: Dictionary = {}
 var _shift_cd := 0.0
 var _npc_gun_cfg: Dictionary = {}   # guns.json "npc_gunner" 节：射手弹匣/换弹/射界（首次用到时加载）
 var driver_figure: Node3D   # 主角驾驶位模型（坐姿 + 双手 IK 握方向盘）
@@ -327,6 +329,7 @@ func _ready() -> void:
 	if _jump_km > 0.0:
 		var rvz0 := rv.global_position.z
 		rv.global_position.z = rvz0 - (_jump_km - dist_km) * KMH_FACTOR
+		rv.global_position.x = road_x(rv.global_position.z)
 		dist_km = _jump_km
 		last_z = rv.global_position.z
 		terrain_front = rv.global_position.z + 100.0
@@ -419,8 +422,7 @@ func _load_zones() -> void:
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/terrain_zones.json"))
 	if parsed is Dictionary:
 		_zones = parsed.get("zones", [])
-		for zn in _zones:
-			_zones_total += float(zn.get("len", 400.0))
+		_route = parsed.get("route", [])
 
 func _load_world() -> void:
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/world.json"))
@@ -434,6 +436,8 @@ func _load_world() -> void:
 		var audio: Dictionary = parsed.get("audio", {})
 		_rv_growl_attenuation_db = float(audio.get("rv_growl_attenuation_db", 0.0))
 		_fatigue_cfg = parsed.get("crew_fatigue", {})
+		_hybrid_cfg = parsed.get("hybrid", {})
+		battery = float(_hybrid_cfg.get("battery_start", battery))
 		if not _hamlet_cfg.is_empty():
 			var kr: Array = _hamlet_cfg.get("km_range", [3.0, 5.0])
 			_hamlet_km = lerpf(float(kr[0]), float(kr[1]), _jh(31))
@@ -445,6 +449,9 @@ func fuel_cap() -> float:
 			var caps: Array = f.get("fuel_cap", [100.0])
 			return float(caps[facility_levels["storage"]])
 	return 100.0
+
+func battery_cap() -> float:
+	return float(_hybrid_cfg.get("battery_capacity", 100.0))
 
 ## 设施定义
 func _facility(id: String) -> Dictionary:
@@ -998,20 +1005,29 @@ func _update_resources(delta: float) -> void:
 		# 行驶中的精神消耗：缓慢但持续，事件与驻车是主要士气来源
 		if rv.speed_kmh > 1.0:
 			morale = maxf(0.0, morale - delta * 0.05)
-		# 燃料（沈蔓·驾驶：油耗 -25%；高士气开车更稳更省）
+		# 混动行驶同时消耗燃料与电量（沈蔓·驾驶：油耗 -25%；高士气开车更稳更省）
 		if rv.speed_kmh > 1.0:
-			var burn: float = rv.speed_kmh * delta * 0.0022
+			var burn: float = rv.speed_kmh * delta * float(_hybrid_cfg.get("fuel_burn_per_speed", 0.0014))
 			if _has_passive("shen_man"):
 				burn *= 0.75
 			burn *= 2.0 - morale_factor()
 			fuel = maxf(0.0, fuel - burn)
-		rv.engine_dead = fuel <= 0.0
+			battery = maxf(0.0, battery - rv.speed_kmh * delta * float(_hybrid_cfg.get("battery_burn_per_speed", 0.0018)))
 		# 队友修车（林晚·急救：额外 +0.35/s；士气影响干劲）
 		if rv.speed_kmh > 5.0 and durability < 100.0:
 			var repair := crew * 0.12
 			if _has_passive("lin_wan"):
 				repair += 0.35
 			durability = minf(100.0, durability + repair * morale_factor() * delta)
+	# 车载设备待机耗电；日照和天气决定车顶太阳能回充，燃料与电量同时耗尽才失去动力
+	battery = maxf(0.0, battery - delta * float(_hybrid_cfg.get("standby_drain_per_second", 0.008)))
+	var sunrise := float(_hybrid_cfg.get("sunrise", 6.0))
+	var sunset := float(_hybrid_cfg.get("sunset", 18.0))
+	var daylight := clampf(sin((hour - sunrise) / (sunset - sunrise) * PI), 0.0, 1.0)
+	var solar_weather: Dictionary = _hybrid_cfg.get("solar_weather", {})
+	var solar := float(_hybrid_cfg.get("solar_charge_per_second", 0.16)) * daylight * float(solar_weather.get(weather, 1.0))
+	battery = minf(battery_cap(), battery + solar * delta)
+	rv.engine_dead = fuel <= 0.0 and battery <= 0.0
 	# 低士气一次性警告（士气回升到 40 以上后可再次触发）
 	if morale < 25.0 and not _low_morale_warned:
 		_low_morale_warned = true
@@ -1097,7 +1113,7 @@ func save_game() -> void:
 		mags.append(int(f.get_meta("npc_ammo", -1)))
 	var data := {
 		"version": 1,
-		"durability": durability, "fuel": fuel, "food": food,
+		"durability": durability, "fuel": fuel, "battery": battery, "food": food,
 		"morale": morale, "parts": parts, "ammo": ammo_reserve, "crew": crew,
 		"dist_km": dist_km, "day": day, "hour": hour,
 		"crew_ids": ids,
@@ -1127,6 +1143,7 @@ func _apply_save(sv: Dictionary) -> void:
 		return
 	durability = float(sv.get("durability", durability))
 	fuel = float(sv.get("fuel", fuel))
+	battery = float(sv.get("battery", battery))
 	food = float(sv.get("food", food))
 	morale = float(sv.get("morale", morale))
 	parts = float(sv.get("parts", parts))
@@ -1740,7 +1757,7 @@ func _build_underbody_storage() -> void:
 			rack.add_child(crate)
 
 ## 车内岗位制：30 槽大巴编制。前 10 槽为 1 个瞭望 + 9 个固定射手，
-## 后 20 槽舱内生活位（五排三座/灶台/货架/贴墙长凳）；疲劳后与坐姿生活位自动换班
+## 后 20 槽舱内生活位（双座＋单座右排/中央过道/灶台/货架/贴墙长凳）；疲劳后与坐姿生活位自动换班
 func _build_crew() -> void:
 	crew_font = SystemFont.new()
 	crew_font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "sans-serif"])
@@ -1765,18 +1782,19 @@ func _build_crew() -> void:
 		[Vector3(0.55, -0.4, -1.30) * INTERIOR_SCALE, PI, "sit", "乘员", false],   # 后排座椅（原 seat_b0 前移后）
 		[Vector3(-0.90, -0.4, -0.10) * INTERIOR_SCALE, -PI * 0.5, "idle", "做饭", false],  # 灶台前
 		[Vector3(0.35, -0.4, 2.15) * INTERIOR_SCALE, PI * 0.5, "idle", "收拾", false],     # 尾部物资区
-		[Vector3(1.00, -0.4, 1.79) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],   # 右墙长凳
-		[Vector3(1.00, -0.4, 2.28) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],
-		[Vector3(-0.25, -0.4, -0.85) * INTERIOR_SCALE, PI, "sit", "休整", false],      # 五排三座的最左座，左侧留贯通过道
-		[Vector3(-0.25, -0.4, -0.35) * INTERIOR_SCALE, PI, "sit", "休整", false],
-		[Vector3(-0.25, -0.4, 0.15) * INTERIOR_SCALE, PI, "sit", "休整", false],
-		[Vector3(-0.25, -0.4, 0.65) * INTERIOR_SCALE, PI, "sit", "休整", false],
-		[Vector3(-0.25, -0.4, 1.15) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(0.68, -0.4, 1.79) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],   # 右墙长凳，髋部落在椅面而非椅背
+		[Vector3(0.68, -0.4, 2.28) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],
+		# 左单座五席；坐姿模型的髋部在 root 后约 0.30，root 前移到椅面前缘
+		[Vector3(-0.75, -0.4, -1.65) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.75, -0.4, -1.15) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.75, -0.4, -0.65) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.75, -0.4, -0.15) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.75, -0.4, 0.35) * INTERIOR_SCALE, PI, "sit", "休整", false],
 	]
-	# 右侧五排双座：与休整椅组成五排三座，左侧保留贯通过道
+	# 右双座五排：x=-0.20 附近形成贯通车头、生活区和床铺的中央过道
 	for row in 5:
-		for sx in [0.25, 0.75]:
-			stations.append([Vector3(sx, -0.4, -0.85 + float(row) * 0.50) * INTERIOR_SCALE, PI, "sit", "乘员", false])
+		for sx in [0.35, 0.90]:
+			stations.append([Vector3(sx, -0.4, -1.15 + float(row) * 0.50) * INTERIOR_SCALE, PI, "sit", "乘员", false])
 	for st in stations:
 		var fig := Node3D.new()
 		var lb := Label3D.new()
@@ -2030,14 +2048,14 @@ func _build_life_props() -> void:
 	# 右墙贴墙长凳：两个坐姿生活位（本地 z≈1.79/2.28，对应乘员槽 13/14）
 	box.call(Vector3(0.50, 0.12, 1.05), Vector3(1.00, -0.16, 1.95), mattress_col)
 	box.call(Vector3(0.08, 0.62, 1.05), Vector3(1.23, 0.15, 1.95), wood.darkened(0.05))
-	# 五排三座：十个乘员位与五个休整位一一对应；左侧过道与床铺入口保持畅通
-	for row in 5:
-		var sz := -0.85 + float(row) * 0.50
-		for sx in [-0.25, 0.25, 0.75]:
+	# 左单座＋右双座：座位之间留出 0.67m 中央过道，后段不再横排封路
+	for sx in [-0.75, 0.35, 0.90]:
+		for row in 5:
+			var sz := (-1.35 if sx < 0.0 else -0.85) + float(row) * 0.50
 			box.call(Vector3(0.43, 0.12, 0.42), Vector3(sx, -0.16, sz), mattress_col)
 			box.call(Vector3(0.43, 0.62, 0.08), Vector3(sx, 0.15, sz + 0.21), wood.darkened(0.05))
-		for lx in [-0.38, 0.12, 0.88]:
-			box.call(Vector3(0.05, 0.24, 0.05), Vector3(lx, -0.28, sz), wood.darkened(0.12))
+			for lx in [sx - 0.13, sx + 0.13]:
+				box.call(Vector3(0.05, 0.24, 0.05), Vector3(lx, -0.28, sz), wood.darkened(0.12))
 	# 四处射击孔：深色开孔板 + 枪灰钢框（两侧窗前射孔 ×2、右后窗、尾门）；坐标为内饰本地
 	var port_metal := StandardMaterial3D.new()
 	port_metal.albedo_color = Color(0.22, 0.21, 0.19)
@@ -2254,10 +2272,10 @@ func _start_banter() -> void:
 
 ## 舱内生活位队员自行走动：非战斗时隔段时间起身走到过道另一处，站几秒再走回岗位（漫游中不参与开火）
 var _wander_points := [
-	Vector3(-0.65, -0.4, -1.40) * INTERIOR_SCALE,
-	Vector3(-0.65, -0.4, -0.70) * INTERIOR_SCALE,
-	Vector3(-0.65, -0.4, 0.00) * INTERIOR_SCALE,
-	Vector3(-0.65, -0.4, 0.70) * INTERIOR_SCALE,
+	Vector3(-0.20, -0.4, -1.40) * INTERIOR_SCALE,
+	Vector3(-0.20, -0.4, -0.70) * INTERIOR_SCALE,
+	Vector3(-0.20, -0.4, 0.00) * INTERIOR_SCALE,
+	Vector3(-0.20, -0.4, 0.70) * INTERIOR_SCALE,
 ]
 
 func _update_crew_wander(delta: float) -> void:
@@ -2909,7 +2927,7 @@ func end_combat() -> void:
 		var np := CharacterBody3D.new()
 		np.set_script(PLAYER_SCRIPT)
 		np.setup(self, 2)
-		np.position = Vector3(0.0, -0.4, -1.2) * INTERIOR_SCALE
+		np.position = Vector3(-0.20, -0.4, -1.2) * INTERIOR_SCALE
 		rv.add_child(np)
 		player_body = np
 		rv_walk_active = true
@@ -2987,7 +3005,7 @@ func start_rv_walk() -> void:
 	var p := CharacterBody3D.new()
 	p.set_script(PLAYER_SCRIPT)
 	p.setup(self, 2)   # Mode.RV_WALK
-	p.position = Vector3(0.0, -0.4, -1.2) * INTERIOR_SCALE   # 驾驶座旁起身点（rv 本地，地板顶 y=-0.4）
+	p.position = Vector3(-0.20, -0.4, -1.2) * INTERIOR_SCALE   # 驾驶座旁起身点（rv 本地，地板顶 y=-0.4）
 	rv.add_child(p)
 	player_body = p
 	rv_walk_active = true
@@ -4158,21 +4176,21 @@ func on_obstacle_hit(hard: bool, speed_kmh: float, obstacle: Node3D = null) -> v
 	hit_cd = 0.8 if hard else 0.45
 	if hard:
 		durability = maxf(0.0, durability - (8.0 + speed_kmh * 0.06))
-		rv.speed_kmh *= 0.2
+		rv.speed_kmh = 0.0
 		add_trauma(0.8)
 		hud.toast("撞上硬障碍！车况受损")
-		# 硬障碍不消失，但把车横向推开一点，避免卡死
-		if obstacle != null:
-			var side := signf(rv.global_position.x - obstacle.global_position.x)
-			rv.global_position.x += side * 1.2
+		# 沿撞击反方向退出接触：正撞后给倒车留出空间，也避免居中碰撞时横移为零
+		var drive_dir := -1.0 if rv.reversing else 1.0
+		rv.global_position += rv.global_transform.basis.z * drive_dir * 0.8
 	else:
 		durability = maxf(0.0, durability - (3.0 + speed_kmh * 0.03))
 		rv.speed_kmh *= 0.6
 		add_trauma(0.4)
 		hud.toast("撞飞路障")
 		if obstacle is RigidBody3D:
-			# 解冻刚体：按车速冲量撞飞，翻滚落地后留在原地（不消失）
+			# 已撞飞的残骸只与地形碰撞，不再在落地冻结后变成车尾的新路障
 			obstacle.set_meta("knocked", true)
+			rv.add_collision_exception_with(obstacle)
 			obstacle.freeze = false
 			var drive_dir := -1.0 if rv.reversing else 1.0
 			var dir := -rv.global_transform.basis.z * drive_dir
@@ -5186,18 +5204,23 @@ func _emis_mat(col: Color, energy: float) -> StandardMaterial3D:
 	m.roughness = 0.6
 	return m
 
-# ---------- 地形函数（全场景共享） ----------
+# ---------- 地形函数（固定路线数据，全场景共享） ----------
 func road_x(z: float) -> float:
-	# 直弯变化：弯道段大幅摆动（视觉明显盘弯，横向 ±20m 级），直道段仍保留轻微摆动
-	var w := _bend_weight(z)
-	return (sin(z * 0.018) * 7.5 + sin(z * 0.045 + 1.5) * 4.0 + sin(z * 0.008 + 0.7) * 11.0) * w
-
-func _bend_weight(z: float) -> float:
-	var t := sin(z * 0.011) * 0.6 + sin(z * 0.0043 + 2.0) * 0.4
-	return lerpf(0.25, 1.0, smoothstep(-0.15, 0.45, t))
+	if _route.is_empty():
+		return 0.0
+	var km := -z / KMH_FACTOR
+	if km <= float(_route[0].get("km", 0.0)):
+		return float(_route[0].get("x", 0.0))
+	for i in range(1, _route.size()):
+		var b: Dictionary = _route[i]
+		if km <= float(b.get("km", GOAL_KM)):
+			var a: Dictionary = _route[i - 1]
+			var t := smoothstep(0.0, 1.0, inverse_lerp(float(a.get("km", 0.0)), float(b.get("km", GOAL_KM)), km))
+			return lerpf(float(a.get("x", 0.0)), float(b.get("x", 0.0)), t)
+	return float(_route.back().get("x", 0.0))
 
 func ground_y(z: float) -> float:
-	return GROUND_Y + _elev_at(z) + sin(z * 0.06) * 0.08 + sin(z * 0.13 + 2.1) * 0.05 + sin(z * 0.031 + 5.0) * 0.04
+	return GROUND_Y + _elev_at(z)
 
 ## 统一地面高度(x,z)：角色/车辆/道具贴地与碰撞高度图共用的唯一基准
 ## 路面 d≤7 → ground_y；路肩 d≤21 → -0.05；野地 → -0.3+side_elev；21~25 缓坡过渡（车上下路肩不卡）
@@ -5471,30 +5494,23 @@ func _place_detour_sign(pname: String, z: float, side: float, face_col := Color(
 	root.add_child(lb)
 	add_child(root)
 
-## 定位路段所属景观带（向 -Z 前进，zones 循环）
+## 定位固定里程所属的景观带（向 -Z 前进，不循环）
 func zone_at(z: float) -> String:
-	if _zones.is_empty():
-		return "plain"
-	var zz := fposmod(-z, _zones_total)
-	var acc := 0.0
+	var km := -z / KMH_FACTOR
 	for zn in _zones:
-		acc += float(zn.get("len", 400.0))
-		if zz < acc:
+		if km < float(zn.get("end_km", GOAL_KM)):
 			return String(zn.get("type", "plain"))
 	return "plain"
 
 ## 当前景观段的强度权重（段中心 1.0，首尾各 90m 淡入淡出）——供水面宽度等地物渐变
 func zone_weight(z: float) -> float:
-	if _zones.is_empty():
-		return 0.0
-	var zz := fposmod(-z, _zones_total)
-	var acc := 0.0
+	var km := -z / KMH_FACTOR
 	for zn in _zones:
-		var len: float = float(zn.get("len", 400.0))
-		var off := zz - acc
-		if off < len:
+		var end_km := float(zn.get("end_km", GOAL_KM))
+		if km < end_km:
+			var off := (km - float(zn.get("start_km", 0.0))) * KMH_FACTOR
+			var len := (end_km - float(zn.get("start_km", 0.0))) * KMH_FACTOR
 			return minf(smoothstep(0.0, 1.0, off / 90.0), smoothstep(0.0, 1.0, (len - off) / 90.0))
-		acc += len
 	return 0.0
 
 ## 点是否落在水面碟形包络内（与 terrain.gd _water 同一确定性公式，岸边留 2m 干地）；树等景物据此避水
@@ -5557,24 +5573,20 @@ func water_surface_height(wx: float, z: float) -> float:
 	var t := (local + half) / (2.0 * half)
 	return ground_y(z) - sin(t * PI) * sink
 
-## 路段海拔：段内取段值，段首平滑过渡（坡度随高差放缓）
+## 固定路线控制点之间的海拔平滑插值
 func _elev_at(z: float) -> float:
-	if _zones.is_empty():
+	if _route.is_empty():
 		return 0.0
-	var zz := fposmod(-z, _zones_total)
-	var acc := 0.0
-	var prev_e: float = float(_zones.back().get("elev", 0.0))
-	for zn in _zones:
-		var e: float = float(zn.get("elev", 0.0))
-		var len: float = float(zn.get("len", 400.0))
-		var off := zz - acc
-		if off < len:
-			var trans := maxf(110.0, absf(e - prev_e) * 7.5)
-			var t := smoothstep(0.0, 1.0, clampf(off / trans, 0.0, 1.0))
-			return lerpf(prev_e, e, t)
-		prev_e = e
-		acc += len
-	return 0.0
+	var km := -z / KMH_FACTOR
+	if km <= float(_route[0].get("km", 0.0)):
+		return float(_route[0].get("elev", 0.0))
+	for i in range(1, _route.size()):
+		var b: Dictionary = _route[i]
+		if km <= float(b.get("km", GOAL_KM)):
+			var a: Dictionary = _route[i - 1]
+			var t := smoothstep(0.0, 1.0, inverse_lerp(float(a.get("km", 0.0)), float(b.get("km", GOAL_KM)), km))
+			return lerpf(float(a.get("elev", 0.0)), float(b.get("elev", 0.0)), t)
+	return float(_route.back().get("elev", 0.0))
 
 ## 公路走廊外地势：山段隆起、湖海段下沉成床、丘陵缓坡（zone 可预传，批量采样免重复查段）
 func side_elev(z: float, dist: float, zone := "") -> float:
