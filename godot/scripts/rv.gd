@@ -25,6 +25,10 @@ var _support_y := 0.0       # 本帧车身贴靠高度（地面或水面）
 var main_node: Node3D
 var _wheels: Array[Node3D] = []   # 车轴轮一体网格（滚动动画）
 var _crew_cruise_kmh := 0.0
+var _crew_avoid := 0.0   # 绕障方向：+1 右 / -1 左；越过障碍后自动回正
+var _crew_avoid_pass_z := 0.0
+var _crew_reverse_t := 0.0
+var _crew_stuck_t := 0.0
 
 func _ready() -> void:
 	main_node = get_parent()
@@ -86,6 +90,10 @@ func _physics_process(delta: float) -> void:
 	_spin_wheels(delta)
 	if not main_node.crew_driving:
 		_crew_cruise_kmh = 0.0
+		_crew_avoid = 0.0
+		_crew_avoid_pass_z = 0.0
+		_crew_reverse_t = 0.0
+		_crew_stuck_t = 0.0
 	var grip := 1.0
 	var braking := 1.0
 	match main_node.weather:
@@ -132,8 +140,7 @@ func _physics_process(delta: float) -> void:
 				# 无代驾的天窗射击：忽略驾驶输入，惯性滑行
 				speed_kmh = maxf(speed_kmh - lerpf(DRAG, WATER_DRAG, _water_f) * delta, 0.0)
 			else:
-				# 队友独立代驾：沿公路巡航，主动靠近前方物资与未招募幸存者
-				reversing = false
+				# 队友独立代驾：前视车体扫掠发现障碍后提前减速，选择有完整净空的一侧绕行
 				if _crew_cruise_kmh <= 0.0:
 					_crew_cruise_kmh = maxf(speed_kmh, CREW_CRUISE_KMH)
 				var target_pos := Vector3.ZERO
@@ -152,27 +159,65 @@ func _physics_process(delta: float) -> void:
 				if has_target:
 					var to_target := target_pos - global_position
 					target_yaw = atan2(-to_target.x, -to_target.z)
-				elif absf(position.x - main_node.road_x(position.z)) < main_node.ROAD_HALF + 3.0:
-					var d := 0.6
-					var bx: float = main_node.road_x(position.z + d) - main_node.road_x(position.z - d)
-					target_yaw = atan2(bx, 2.0 * d)
-				if speed_kmh > 1.0:
-					rotation.y = lerp_angle(rotation.y, target_yaw, minf(delta * 2.0, 1.0))
+				else:
+					# 没有拾取目标时始终回到前方公路，绕障后也不会沿野地一直直行
+					var road_z := position.z - 20.0
+					var to_road := Vector3(main_node.road_x(road_z), position.y, road_z) - global_position
+					target_yaw = atan2(-to_road.x, -to_road.z)
 				var desired_speed := _crew_cruise_kmh
 				if has_target and best_dist < 35.0:
 					desired_speed = minf(desired_speed, 35.0)
+				var center_hit := _crew_obstacle_ahead(0.0)
+				if center_hit > 0.0:
+					var right_hit := _crew_obstacle_ahead(4.6)
+					var left_hit := _crew_obstacle_ahead(-4.6)
+					if right_hit <= 0.0 or left_hit <= 0.0:
+						if _crew_avoid == 0.0 or (_crew_avoid > 0.0 and right_hit > 0.0) or (_crew_avoid < 0.0 and left_hit > 0.0):
+							if _crew_avoid == 0.0:
+								_crew_avoid_pass_z = position.z - center_hit - 12.0
+							_crew_avoid = 1.0 if right_hit <= 0.0 else -1.0
+					else:
+						_crew_avoid = 0.0
+					desired_speed = minf(desired_speed, clampf((center_hit - 7.0) * 2.0, 0.0, 30.0))
+				elif absf(_crew_avoid) > 0.0 and position.z < _crew_avoid_pass_z:
+					# 以整车越过障碍为回正条件，而不是车头刚偏开就结束绕行
+					_crew_avoid = 0.0
+				if absf(_crew_avoid) > 0.0:
+					# 整车越过障碍前都保持低速，正前方暂时变空也不能提前加速
+					desired_speed = clampf(desired_speed, 8.0, 20.0)
+				reversing = _crew_reverse_t > 0.0
+				if reversing:
+					_crew_reverse_t = maxf(_crew_reverse_t - delta, 0.0)
+					desired_speed = 14.0
+					target_yaw += _crew_avoid * 0.35
+				elif absf(_crew_avoid) > 0.0:
+					# 近距路障用更近的换道目标获得足够转向角，远距离保持平顺；本地 +X 为右侧
+					var lane_ahead := clampf(center_hit * 0.65, 7.0, 18.0) if center_hit > 0.0 else 7.0
+					var lane_z := position.z - lane_ahead
+					var to_lane := Vector3(main_node.road_x(lane_z) + _crew_avoid * 4.8, position.y, lane_z) - global_position
+					target_yaw = atan2(-to_lane.x, -to_lane.z)
+				if speed_kmh > 1.0 or reversing:
+					rotation.y = lerp_angle(rotation.y, target_yaw, minf(delta * (3.0 if reversing else 2.4), 1.0))
 				if absf(angle_difference(rotation.y, target_yaw)) > 0.45:
 					desired_speed = minf(desired_speed, 25.0)
 				if main_node._park_brake:
 					speed_kmh = maxf(speed_kmh - BRAKE * braking * delta, 0.0)
 				elif engine_dead:
 					speed_kmh = maxf(speed_kmh - lerpf(DRAG, WATER_DRAG, _water_f) * delta, 0.0)
+				elif reversing or speed_kmh > desired_speed:
+					speed_kmh = maxf(speed_kmh - BRAKE * braking * delta, desired_speed)
 				elif speed_kmh < desired_speed:
 					var climb := 1.0 + maxf(slope, 0.0) * 0.5
 					var accel := lerpf(ACCEL * grip * climb, WATER_ACCEL, _water_f)
 					speed_kmh = minf(speed_kmh + accel * delta, desired_speed)
+				# 低速已经贴住障碍时先倒出空间，再沿上次选定的空侧绕行，杜绝反复顶墙
+				if center_hit > 0.0 and center_hit <= 7.0 and speed_kmh < 2.0 and not reversing and not engine_dead:
+					_crew_stuck_t += delta
+					if _crew_stuck_t > 0.35:
+						_crew_reverse_t = 1.1
+						_crew_stuck_t = 0.0
 				else:
-					speed_kmh = maxf(speed_kmh - lerpf(DRAG, WATER_DRAG, _water_f) * delta, desired_speed)
+					_crew_stuck_t = 0.0
 			var fwd1 := -global_transform.basis.z
 			fwd1.y = 0.0
 			var drive_dir := -1.0 if reversing else 1.0
@@ -320,6 +365,23 @@ func _align_to_terrain(water_f := 0.0) -> void:
 	basis = Basis(side, up, back).orthonormalized()
 	if water_f > 0.0:
 		basis = basis.slerp(Basis(Vector3.UP, rotation.y), clampf(water_f, 0.0, 1.0)).orthonormalized()
+
+## 代驾前视：用整车碰撞盒扫描旁侧通道；返回最近扫描点距离，0 表示可走
+func _crew_obstacle_ahead(side_offset: float) -> float:
+	var space := get_world_3d().direct_space_state
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(3.9, 3.9, 6.0)
+	for distance in [7.0, 13.0, 19.0, 25.0, 31.0, 37.0, 43.0]:
+		var query := PhysicsShapeQueryParameters3D.new()
+		query.shape = shape
+		query.transform = global_transform * Transform3D(Basis.IDENTITY, Vector3(side_offset, 0.75, -distance))
+		query.collision_mask = 1
+		query.exclude = [get_rid()]
+		for hit in space.intersect_shape(query, 4):
+			var collider: Object = hit.get("collider")
+			if collider != null and (collider.is_in_group("obstacle_hard") or collider.is_in_group("obstacle_soft")):
+				return distance
+	return 0.0
 
 func _report_collisions() -> void:
 	for i in get_slide_collision_count():

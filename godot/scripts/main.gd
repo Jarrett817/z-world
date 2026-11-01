@@ -1713,11 +1713,19 @@ func _build_interior() -> void:
 		var seat_mesh: Node3D = interior.find_child(sn, true, false)
 		if seat_mesh != null:
 			seat_mesh.position.z -= 1.27
-	# GLB 原模自带一张横贯整车的大通铺，改为代码搭建的左侧上下铺睡眠隔间（见 _build_life_props），隐藏旧床件
-	for bn in ["bed", "bed_pad", "blanket", "pillow"]:
-		var bed_part: Node3D = interior.find_child(bn, true, false)
-		if bed_part != null:
-			bed_part.visible = false
+	# 生活舱由 _build_life_props 统一布局；隐藏旧床、宽柜台、落地货架、餐桌及依附摆件，避免两套家具叠在一起
+	for part_name in [
+		"bed", "bed_pad", "blanket", "pillow", "roll",
+		"kitchen", "kitchen_top", "wall_cab", "curtain1", "rug",
+		"shelf", "shelf_b0", "shelf_b1", "shelf_b2",
+		"book0", "book1", "book2", "bottle0", "bottle1", "foodbag",
+		"can1", "can2", "can3", "crate1", "crate2",
+		"table", "tleg00", "tleg01", "tleg10", "tleg11", "stool_top", "stool_leg",
+		"cup", "plate", "wine", "wine_neck", "photo0", "photo0_f",
+	]:
+		var old_part: Node3D = interior.find_child(part_name, true, false)
+		if old_part != null:
+			old_part.visible = false
 
 ## 车底两侧侧开式储物柜：地板与轮底之间囤水和物资，挂在车壳上随俯仰/侧倾一起运动
 func _build_underbody_storage() -> void:
@@ -1781,21 +1789,24 @@ func _build_crew() -> void:
 		[RV_PORT_POINTS[1], PI * 0.5, "port", "射孔", false],
 		[RV_PORT_POINTS[2], 0.0, "port", "尾射孔", false],
 		[RV_PORT_POINTS[3], PI * 0.5, "port", "射孔", false],
-		# ---- 20 个舱内生活位 ----
-		[Vector3(0.55, -0.4, -1.30) * INTERIOR_SCALE, PI, "sit", "乘员", false],   # 后排座椅（原 seat_b0 前移后）
-		[Vector3(-0.90, -0.4, -0.10) * INTERIOR_SCALE, -PI * 0.5, "idle", "做饭", false],  # 灶台前
-		[Vector3(0.35, -0.4, 2.15) * INTERIOR_SCALE, PI * 0.5, "idle", "收拾", false],     # 尾部物资区
-		[Vector3(0.68, -0.4, 1.79) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],   # 右墙长凳，髋部落在椅面而非椅背
-		[Vector3(0.68, -0.4, 2.28) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],
-		# 左单座五席；两种坐姿髋部在 root 后 0.294~0.324m，车厢 Z 缩放前补偿 0.20m
-		[Vector3(-0.75, -0.4, -1.55) * INTERIOR_SCALE, PI, "sit", "休整", false],
-		[Vector3(-0.75, -0.4, -1.05) * INTERIOR_SCALE, PI, "sit", "休整", false],
-		[Vector3(-0.75, -0.4, -0.55) * INTERIOR_SCALE, PI, "sit", "休整", false],
-		[Vector3(-0.75, -0.4, -0.05) * INTERIOR_SCALE, PI, "sit", "休整", false],
-		[Vector3(-0.75, -0.4, 0.45) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		# ---- 20 个舱内生活位：18 个坐姿位 + 做饭/收拾，全部对应实体椅面或床沿 ----
+		[Vector3(-0.55, -0.4, -1.50) * INTERIOR_SCALE, PI, "sit", "乘员", false],
+		[Vector3(0.55, -0.4, -1.50) * INTERIOR_SCALE, PI, "sit", "乘员", false],
+		[Vector3(-0.55, -0.4, -2.05) * INTERIOR_SCALE, PI, "sit", "乘员", false],
+		[Vector3(-0.60, -0.4, 0.15) * INTERIOR_SCALE, -PI * 0.5, "idle", "做饭", false],
+		[Vector3(0.55, -0.4, 2.60) * INTERIOR_SCALE, PI * 0.5, "idle", "收拾", false],
+		[Vector3(0.68, -0.4, 1.62) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],
+		[Vector3(0.68, -0.4, 2.08) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],
+		# 左单座三席；中间留出的灶台工作位不再摆椅子
+		[Vector3(-0.60, -0.4, -1.05) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.60, -0.4, -0.55) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.60, -0.4, 0.45) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		# 上铺床沿两个朝舱内的休整位；root 抬高到上铺坐姿高度，双脚自然垂下
+		[Vector3(-0.72, 0.45, 1.45) * INTERIOR_SCALE, PI * 0.5, "sit", "休整", false],
+		[Vector3(-0.72, 0.45, 1.95) * INTERIOR_SCALE, PI * 0.5, "sit", "休整", false],
 	]
-	# 右双座五排：x=-0.20 附近形成贯通车头、生活区和床铺的中央过道
-	for row in 5:
+	# 右双座四排，最后一排之后留出右后射孔的站位
+	for row in 4:
 		for sx in [0.35, 0.90]:
 			stations.append([Vector3(sx, -0.4, -1.05 + float(row) * 0.50) * INTERIOR_SCALE, PI, "sit", "乘员", false])
 	for st in stations:
@@ -1994,6 +2005,9 @@ func _build_life_props() -> void:
 	var mattress_col := Color(0.72, 0.70, 0.62)
 	var pillow_col := Color(0.85, 0.82, 0.72)
 	var blanket_col := Color(0.30, 0.34, 0.42)
+	# 左墙窄灶台：保留旧模型的锅、水槽和炊具，柜体内缩到座椅之外，尾端避开床铺隔断
+	box.call(Vector3(0.48, 0.845, 2.20), Vector3(-1.06, 0.0225, -0.20), wood.darkened(0.04), 0.85)
+	box.call(Vector3(0.48, 0.05, 2.20), Vector3(-1.06, 0.47, -0.20), Color(0.65, 0.62, 0.54), 0.65)
 	# 四根角柱自地板通到上铺床板，兼作下铺支架
 	for px in [-1.30, -0.74]:
 		for pz in [1.12, 2.72]:
@@ -2008,7 +2022,7 @@ func _build_life_props() -> void:
 	box.call(Vector3(0.60, 0.10, 1.58), Vector3(-1.02, 0.72, 1.90), mattress_col)
 	box.call(Vector3(0.46, 0.08, 0.20), Vector3(-1.02, 0.81, 2.55), pillow_col)
 	box.call(Vector3(0.60, 0.04, 1.00), Vector3(-1.02, 0.79, 1.60), blanket_col)
-	box.call(Vector3(0.04, 0.12, 0.78), Vector3(-0.68, 0.89, 2.33), wood.darkened(0.08))
+	box.call(Vector3(0.04, 0.12, 0.52), Vector3(-0.68, 0.89, 2.46), wood.darkened(0.08))
 	# 床尾爬梯：双竖杆 + 四级横档（立于半墙前的过道侧）
 	box.call(Vector3(0.04, 0.90, 0.04), Vector3(-0.60, 0.23, 0.96), wood.darkened(0.12))
 	box.call(Vector3(0.04, 0.90, 0.04), Vector3(-0.76, 0.23, 0.96), wood.darkened(0.12))
@@ -2016,42 +2030,38 @@ func _build_life_props() -> void:
 		box.call(Vector3(0.20, 0.035, 0.035), Vector3(-0.68, -0.10 + float(i) * 0.22, 0.96), wood.darkened(0.12))
 	# 床尾半墙隔断（左半封死，右侧留过道）
 	box.call(Vector3(1.18, 1.12, 0.06), Vector3(-0.70, 0.16, 1.04), wood.darkened(0.1), 0.9)
-	# 上下铺各一道布帘：帆布杆 + 垂帘 + 两道褶痕（褶痕放在床尾半段，避开上铺护栏）
+	# 下铺布帘保留私密性；上铺作为床沿休整位，侧面保持敞开，双腿不穿帘
 	var rod_col := Color(0.2, 0.2, 0.2)
 	var canvas_col := Color(0.31, 0.27, 0.20)
 	box.call(Vector3(0.04, 0.04, 1.46), Vector3(-0.70, 0.32, 1.96), rod_col, 0.5)
-	box.call(Vector3(0.04, 0.04, 1.46), Vector3(-0.70, 1.12, 1.96), rod_col, 0.5)
 	box.call(Vector3(0.03, 0.40, 1.46), Vector3(-0.70, 0.10, 1.96), canvas_col, 1.0)
-	box.call(Vector3(0.03, 0.42, 1.46), Vector3(-0.70, 0.89, 1.96), canvas_col, 1.0)
 	var fold_col := canvas_col.darkened(0.25)
 	for fz in [1.45, 1.80]:
 		box.call(Vector3(0.012, 0.40, 0.03), Vector3(-0.683, 0.10, fz), fold_col, 1.0)
-		box.call(Vector3(0.012, 0.42, 0.03), Vector3(-0.683, 0.89, fz), fold_col, 1.0)
-	# 左墙吊柜 ×3（灶台/货架上方，储物感）
-	for i in 3:
-		box.call(Vector3(0.40, 0.48, 0.55), Vector3(-1.08, 1.32, -0.3 + float(i) * 0.65), wood.darkened(0.15), 0.85)
-	# 右排座椅上方开放式行李架：底板、围杆和墙侧支撑，中央过道保持无遮挡
-	box.call(Vector3(0.42, 0.05, 2.20), Vector3(1.08, 1.37, 0.15), wood.darkened(0.12), 0.85)
+	# 左墙吊柜 ×2，只覆盖灶台，不伸进上铺和爬梯空间
+	for i in 2:
+		box.call(Vector3(0.40, 0.48, 0.55), Vector3(-1.08, 1.32, -0.55 + float(i) * 0.75), wood.darkened(0.15), 0.85)
+	# 右排座椅上方开放式行李架：尾部止于射孔站位之前
+	box.call(Vector3(0.42, 0.05, 1.80), Vector3(1.08, 1.37, -0.10), wood.darkened(0.12), 0.85)
 	for rx in [0.86, 1.28]:
-		box.call(Vector3(0.04, 0.16, 2.20), Vector3(rx, 1.49, 0.15), wood.darkened(0.18), 0.8)
-	for rz in [-0.95, 1.25]:
+		box.call(Vector3(0.04, 0.16, 1.80), Vector3(rx, 1.49, -0.10), wood.darkened(0.18), 0.8)
+	for rz in [-1.00, 0.80]:
 		box.call(Vector3(0.42, 0.16, 0.04), Vector3(1.08, 1.49, rz), wood.darkened(0.18), 0.8)
 		box.call(Vector3(0.05, 0.48, 0.05), Vector3(1.25, 1.20, rz), wood.darkened(0.18), 0.8)
 	for i in 3:
 		var crate := FOOD_CRATE_SCENE.instantiate() as Node3D
 		crate.scale = Vector3.ONE * 0.20
-		crate.position = Vector3(1.08, 1.40, -0.62 + float(i) * 0.76)
+		crate.position = Vector3(1.08, 1.40, -0.62 + float(i) * 0.55)
 		interior.add_child(crate)
 	# 生活舱地毯（暗红棕做旧）
 	box.call(Vector3(1.20, 0.02, 1.60), Vector3(0.05, -0.39, 0.40), Color(0.35, 0.18, 0.14), 1.0)
-	# 灶台边水壶 ×2
-	cyl.call(0.07, 0.08, 0.22, Vector3(-0.92, -0.29, -0.62), Color(0.62, 0.64, 0.66), 0.45)
-	cyl.call(0.06, 0.07, 0.18, Vector3(-0.74, -0.31, -0.66), Color(0.55, 0.52, 0.45), 0.6)
-	# 餐桌囤货罐头 ×3（床铺改造后原床尾罐头挪上桌）
+	# 灶台上的水壶与罐头，全部落在台面高度
+	cyl.call(0.07, 0.08, 0.22, Vector3(-1.16, 0.605, 0.80), Color(0.62, 0.64, 0.66), 0.45)
+	cyl.call(0.06, 0.07, 0.18, Vector3(-0.96, 0.585, 0.80), Color(0.55, 0.52, 0.45), 0.6)
 	for i in 3:
-		cyl.call(0.045, 0.045, 0.11, Vector3(-0.02 + float(i) * 0.11, 0.405, 1.70), Color(0.65, 0.55, 0.30), 0.4)
+		cyl.call(0.045, 0.045, 0.11, Vector3(-1.18 + float(i) * 0.11, 0.55, 0.05), Color(0.65, 0.55, 0.30), 0.4)
 	# 吊柜顶小盆栽（末日生机）
-	cyl.call(0.06, 0.075, 0.10, Vector3(-1.08, 1.61, 1.0), Color(0.45, 0.28, 0.18))
+	cyl.call(0.06, 0.075, 0.10, Vector3(-1.08, 1.61, 0.20), Color(0.45, 0.28, 0.18))
 	var leaf := MeshInstance3D.new()
 	var lm := SphereMesh.new()
 	lm.radius = 0.10
@@ -2061,7 +2071,7 @@ func _build_life_props() -> void:
 	lmat.albedo_color = Color(0.24, 0.45, 0.20)
 	lmat.roughness = 1.0
 	leaf.material_override = lmat
-	leaf.position = Vector3(-1.08, 1.74, 1.0)
+	leaf.position = Vector3(-1.08, 1.74, 0.20)
 	interior.add_child(leaf)
 	# 吊灯罩（cab_light 同位，暖光有了看得见的来源）
 	var shade: MeshInstance3D = cyl.call(0.05, 0.16, 0.14, Vector3(0, 1.80, 0.4), Color(0.85, 0.70, 0.45), 0.6)
@@ -2069,11 +2079,9 @@ func _build_life_props() -> void:
 	(shade.material_override as StandardMaterial3D).emission = Color(1.0, 0.75, 0.45)
 	(shade.material_override as StandardMaterial3D).emission_energy_multiplier = 0.9
 	cyl.call(0.012, 0.012, 0.14, Vector3(0, 1.92, 0.4), Color(0.2, 0.2, 0.2), 0.6)
-	# 左墙照片板（旅途记忆）
-	box.call(Vector3(0.02, 0.30, 0.40), Vector3(-1.29, 1.0, 0.5), Color(0.85, 0.80, 0.70), 1.0)
 	# 右后角储物箱堆（贴尾墙摞放，避开右墙长凳与尾射孔火线）+ 帆布袋压箱顶
-	box.call(Vector3(0.45, 0.34, 0.50), Vector3(0.52, -0.23, 2.50), wood.darkened(0.1))
-	box.call(Vector3(0.35, 0.26, 0.40), Vector3(0.52, 0.07, 2.52), Color(0.50, 0.42, 0.30))
+	box.call(Vector3(0.45, 0.34, 0.50), Vector3(1.00, -0.23, 2.54), wood.darkened(0.1))
+	box.call(Vector3(0.35, 0.26, 0.40), Vector3(1.00, 0.07, 2.54), Color(0.50, 0.42, 0.30))
 	var sack := MeshInstance3D.new()
 	var sm2 := SphereMesh.new()
 	sm2.radius = 0.17
@@ -2084,19 +2092,24 @@ func _build_life_props() -> void:
 	smat.roughness = 1.0
 	sack.material_override = smat
 	sack.scale = Vector3(1.0, 0.72, 1.0)
-	sack.position = Vector3(0.52, 0.05, 2.50)
+	sack.position = Vector3(1.00, 0.32, 2.54)
 	interior.add_child(sack)
-	# 右墙贴墙长凳：两个坐姿生活位（本地 z≈1.79/2.28，对应乘员槽 13/14）
-	box.call(Vector3(0.50, 0.12, 1.05), Vector3(1.00, -0.16, 1.95), mattress_col)
-	box.call(Vector3(0.08, 0.62, 1.05), Vector3(1.23, 0.15, 1.95), wood.darkened(0.05))
-	# 左单座＋右双座：座位之间留出 0.67m 中央过道，后段不再横排封路
-	for sx in [-0.75, 0.35, 0.90]:
-		for row in 5:
-			var sz := (-1.35 if sx < 0.0 else -0.85) + float(row) * 0.50
-			box.call(Vector3(0.43, 0.12, 0.42), Vector3(sx, -0.16, sz), mattress_col)
-			box.call(Vector3(0.43, 0.62, 0.08), Vector3(sx, 0.15, sz + 0.21), wood.darkened(0.05))
-			for lx in [sx - 0.13, sx + 0.13]:
-				box.call(Vector3(0.05, 0.24, 0.05), Vector3(lx, -0.28, sz), wood.darkened(0.12))
+	# 右墙贴墙长凳：两个朝舱内的坐姿生活位，尾部留出储物与收拾站位
+	box.call(Vector3(0.50, 0.12, 0.82), Vector3(1.00, -0.16, 1.80), mattress_col)
+	box.call(Vector3(0.08, 0.62, 0.82), Vector3(1.23, 0.15, 1.80), wood.darkened(0.05))
+	# 14 个普通座椅与生活位一一对应；椅面中心比人物 root 靠后 0.20m，中央过道保持贯通
+	var seats := [
+		Vector2(-0.55, -1.85), Vector2(-0.55, -1.30), Vector2(0.55, -1.30),
+		Vector2(-0.60, -0.85), Vector2(-0.60, -0.35), Vector2(-0.60, 0.65),
+	]
+	for row in 4:
+		for sx in [0.35, 0.90]:
+			seats.append(Vector2(sx, -0.85 + float(row) * 0.50))
+	for seat in seats:
+		box.call(Vector3(0.43, 0.12, 0.42), Vector3(seat.x, -0.16, seat.y), mattress_col)
+		box.call(Vector3(0.43, 0.62, 0.08), Vector3(seat.x, 0.15, seat.y + 0.21), wood.darkened(0.05))
+		for lx in [seat.x - 0.13, seat.x + 0.13]:
+			box.call(Vector3(0.05, 0.24, 0.05), Vector3(lx, -0.28, seat.y), wood.darkened(0.12))
 	# 四处射击孔：深色开孔板 + 枪灰钢框（两侧窗前射孔 ×2、右后窗、尾门）；坐标为内饰本地
 	var port_metal := StandardMaterial3D.new()
 	port_metal.albedo_color = Color(0.22, 0.21, 0.19)
@@ -2340,6 +2353,10 @@ func _update_crew_wander(delta: float) -> void:
 	var candidates: Array = []
 	for i in range(ARMED_STATIONS, mini(crew_members.size(), crew_figures.size())):
 		var f: Node3D = crew_figures[i]
+		var home: Vector3 = f.get_meta("home_pos")
+		# 只有灶台前站位有直接通向过道的净空；坐姿、上铺和尾舱岗位保持原位，避免离座时穿过家具
+		if String(f.get_meta("duty")) != "idle" or home.z > 1.0:
+			continue
 		if bool(f.get_meta("wandering", false)) or f.get_meta("banter_until", 0.0) > now:
 			continue
 		candidates.append(f)
@@ -2372,49 +2389,42 @@ func _stop_crew_wander() -> void:
 		if i < crew_members.size():
 			(f.get_meta("label") as Label3D).text = "%s · %s" % [crew_members[i].get("name", ""), f.get_meta("duty_label")]
 
-## 漫游一段：home(岗位) → wp(过道点) 停顿 → home，到点播回岗位动作并清 wandering
+## 漫游：岗位先横移到过道，再沿过道行走；停留后按原路返回，不斜穿座椅、柜台或床铺
 func _wander_step(f: Node3D, home: Vector3, wp: Vector3, ap: AnimationPlayer) -> void:
-	var leg := func(dst: Vector3, after: Callable) -> void:
-		f.rotation.y = atan2(dst.x - f.position.x, dst.z - f.position.z)
+	var aisle := Vector3(wp.x, home.y, home.z)
+	f.rotation.y = atan2(aisle.x - f.position.x, aisle.z - f.position.z)
+	if ap != null and ap.has_animation("walk"):
+		ap.play("walk", 0.2)
+	var tw := create_tween()
+	tw.set_meta("wander", true)
+	tw.tween_property(f, "position", aisle, f.position.distance_to(aisle) / 0.9)
+	tw.tween_callback(func() -> void:
+		f.rotation.y = atan2(wp.x - f.position.x, wp.z - f.position.z)
+	)
+	tw.tween_property(f, "position", wp, aisle.distance_to(wp) / 0.9)
+	tw.tween_callback(func() -> void:
+		if ap != null and ap.has_animation("idle"):
+			ap.play("idle", 0.2)
+	)
+	tw.tween_interval(randf_range(2.5, 5.0))
+	tw.tween_callback(func() -> void:
+		f.rotation.y = atan2(aisle.x - f.position.x, aisle.z - f.position.z)
 		if ap != null and ap.has_animation("walk"):
 			ap.play("walk", 0.2)
-		var tw := create_tween()
-		tw.set_meta("wander", true)
-		tw.tween_property(f, "position", dst, f.position.distance_to(dst) / 0.9)
-		tw.tween_callback(after)
-	leg.call(wp, func() -> void:
-		if not is_instance_valid(f) or not bool(f.get_meta("wandering", false)):
-			return
-		var ap2 := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
-		if ap2 != null and ap2.has_animation("idle"):
-			ap2.play("idle", 0.2)
-		var tw2 := create_tween()
-		tw2.set_meta("wander", true)
-		tw2.tween_interval(randf_range(2.5, 5.0))
-		tw2.tween_callback(func() -> void:
-			if not is_instance_valid(f) or not bool(f.get_meta("wandering", false)):
-				return
-			var ap3 := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
-			f.rotation.y = atan2(home.x - f.position.x, home.z - f.position.z)
-			if ap3 != null and ap3.has_animation("walk"):
-				ap3.play("walk", 0.2)
-			var tw3 := create_tween()
-			tw3.set_meta("wander", true)
-			tw3.tween_property(f, "position", home, f.position.distance_to(home) / 0.9)
-			tw3.tween_callback(func() -> void:
-				if not is_instance_valid(f):
-					return
-				f.rotation.y = float(f.get_meta("face", 0.0))
-				var ap4 := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
-				var back := "sit" if String(f.get_meta("duty")) == "sit" else "idle"
-				if ap4 != null and ap4.has_animation(back):
-					ap4.play(back, 0.2)
-				var fi: int = crew_figures.find(f)
-				if fi >= 0 and fi < crew_members.size():
-					(f.get_meta("label") as Label3D).text = "%s · %s" % [crew_members[fi].get("name", ""), f.get_meta("duty_label")]
-				f.set_meta("wandering", false)
-			)
-		)
+	)
+	tw.tween_property(f, "position", aisle, wp.distance_to(aisle) / 0.9)
+	tw.tween_callback(func() -> void:
+		f.rotation.y = atan2(home.x - f.position.x, home.z - f.position.z)
+	)
+	tw.tween_property(f, "position", home, aisle.distance_to(home) / 0.9)
+	tw.tween_callback(func() -> void:
+		f.rotation.y = float(f.get_meta("face", 0.0))
+		if ap != null and ap.has_animation("idle"):
+			ap.play("idle", 0.2)
+		var fi: int = crew_figures.find(f)
+		if fi >= 0 and fi < crew_members.size():
+			(f.get_meta("label") as Label3D).text = "%s · %s" % [crew_members[fi].get("name", ""), f.get_meta("duty_label")]
+		f.set_meta("wandering", false)
 	)
 
 ## 自动射手：固定战斗位（车顶 gun / 窗射孔 port）与遇袭领枪的生活位各自索敌开火。
