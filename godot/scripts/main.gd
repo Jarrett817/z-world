@@ -1784,17 +1784,17 @@ func _build_crew() -> void:
 		[Vector3(0.35, -0.4, 2.15) * INTERIOR_SCALE, PI * 0.5, "idle", "收拾", false],     # 尾部物资区
 		[Vector3(0.68, -0.4, 1.79) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],   # 右墙长凳，髋部落在椅面而非椅背
 		[Vector3(0.68, -0.4, 2.28) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],
-		# 左单座五席；坐姿模型的髋部在 root 后约 0.30，root 前移到椅面前缘
-		[Vector3(-0.75, -0.4, -1.65) * INTERIOR_SCALE, PI, "sit", "休整", false],
-		[Vector3(-0.75, -0.4, -1.15) * INTERIOR_SCALE, PI, "sit", "休整", false],
-		[Vector3(-0.75, -0.4, -0.65) * INTERIOR_SCALE, PI, "sit", "休整", false],
-		[Vector3(-0.75, -0.4, -0.15) * INTERIOR_SCALE, PI, "sit", "休整", false],
-		[Vector3(-0.75, -0.4, 0.35) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		# 左单座五席；两种坐姿髋部在 root 后 0.294~0.324m，车厢 Z 缩放前补偿 0.20m
+		[Vector3(-0.75, -0.4, -1.55) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.75, -0.4, -1.05) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.75, -0.4, -0.55) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.75, -0.4, -0.05) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.75, -0.4, 0.45) * INTERIOR_SCALE, PI, "sit", "休整", false],
 	]
 	# 右双座五排：x=-0.20 附近形成贯通车头、生活区和床铺的中央过道
 	for row in 5:
 		for sx in [0.35, 0.90]:
-			stations.append([Vector3(sx, -0.4, -1.15 + float(row) * 0.50) * INTERIOR_SCALE, PI, "sit", "乘员", false])
+			stations.append([Vector3(sx, -0.4, -1.05 + float(row) * 0.50) * INTERIOR_SCALE, PI, "sit", "乘员", false])
 	for st in stations:
 		var fig := Node3D.new()
 		var lb := Label3D.new()
