@@ -36,11 +36,14 @@ const SETTINGS_PATH := "user://settings.cfg"
 const ROAD_HALF := 7.0
 const MAX_KMH := 140.0
 const VIEW_AHEAD := 260.0
+const LANDMARK_VIEW_AHEAD := 700.0  # 大型固定地标提前出现，承担远距离方向引导
 const VIEW_BEHIND := 40.0
 const RV_MODEL_FOOT := 1.557   # GLB 轮底到模型原点的距离
 const RV_ROOF_Y := 1.51        # 实测 gs_001.glb 主车顶平面局部高度（物理射线），天窗/平顶哨位用
 const RV_RAISED_ROOF_Y := 2.04 # 车顶中部凸起舱顶（rv z≈0.55）实测高度
 const INTERIOR_SCALE := Vector3(1.18, 1.0, 1.55)  # 10 米车壳内约 8.4 米有效舱长，30 人编制
+const ROOF_ACCESS_POS := Vector3(-0.53, RV_ROOF_Y, 3.95)  # 尾舱左侧实体舱口，位于太阳能棚尾端之后
+const ROOF_RETURN_POS := Vector3(-0.45, -0.4, 2.22) * INTERIOR_SCALE
 const CREW_ORDER := ["lin_wan", "shen_man", "ye_lan", "tang_tang", "ivory"]
 const CREW_MAX := 30
 const ARMED_STATIONS := 10   # 前 10 槽为战斗编制：1 个副驾瞭望 + 9 个固定射手，其余为舱内生活位
@@ -1921,6 +1924,32 @@ func _build_roof_props() -> void:
 		cells.position = Vector3.ZERO
 		cells.material_override = solar_mat
 		roof_rig.add_child(panel)
+	# 尾部登顶舱口：下沉暗面、钢框与向后掀开的盖板组成可见开口，避开最后一块太阳能板
+	var hatch := MeshInstance3D.new()
+	hatch.mesh = BoxMesh.new()
+	hatch.mesh.size = Vector3(0.72, 0.025, 0.76)
+	hatch.material_override = pad_mat
+	hatch.position = ROOF_ACCESS_POS + Vector3(0.0, 0.015, 0.0)
+	roof_rig.add_child(hatch)
+	for part in [
+		[Vector3(0.06, 0.10, 0.88), Vector3(-0.42, 0.06, 0.0)],
+		[Vector3(0.06, 0.10, 0.88), Vector3(0.42, 0.06, 0.0)],
+		[Vector3(0.90, 0.10, 0.06), Vector3(0.0, 0.06, -0.44)],
+		[Vector3(0.90, 0.10, 0.06), Vector3(0.0, 0.06, 0.44)],
+	]:
+		var frame := MeshInstance3D.new()
+		frame.mesh = BoxMesh.new()
+		frame.mesh.size = part[0]
+		frame.material_override = rail_mat
+		frame.position = ROOF_ACCESS_POS + part[1]
+		roof_rig.add_child(frame)
+	var lid := MeshInstance3D.new()
+	lid.mesh = BoxMesh.new()
+	lid.mesh.size = Vector3(0.82, 0.04, 0.78)
+	lid.material_override = pad_mat
+	lid.position = ROOF_ACCESS_POS + Vector3(0.0, 0.37, 0.41)
+	lid.rotation.x = deg_to_rad(72.0)
+	roof_rig.add_child(lid)
 	# 哨兵踏板：脚下暗圆垫，标识固定哨位
 	for side in [-1.0, 1.0]:
 		var pad := MeshInstance3D.new()
@@ -2001,6 +2030,18 @@ func _build_life_props() -> void:
 	# 左墙吊柜 ×3（灶台/货架上方，储物感）
 	for i in 3:
 		box.call(Vector3(0.40, 0.48, 0.55), Vector3(-1.08, 1.32, -0.3 + float(i) * 0.65), wood.darkened(0.15), 0.85)
+	# 右排座椅上方开放式行李架：底板、围杆和墙侧支撑，中央过道保持无遮挡
+	box.call(Vector3(0.42, 0.05, 2.20), Vector3(1.08, 1.37, 0.15), wood.darkened(0.12), 0.85)
+	for rx in [0.86, 1.28]:
+		box.call(Vector3(0.04, 0.16, 2.20), Vector3(rx, 1.49, 0.15), wood.darkened(0.18), 0.8)
+	for rz in [-0.95, 1.25]:
+		box.call(Vector3(0.42, 0.16, 0.04), Vector3(1.08, 1.49, rz), wood.darkened(0.18), 0.8)
+		box.call(Vector3(0.05, 0.48, 0.05), Vector3(1.25, 1.20, rz), wood.darkened(0.18), 0.8)
+	for i in 3:
+		var crate := FOOD_CRATE_SCENE.instantiate() as Node3D
+		crate.scale = Vector3.ONE * 0.20
+		crate.position = Vector3(1.08, 1.40, -0.62 + float(i) * 0.76)
+		interior.add_child(crate)
 	# 生活舱地毯（暗红棕做旧）
 	box.call(Vector3(1.20, 0.02, 1.60), Vector3(0.05, -0.39, 0.40), Color(0.35, 0.18, 0.14), 1.0)
 	# 灶台边水壶 ×2
@@ -2087,6 +2128,16 @@ func _build_life_props() -> void:
 	mbox.call(Vector3(0.66, 0.05, 0.06), Vector3(0.0, 0.755, 2.75), port_metal)
 	mbox.call(Vector3(0.05, 0.34, 0.06), Vector3(-0.325, 0.90, 2.75), port_metal)
 	mbox.call(Vector3(0.05, 0.34, 0.06), Vector3(0.325, 0.90, 2.75), port_metal)
+	# 尾舱左侧登顶梯：地板直达车顶舱口，与右后长凳、储物箱和尾射孔错位
+	for lx in [-0.64, -0.26]:
+		mbox.call(Vector3(0.045, 2.12, 0.055), Vector3(lx, 0.66, 2.48), port_metal)
+	for i in 9:
+		mbox.call(Vector3(0.42, 0.04, 0.055), Vector3(-0.45, -0.28 + float(i) * 0.24, 2.48), port_metal)
+	# 舱内舱口框与车顶框对应；梯子顶端伸出开口，便于抓握转身
+	for hx in [-0.80, -0.10]:
+		mbox.call(Vector3(0.05, 0.06, 0.58), Vector3(hx, 1.47, 2.48), port_metal)
+	for hz in [2.19, 2.77]:
+		mbox.call(Vector3(0.75, 0.06, 0.05), Vector3(-0.45, 1.47, hz), port_metal)
 
 ## 队员加入/刷新时：按 id 实例化对应 VRM 基底并更新名牌；岗位弹匣留在槽位，换班不补弹
 func _sync_crew() -> void:
@@ -2862,7 +2913,7 @@ func start_combat(m: int) -> void:
 		p.position.y = ground_height(p.position.x, p.position.z)
 	else:
 		# 车顶天窗：脚踩实测车壳顶面（to_global 含行驶俯仰，不再悬空）
-		p.position = rv.to_global(Vector3(0, RV_ROOF_Y, 0.2))
+		p.position = rv.to_global(ROOF_ACCESS_POS)
 	p.setup(self, m)
 	add_child(p)
 	player_body = p
@@ -2927,7 +2978,7 @@ func end_combat() -> void:
 		var np := CharacterBody3D.new()
 		np.set_script(PLAYER_SCRIPT)
 		np.setup(self, 2)
-		np.position = Vector3(-0.20, -0.4, -1.2) * INTERIOR_SCALE
+		np.position = ROOF_RETURN_POS
 		rv.add_child(np)
 		player_body = np
 		rv_walk_active = true
@@ -3064,7 +3115,7 @@ func _sync_player_to_rv(_delta: float) -> void:
 	var p := get_player_body()
 	if p == null or p.mode != 1:
 		return
-	p.position = rv.to_global(Vector3(0, RV_ROOF_Y, 0.2))
+	p.position = rv.to_global(ROOF_ACCESS_POS)
 	p.velocity = Vector3.ZERO
 
 func on_zombie_shot(killed := true, headshot := false) -> void:
@@ -3351,7 +3402,8 @@ func _update_frontier() -> void:
 	while _place_idx < _places.size():
 		var p: Dictionary = _places[_place_idx]
 		var pz: float = rvz - (float(p.get("km", 0.0)) - dist_km) * KMH_FACTOR
-		if pz <= rvz - VIEW_AHEAD:
+		var ahead := LANDMARK_VIEW_AHEAD if String(p.get("type", "")) == "landmark" else VIEW_AHEAD
+		if pz <= rvz - ahead:
 			break
 		_spawn_place(p, pz)
 		_place_idx += 1
@@ -3438,7 +3490,13 @@ func _spawn_place(p: Dictionary, z: float) -> void:
 		"camp":
 			_camp(z)
 		"landmark":
-			_landmark_rock(z)
+			match String(p.get("kind", "rock")):
+				"tower":
+					_landmark_tower(p, z)
+				"lighthouse":
+					_landmark_lighthouse(p, z)
+				_:
+					_landmark_rock(p, z)
 	# 到达牌立支路对侧，避免遮挡岔口
 	var pj := _place_junction(p)
 	_place_sign(String(p.get("name", "")), z, -float(pj["side"]) if not pj.is_empty() else 1.0)
@@ -3856,14 +3914,15 @@ func _camp(z: float) -> void:
 	root.add_child(fire)
 	add_child(root)
 
-## 地标：鹰嘴岩式巨型岩柱（路左远眺，微倾更像风蚀）
-func _landmark_rock(z: float) -> void:
+## 固定地标：世界 JSON 决定里程、路侧、离路距离与高度，世界种子只决定表面细节
+func _landmark_rock(p: Dictionary, z: float) -> void:
 	# 风蚀岩柱：基座 + 中层错叠 + 向路挑出的"喙"
-	var bx: float = road_x(z) - randf_range(40.0, 52.0)
+	var bx: float = road_x(z) + float(p.get("side", -1.0)) * float(p.get("offset", 48.0))
 	var gy: float = ground_height(bx, z)
 	var rock := Node3D.new()
 	rock.position = Vector3(bx, gy, z)
 	rock.rotation.y = randf() * TAU
+	rock.scale = Vector3.ONE * (float(p.get("height", 34.0)) / 23.5)
 	add_child(rock)
 	rock.add_to_group("consumable")
 	var layers := [
@@ -3881,6 +3940,115 @@ func _landmark_rock(z: float) -> void:
 		mi.rotation.z = L[2]
 		rock.add_child(mi)
 	_solid_box(rock, Vector3(9, 23, 8), Vector3(0, 11.5, 0))
+
+func _landmark_tower(p: Dictionary, z: float) -> void:
+	var bx: float = road_x(z) + float(p.get("side", 1.0)) * float(p.get("offset", 58.0))
+	var tower := Node3D.new()
+	tower.position = Vector3(bx, ground_height(bx, z), z)
+	tower.scale = Vector3.ONE * (float(p.get("height", 48.0)) / 48.0)
+	add_child(tower)
+	tower.add_to_group("consumable")
+	var steel := _mat(Color(0.43, 0.49, 0.50))
+	var red := _mat(Color(0.72, 0.20, 0.14))
+	var concrete := _mat(Color(0.52, 0.53, 0.48))
+	# 山区通信塔：宽基座、四根收分钢腿、三层平台与红白天线，远距离也有明确剪影
+	var base := MeshInstance3D.new()
+	base.mesh = BoxMesh.new()
+	base.mesh.size = Vector3(8.0, 1.2, 8.0)
+	base.position.y = 0.6
+	base.material_override = concrete
+	tower.add_child(base)
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			var leg := MeshInstance3D.new()
+			leg.mesh = BoxMesh.new()
+			leg.mesh.size = Vector3(0.65, 37.0, 0.65)
+			leg.position = Vector3(sx * 2.0, 19.0, sz * 2.0)
+			leg.rotation.z = -sx * 0.045
+			leg.rotation.x = sz * 0.045
+			leg.material_override = steel
+			tower.add_child(leg)
+	for level in [10.0, 21.0, 32.0, 38.0]:
+		var deck := MeshInstance3D.new()
+		deck.mesh = BoxMesh.new()
+		deck.mesh.size = Vector3(5.6 - level * 0.055, 0.45, 5.6 - level * 0.055)
+		deck.position.y = level
+		deck.material_override = steel
+		tower.add_child(deck)
+	for i in 3:
+		var mast := MeshInstance3D.new()
+		mast.mesh = CylinderMesh.new()
+		mast.mesh.top_radius = 0.28
+		mast.mesh.bottom_radius = 0.38
+		mast.mesh.height = 3.4
+		mast.position.y = 39.5 + float(i) * 3.4
+		mast.material_override = red if i % 2 == 0 else _mat(Color(0.88, 0.88, 0.80))
+		tower.add_child(mast)
+	for side in [-1.0, 1.0]:
+		var dish := MeshInstance3D.new()
+		dish.mesh = SphereMesh.new()
+		dish.mesh.radius = 1.5
+		dish.mesh.height = 0.65
+		dish.scale = Vector3(1.0, 1.0, 0.28)
+		dish.position = Vector3(side * 2.4, 31.5, 0.0)
+		dish.material_override = _mat(Color(0.82, 0.84, 0.78))
+		tower.add_child(dish)
+	_solid_box(tower, Vector3(7.0, 38.0, 7.0), Vector3(0, 19.0, 0))
+
+func _landmark_lighthouse(p: Dictionary, z: float) -> void:
+	var bx: float = road_x(z) + float(p.get("side", -1.0)) * float(p.get("offset", 62.0))
+	var lighthouse := Node3D.new()
+	lighthouse.position = Vector3(bx, ground_height(bx, z), z)
+	lighthouse.scale = Vector3.ONE * (float(p.get("height", 36.0)) / 36.0)
+	add_child(lighthouse)
+	lighthouse.add_to_group("consumable")
+	# 海岸灯塔：收分白塔身、两道红带、外挑瞭望廊与暖色灯室
+	for i in 3:
+		var section := MeshInstance3D.new()
+		section.mesh = CylinderMesh.new()
+		section.mesh.top_radius = 2.15 - float(i + 1) * 0.22
+		section.mesh.bottom_radius = 2.15 - float(i) * 0.22
+		section.mesh.height = 8.0
+		section.mesh.radial_segments = 16
+		section.position.y = 4.0 + float(i) * 8.0
+		section.material_override = _mat(Color(0.86, 0.84, 0.75) if i != 1 else Color(0.72, 0.20, 0.14))
+		lighthouse.add_child(section)
+	var gallery := MeshInstance3D.new()
+	gallery.mesh = CylinderMesh.new()
+	gallery.mesh.top_radius = 3.0
+	gallery.mesh.bottom_radius = 3.0
+	gallery.mesh.height = 0.65
+	gallery.mesh.radial_segments = 16
+	gallery.position.y = 24.3
+	gallery.material_override = _mat(Color(0.26, 0.30, 0.30))
+	lighthouse.add_child(gallery)
+	var lantern := MeshInstance3D.new()
+	lantern.mesh = CylinderMesh.new()
+	lantern.mesh.top_radius = 1.65
+	lantern.mesh.bottom_radius = 1.65
+	lantern.mesh.height = 4.0
+	lantern.mesh.radial_segments = 12
+	lantern.position.y = 26.6
+	lantern.material_override = _emis_mat(Color(1.0, 0.72, 0.30), 1.1)
+	lighthouse.add_child(lantern)
+	var cap := MeshInstance3D.new()
+	cap.mesh = CylinderMesh.new()
+	cap.mesh.top_radius = 0.0
+	cap.mesh.bottom_radius = 2.25
+	cap.mesh.height = 3.0
+	cap.mesh.radial_segments = 16
+	cap.position.y = 30.1
+	cap.material_override = _mat(Color(0.56, 0.16, 0.12))
+	lighthouse.add_child(cap)
+	var spire := MeshInstance3D.new()
+	spire.mesh = CylinderMesh.new()
+	spire.mesh.top_radius = 0.04
+	spire.mesh.bottom_radius = 0.10
+	spire.mesh.height = 4.4
+	spire.position.y = 33.8
+	spire.material_override = _mat(Color(0.24, 0.27, 0.28))
+	lighthouse.add_child(spire)
+	_solid_box(lighthouse, Vector3(4.4, 30.0, 4.4), Vector3(0, 15.0, 0))
 
 ## 高速绿牌：默认立路右；side=-1 立路左（town/gas 到达牌避让支路入口用）
 func _place_sign(pname: String, z: float, side := 1.0) -> void:
@@ -5501,6 +5669,15 @@ func zone_at(z: float) -> String:
 		if km < float(zn.get("end_km", GOAL_KM)):
 			return String(zn.get("type", "plain"))
 	return "plain"
+
+## 固定景观区的远山高度与轮廓相位；段界 90m 内平滑过渡，供三层山脊共用
+func ridge_params(z: float) -> Vector2:
+	var km := -z / KMH_FACTOR
+	for zn in _zones:
+		if km < float(zn.get("end_km", GOAL_KM)):
+			var target := Vector2(float(zn.get("ridge_h", 1.0)), float(zn.get("ridge_phase", 0.0)))
+			return Vector2(1.0, 0.0).lerp(target, zone_weight(z))
+	return Vector2(1.0, 0.0)
 
 ## 当前景观段的强度权重（段中心 1.0，首尾各 90m 淡入淡出）——供水面宽度等地物渐变
 func zone_weight(z: float) -> float:

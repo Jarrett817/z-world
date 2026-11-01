@@ -1,6 +1,6 @@
 extends MeshInstance3D
 ## 无限地形：rebuild(start_z) 从 start_z 向前（-Z）重建 SPAN 长度条带。
-## 多 surface：大地 / 路肩 / 柏油路面 / 车道线 / 波形护栏 / 双层远景山脊。
+## 多 surface：大地 / 路肩 / 柏油路面 / 车道线 / 波形护栏 / 三层远景山脊。
 
 const SPAN := 900.0
 const GROUND_Y := -1.56
@@ -27,7 +27,7 @@ const COL_HALF_X := 400.0
 const COL_STEP := 2.5
 const COL_BACK := 40.0    # 条带起点向后（+Z）覆盖
 const COL_FWD := 900.0    # 向前（-Z）覆盖
-const SURFACE_COUNT := 17
+const SURFACE_COUNT := 19
 const COL_ROWS_PER_FRAME := 12
 
 func _ready() -> void:
@@ -159,10 +159,14 @@ func _surface_arrays(index: int, start_z: float) -> Array:
 		12:
 			return _ridge(start_z, 380.0, 280.0, 0.6)
 		13:
-			return _water(start_z, -1.0)
+			return _ridge(start_z, -620.0, 180.0, 0.85)
 		14:
-			return _water(start_z, 1.0)
+			return _ridge(start_z, 620.0, 180.0, 0.85)
 		15:
+			return _water(start_z, -1.0)
+		16:
+			return _water(start_z, 1.0)
+		17:
 			return _side_roads(start_z, false)
 		_:
 			return _side_roads(start_z, true)
@@ -177,6 +181,8 @@ func _ensure_materials() -> void:
 	ridge_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var ridge_far_mat := _mat(Color(0.6, 0.72, 0.83), 1.0)
 	ridge_far_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var ridge_horizon_mat := _mat(Color(0.70, 0.79, 0.88), 1.0)
+	ridge_horizon_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	# 湖面/海面：片元卡通波光，双频正弦亮纹随时间漂移，近岸浅远水深，不扰动顶点避免碟形岸沿离缝
 	var water_mat := ShaderMaterial.new()
 	var wsh := Shader.new()
@@ -216,6 +222,8 @@ void fragment() {
 		ridge_mat,
 		ridge_far_mat,
 		ridge_far_mat,
+		ridge_horizon_mat,
+		ridge_horizon_mat,
 		water_mat,
 		water_mat,
 		_mat(Color(0.29, 0.235, 0.155), 1.0),
@@ -536,9 +544,11 @@ func _ridge(start_z: float, side_x: float, width: float = 200.0, h_scale: float 
 		var zz: float = start_z - i * SEG_LEN
 		var cx: float = _main.road_x(zz)
 		var gy: float = _main.ground_y(zz)
-		# 峰高压低：原最高 71m 会顶出屏幕上缘、被雾洗成"巨墙"；压低后波浪脊线入画才读得出山形
-		var h: float = (9.0 + sin(zz * 0.0041 + side_x) * 6.0
-			+ sin(zz * 0.0013 + 3.0) * 9.5 + sin(zz * 0.011) * 2.0) * h_scale
+		# 固定区域决定峰高与轮廓相位；三层共用数据但距离和层高压低不同，形成连续地平线
+		var ridge: Vector2 = _main.ridge_params(zz)
+		var phase: float = ridge.y + side_x * 0.01
+		var h: float = (9.0 + sin(zz * 0.0041 + phase) * 6.0
+			+ sin(zz * 0.0013 + phase * 0.7 + 3.0) * 9.5 + sin(zz * 0.011 + phase) * 2.0) * h_scale * ridge.x
 		var xa: float = cx + x0
 		var xb: float = cx + x1
 		verts.append(Vector3(xa, gy - 3.0, zz)); normals.append(face_n)

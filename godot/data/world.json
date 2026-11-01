@@ -26,10 +26,12 @@
 		{ "name": "断桥营地",     "km": 55.0,  "type": "camp" },
 		{ "name": "望江服务区",   "km": 90.0,  "type": "gas" },
 		{ "name": "榆树湾镇",     "km": 130.0, "type": "town" },
-		{ "name": "鹰嘴岩",       "km": 180.0, "type": "landmark" },
+		{ "name": "鹰嘴岩",       "km": 180.0, "type": "landmark", "kind": "rock", "side": -1, "offset": 48.0, "height": 34.0 },
 		{ "name": "湖心岛营地",   "km": 240.0, "type": "camp" },
 		{ "name": "铁矿镇",       "km": 320.0, "type": "town" },
+		{ "name": "苍穹信号塔",   "km": 365.0, "type": "landmark", "kind": "tower", "side": 1, "offset": 58.0, "height": 48.0 },
 		{ "name": "青石垭口加油站", "km": 420.0, "type": "gas" },
+		{ "name": "白沙灯塔",     "km": 455.0, "type": "landmark", "kind": "lighthouse", "side": -1, "offset": 62.0, "height": 36.0 },
 		{ "name": "白沙镇",       "km": 520.0, "type": "town" },
 		{ "name": "最后营地",     "km": 600.0, "type": "camp" }
 	],

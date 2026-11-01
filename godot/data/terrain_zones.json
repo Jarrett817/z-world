@@ -38,20 +38,20 @@
 		{ "km": 700.0, "x": 0.0,   "elev": 0.0 }
 	],
 	"zones": [
-		{ "start_km": 0.0,   "end_km": 35.0,  "type": "plain" },
-		{ "start_km": 35.0,  "end_km": 70.0,  "type": "forest" },
-		{ "start_km": 70.0,  "end_km": 110.0, "type": "plain" },
-		{ "start_km": 110.0, "end_km": 150.0, "type": "hills" },
-		{ "start_km": 150.0, "end_km": 210.0, "type": "mountain" },
-		{ "start_km": 210.0, "end_km": 240.0, "type": "hills" },
-		{ "start_km": 240.0, "end_km": 285.0, "type": "lake" },
-		{ "start_km": 285.0, "end_km": 320.0, "type": "plain" },
-		{ "start_km": 320.0, "end_km": 390.0, "type": "mountain" },
-		{ "start_km": 390.0, "end_km": 430.0, "type": "hills" },
-		{ "start_km": 430.0, "end_km": 475.0, "type": "coast" },
-		{ "start_km": 475.0, "end_km": 520.0, "type": "plain" },
-		{ "start_km": 520.0, "end_km": 560.0, "type": "forest" },
-		{ "start_km": 560.0, "end_km": 610.0, "type": "hills" },
-		{ "start_km": 610.0, "end_km": 700.0, "type": "forest" }
+		{ "start_km": 0.0,   "end_km": 35.0,  "type": "plain",    "ridge_h": 0.72, "ridge_phase": 0.3 },
+		{ "start_km": 35.0,  "end_km": 70.0,  "type": "forest",   "ridge_h": 1.08, "ridge_phase": 1.4 },
+		{ "start_km": 70.0,  "end_km": 110.0, "type": "plain",    "ridge_h": 0.68, "ridge_phase": 2.6 },
+		{ "start_km": 110.0, "end_km": 150.0, "type": "hills",    "ridge_h": 1.30, "ridge_phase": 3.8 },
+		{ "start_km": 150.0, "end_km": 210.0, "type": "mountain", "ridge_h": 1.78, "ridge_phase": 5.0 },
+		{ "start_km": 210.0, "end_km": 240.0, "type": "hills",    "ridge_h": 1.24, "ridge_phase": 0.9 },
+		{ "start_km": 240.0, "end_km": 285.0, "type": "lake",     "ridge_h": 0.88, "ridge_phase": 2.1 },
+		{ "start_km": 285.0, "end_km": 320.0, "type": "plain",    "ridge_h": 0.74, "ridge_phase": 3.2 },
+		{ "start_km": 320.0, "end_km": 390.0, "type": "mountain", "ridge_h": 1.90, "ridge_phase": 4.5 },
+		{ "start_km": 390.0, "end_km": 430.0, "type": "hills",    "ridge_h": 1.32, "ridge_phase": 5.7 },
+		{ "start_km": 430.0, "end_km": 475.0, "type": "coast",    "ridge_h": 0.58, "ridge_phase": 1.8 },
+		{ "start_km": 475.0, "end_km": 520.0, "type": "plain",    "ridge_h": 0.76, "ridge_phase": 3.0 },
+		{ "start_km": 520.0, "end_km": 560.0, "type": "forest",   "ridge_h": 1.12, "ridge_phase": 4.2 },
+		{ "start_km": 560.0, "end_km": 610.0, "type": "hills",    "ridge_h": 1.38, "ridge_phase": 5.4 },
+		{ "start_km": 610.0, "end_km": 700.0, "type": "forest",   "ridge_h": 1.16, "ridge_phase": 0.6 }
 	]
 }
