@@ -31,6 +31,7 @@ var _body_meshes: Array[MeshInstance3D] = []
 var muzzle: Node3D
 var gun: Node3D          # 当前枪的挂点（grip 对齐点），俯仰/后坐作用在它身上
 var cam: Camera3D
+var _camera_arm: SpringArm3D
 var _anim: AnimationPlayer
 var _cur_anim := ""
 
@@ -124,6 +125,16 @@ func _ready() -> void:
 	cam.fov = 68.0
 	cam.current = false
 	add_child(cam)
+	# 下车第三人称使用原生伸缩臂；相机仍由玩家脚本控制，车内/车顶专用机位不受影响
+	_camera_arm = SpringArm3D.new()
+	_camera_arm.spring_length = 4.5
+	_camera_arm.margin = 0.2
+	_camera_arm.collision_mask = 1
+	_camera_arm.add_excluded_object(get_rid())
+	var arm_shape := SphereShape3D.new()
+	arm_shape.radius = 0.2
+	_camera_arm.shape = arm_shape
+	add_child(_camera_arm)
 
 ## 当前枪配置
 func _cfg() -> Dictionary:
@@ -439,11 +450,14 @@ func _aim_and_camera(delta: float) -> void:
 			eye_back = -0.30   # 与站立视角保持相同的枪后距离
 		cam.global_position = global_position + Vector3(0, eye_h, 0) + back * eye_back
 	else:
-		# MOBA 式斜背后高位俯视：玩家居画面下方，准星指向远处战场，宏观感知敌我态势
-		# 车顶卧姿：相机降到贴近车顶跟拍
-		cam.global_position = global_position + (Vector3(0, 2.2, 0) + back * 3.6 if mode == Mode.SUNROOF else Vector3(0, 3.6, 0) + back * 4.5)
-		# 坡地防穿：身后是上坡时 3.6m 高可能埋进土里，抬到地面以上
-		cam.global_position.y = maxf(cam.global_position.y, main_node.ground_height(cam.global_position.x, cam.global_position.z) + 0.35)
+		if mode == Mode.ON_FOOT:
+			# 原生形状扫掠同时处理墙体与身后上坡，命中后自动缩短肩后距离
+			_camera_arm.global_transform = Transform3D(cam_basis, global_position + Vector3(0, 3.6, 0))
+			cam.global_position = _camera_arm.global_position + back * _camera_arm.get_hit_length()
+		else:
+			# 车顶卧姿：保留贴近车顶的专用跟拍机位
+			cam.global_position = global_position + Vector3(0, 2.2, 0) + back * 3.6
+			cam.global_position.y = maxf(cam.global_position.y, main_node.ground_height(cam.global_position.x, cam.global_position.z) + 0.35)
 	var look_dir := (cam_basis * Vector3(0, 0, -1)).rotated(right, aim_pitch)
 	cam.look_at(cam.global_position + look_dir * 10.0, Vector3.UP)
 	# 枪身随俯仰角指向瞄点，开火瞬间后坐上抬；sway/蹲姿下放统一在 _apply_gun

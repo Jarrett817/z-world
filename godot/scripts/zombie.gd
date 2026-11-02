@@ -30,6 +30,7 @@ var death_t := 0.0
 var should_free := false
 var growl_t := 0.0
 var anim: AnimationPlayer
+var _agent: NavigationAgent3D
 
 func setup(main: Node3D) -> void:
 	main_node = main
@@ -45,6 +46,12 @@ func setup(main: Node3D) -> void:
 	# 锁死物理旋转：否则胶囊体受地面/碰撞扭矩会整体乱转，朝向只由 AI 脚本控制
 	lock_rotation = true
 	angular_velocity = Vector3.ZERO
+	_agent = NavigationAgent3D.new()
+	_agent.radius = 0.5
+	_agent.max_speed = 8.0
+	_agent.avoidance_enabled = true
+	_agent.velocity_computed.connect(_on_velocity_computed)
+	add_child(_agent)
 	_vary_materials(self)
 	anim = _find_anim_player(self)
 	state = St.WANDER if randf() < 0.7 else St.IDLE
@@ -122,9 +129,17 @@ func _physics_process(delta: float) -> void:
 		return
 	if stagger_t > 0.0:
 		stagger_t -= delta
+		_agent.velocity = Vector3.ZERO
 		linear_velocity = Vector3(0, linear_velocity.y, 0)
 		return
 	_ai(delta)
+
+## 原生 RVO 避让只接管追逐/游荡的水平速度；撞飞、硬直和死亡仍由刚体物理接管
+func _on_velocity_computed(safe_velocity: Vector3) -> void:
+	if dead or flung_t > 0.0 or stagger_t > 0.0 or main_node.game_over:
+		return
+	linear_velocity.x = safe_velocity.x
+	linear_velocity.z = safe_velocity.z
 
 # ---------- 声音感知 ----------
 
@@ -154,11 +169,13 @@ func is_hunting() -> bool:
 
 func _ai(delta: float) -> void:
 	if main_node.game_over:
+		_agent.velocity = Vector3.ZERO
 		linear_velocity = Vector3(0, linear_velocity.y, 0)
 		return
 	state_t -= delta
 	match state:
 		St.IDLE:
+			_agent.velocity = Vector3.ZERO
 			linear_velocity = Vector3(0, linear_velocity.y, 0)
 			if anim != null:
 				anim.speed_scale = 1.0
@@ -178,10 +195,12 @@ func _wander(delta: float) -> void:
 	if to.length() < 1.5 or state_t <= 0.0:
 		state = St.IDLE
 		state_t = randf_range(1.5, 5.0)
+		_agent.velocity = Vector3.ZERO
 		linear_velocity = Vector3(0, linear_velocity.y, 0)
 		return
 	var dir := to.normalized()
-	linear_velocity = Vector3(dir.x * WANDER_SPEED, linear_velocity.y, dir.z * WANDER_SPEED)
+	_agent.target_position = wander_target
+	_agent.velocity = dir * WANDER_SPEED
 	rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 4.0)
 	if anim != null:
 		anim.speed_scale = 0.7
@@ -233,13 +252,15 @@ func _chase(delta: float) -> void:
 	var d_xz := Vector2(to_t.x, to_t.z).length()
 	if d_xz > bite_range:
 		var dir := Vector3(to_t.x, 0.0, to_t.z).normalized()
-		linear_velocity = Vector3(dir.x * speed, linear_velocity.y, dir.z * speed)
+		_agent.target_position = target_pos
+		_agent.velocity = dir * speed
 		rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 8.0)
 		_play(WALK)
 		if anim != null:
 			anim.speed_scale = clampf(speed * 0.45, 1.4, 2.8)
 	else:
 		# 贴身啃咬：猎杀目标有自卫钩子则交给它（幸存者反杀），玩家由 main 结算，否则啃车
+		_agent.velocity = Vector3.ZERO
 		linear_velocity = Vector3(0, linear_velocity.y, 0)
 		if anim != null:
 			anim.speed_scale = 1.0
@@ -286,6 +307,7 @@ func on_shot(dmg: float, headshot: bool, dir: Vector3) -> bool:
 	set_collision_mask_value(2, false)  # 尸体不挡车
 	dead = true
 	death_t = 1.5
+	_agent.velocity = Vector3.ZERO
 	linear_velocity = Vector3(0, linear_velocity.y, 0)
 	main_node.sfx.play3d("zombie_die", global_position, 1.0, 0.12)
 	_play_once(DEATH)

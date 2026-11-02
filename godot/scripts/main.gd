@@ -1660,8 +1660,8 @@ func _build_rv() -> void:
 	var box := BoxShape3D.new()
 	box.size = Vector3(3.8, 3.9, 10.0)
 	col.shape = box
-	# 车根每帧手动贴地；碰撞盒底部留出离地间隙，避免上坡/姿态滞后时盒角插地把车堵停
-	col.position = Vector3(0, 0.75, 0)
+	# 碰撞盒底与轮底对齐，地形和障碍统一由 CharacterBody3D 处理
+	col.position = Vector3(0, box.size.y * 0.5 - RV_MODEL_FOOT, 0)
 	rv.add_child(col)
 	rv_model = RV_SCENE.instantiate()
 	_style_env_model(rv_model)
@@ -3270,21 +3270,36 @@ func _bullet_impact(hit: Dictionary, dmg: float, dir: Vector3) -> void:
 	tw.tween_callback(flash.queue_free)
 
 # ---------- 手雷 ----------
-## 玩家 X 键投掷：视觉弹道（重力抛物线 + 落地弹跳），引信到点爆炸 AOE
+## 玩家 X 键投掷：刚体重力与实体碰撞负责弹道/弹跳，引信到点爆炸 AOE
 var _grenades: Array = []
 
 func throw_grenade(from: Vector3, dir: Vector3, cfg: Dictionary) -> void:
-	var ball := MeshInstance3D.new()
+	var ball := RigidBody3D.new()
+	ball.mass = 0.4
+	ball.collision_layer = 16
+	ball.collision_mask = 7   # 地形/障碍、房车、丧尸
+	ball.continuous_cd = true
+	var physics_mat := PhysicsMaterial.new()
+	physics_mat.bounce = 0.35
+	physics_mat.friction = 0.65
+	ball.physics_material_override = physics_mat
+	var col := CollisionShape3D.new()
+	var shape := SphereShape3D.new()
+	shape.radius = 0.09
+	col.shape = shape
+	ball.add_child(col)
+	var mesh := MeshInstance3D.new()
 	var sm := SphereMesh.new()
 	sm.radius = 0.09
 	sm.height = 0.18
-	ball.mesh = sm
-	ball.material_override = _emis_mat(Color(0.16, 0.2, 0.14), 0.0)
+	mesh.mesh = sm
+	mesh.material_override = _emis_mat(Color(0.16, 0.2, 0.14), 0.0)
+	ball.add_child(mesh)
 	ball.position = from
 	add_child(ball)
+	ball.linear_velocity = dir.normalized() * float(cfg.get("throw_speed", 16.0))
 	_grenades.append({
 		"node": ball,
-		"vel": dir.normalized() * float(cfg.get("throw_speed", 16.0)),
 		"fuse": float(cfg.get("fuse", 2.2)),
 		"dmg": float(cfg.get("damage", 6.0)),
 		"radius": float(cfg.get("radius", 6.0)),
@@ -3295,24 +3310,10 @@ func _update_grenades(delta: float) -> void:
 		return
 	for i in range(_grenades.size() - 1, -1, -1):
 		var g: Dictionary = _grenades[i]
-		var node: MeshInstance3D = g["node"]
-		var vel: Vector3 = g["vel"]
-		vel.y -= 9.8 * delta
-		var pos: Vector3 = node.global_position + vel * delta
-		var gy := ground_height(pos.x, pos.z)
-		if pos.y < gy + 0.09:
-			# 落地弹跳：垂直反弹衰减，水平摩擦
-			pos.y = gy + 0.09
-			if vel.y < 0.0:
-				vel.y = -vel.y * 0.35
-				vel.x *= 0.6
-				vel.z *= 0.6
-		node.global_position = pos
-		node.rotate_x(vel.length() * delta * 3.0)   # 滚动视觉
-		g["vel"] = vel
 		g["fuse"] = float(g["fuse"]) - delta
 		if float(g["fuse"]) <= 0.0:
-			_explode_grenade(pos, float(g["dmg"]), float(g["radius"]))
+			var node: RigidBody3D = g["node"]
+			_explode_grenade(node.global_position, float(g["dmg"]), float(g["radius"]))
 			node.queue_free()
 			_grenades.remove_at(i)
 
@@ -4191,6 +4192,15 @@ func _spawn_obstacle(z: float) -> void:
 	col.shape = box
 	col.position = center
 	body.add_child(col)
+	var nav_obstacle := NavigationObstacle3D.new()
+	nav_obstacle.avoidance_enabled = true
+	nav_obstacle.height = half.y * 2.0
+	nav_obstacle.position = Vector3(center.x, center.y - half.y, center.z)
+	nav_obstacle.vertices = PackedVector3Array([
+		Vector3(-half.x, 0, -half.z), Vector3(half.x, 0, -half.z),
+		Vector3(half.x, 0, half.z), Vector3(-half.x, 0, half.z),
+	])
+	body.add_child(nav_obstacle)
 	var model := scene.instantiate()
 	_style_env_model(model)
 	model.scale = Vector3.ONE * scale_f
@@ -5402,6 +5412,16 @@ func _solid_box(parent: Node3D, size: Vector3, pos: Vector3, report := false) ->
 	cs.shape = box
 	cs.position = pos
 	body.add_child(cs)
+	var half := size * 0.5
+	var nav_obstacle := NavigationObstacle3D.new()
+	nav_obstacle.avoidance_enabled = true
+	nav_obstacle.height = size.y
+	nav_obstacle.position = Vector3(pos.x, pos.y - half.y, pos.z)
+	nav_obstacle.vertices = PackedVector3Array([
+		Vector3(-half.x, 0, -half.z), Vector3(half.x, 0, -half.z),
+		Vector3(half.x, 0, half.z), Vector3(-half.x, 0, half.z),
+	])
+	body.add_child(nav_obstacle)
 	if report:
 		body.add_to_group("obstacle_hard")
 	parent.add_child(body)

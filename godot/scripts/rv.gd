@@ -11,6 +11,7 @@ const WATER_ACCEL := 26.0     # 水上推进加速度
 const WATER_DRAG := 34.0      # 水上水阻
 const KMH_TO_UNITS := 0.4
 const CREW_CRUISE_KMH := 60.0   # 队友代驾的默认巡航速度；接管时保留更高的当前车速
+const GRAVITY := 18.0
 
 var speed_kmh := 0.0
 var reversing := false
@@ -35,9 +36,9 @@ func _ready() -> void:
 	# 独占碰撞层 2 + 仅撞层1（地面/障碍）：丧尸在层3 不参与物理碰撞，碾压由触发区接管，消除顿帧
 	collision_layer = 2
 	collision_mask = 1
-	# 长车壳不参与高度图碰撞：地形高度函数负责四轮贴地，障碍物仍正常碰撞
-	for body in get_tree().get_nodes_in_group("terrain_collision"):
-		add_collision_exception_with(body as CollisionObject3D)
+	floor_snap_length = 0.8
+	floor_max_angle = deg_to_rad(55.0)
+	floor_constant_speed = true
 	# 碾压触发区：覆盖车头与车身，进区的丧尸直接撞飞
 	var kill := Area3D.new()
 	kill.collision_layer = 0
@@ -106,13 +107,11 @@ func _physics_process(delta: float) -> void:
 		"snow":
 			grip = 0.55
 			braking = 0.6
-	# 沿车头方向取前后 5m 高差，转弯后坡度仍与真实行驶方向一致
+	# 原生地面法线提供爬坡补偿，不再从高度函数手算车身支撑
 	var forward := -global_transform.basis.z
 	forward.y = 0.0
 	forward = forward.normalized()
-	var front := position + forward * 2.5
-	var back := position - forward * 2.5
-	var slope := atan2(main_node.ground_height(front.x, front.z) - main_node.ground_height(back.x, back.z), 5.0)
+	var slope := -asin(clampf(forward.dot(get_floor_normal()), -1.0, 1.0)) if is_on_floor() else 0.0
 	_update_water(delta)
 	# 剧情对话期间：世界冻结，强制刹停并贴地（忽略一切驾驶输入）
 	if main_node.story_active:
@@ -121,20 +120,23 @@ func _physics_process(delta: float) -> void:
 		var fwd0 := -global_transform.basis.z
 		fwd0.y = 0.0
 		var drive_dir := -1.0 if reversing else 1.0
-		velocity = fwd0.normalized() * (speed_kmh * KMH_TO_UNITS * drive_dir)
-		move_and_slide()
-		_update_water(0.0)   # 移动后用新位置重算支撑高度，姿态与贴地保持同帧
-		position.y = _support_y
+		var drive_velocity := fwd0.normalized() * (speed_kmh * KMH_TO_UNITS * drive_dir)
+		velocity.x = drive_velocity.x
+		velocity.z = drive_velocity.z
+		_move_with_support(delta)
+		_update_water(0.0)   # 移动后用新位置重算浮水状态，姿态与支撑保持同帧
 		_align_to_terrain(_water_f)
 		main_node.rv_model.rotation.x = lerpf(main_node.rv_model.rotation.x, 0.0, delta * 3.0)
 		main_node.rv_model.rotation.z = lerpf(main_node.rv_model.rotation.z, 0.0, delta * 4.0)
 		return
 	if parked or combat_in or main_node.crew_driving:
 		if parked:
-			# 驻车 = 绝对锚定：不调 move_and_slide（重叠的残骸会把车持续顶开），只贴地
+			# 驻车只锁水平驾驶，垂直支撑仍由物理碰撞处理
 			speed_kmh = 0.0
 			reversing = false
-			velocity = Vector3.ZERO
+			velocity.x = 0.0
+			velocity.z = 0.0
+			_move_with_support(delta)
 		else:
 			if combat_in and not main_node.crew_driving:
 				# 无代驾的天窗射击：忽略驾驶输入，惯性滑行
@@ -221,14 +223,15 @@ func _physics_process(delta: float) -> void:
 			var fwd1 := -global_transform.basis.z
 			fwd1.y = 0.0
 			var drive_dir := -1.0 if reversing else 1.0
-			velocity = fwd1.normalized() * (speed_kmh * KMH_TO_UNITS * drive_dir)
-			move_and_slide()
+			var drive_velocity := fwd1.normalized() * (speed_kmh * KMH_TO_UNITS * drive_dir)
+			velocity.x = drive_velocity.x
+			velocity.z = drive_velocity.z
+			_move_with_support(delta)
 			if not combat_in:
 				_report_collisions()
 				if is_on_wall():
 					speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd1 * drive_dir) / KMH_TO_UNITS))
 		_update_water(0.0)
-		position.y = _support_y
 		_align_to_terrain(_water_f)
 		main_node.rv_model.rotation.x = lerpf(main_node.rv_model.rotation.x, 0.0, delta * 3.0)
 		main_node.rv_model.rotation.z = lerpf(main_node.rv_model.rotation.z, 0.0, delta * 4.0)
@@ -262,7 +265,9 @@ func _physics_process(delta: float) -> void:
 	var drive_dir := -1.0 if reversing else 1.0
 	var fwd := -global_transform.basis.z
 	fwd.y = 0.0
-	velocity = fwd.normalized() * (speed_kmh * KMH_TO_UNITS * drive_dir)
+	var drive_velocity := fwd.normalized() * (speed_kmh * KMH_TO_UNITS * drive_dir)
+	velocity.x = drive_velocity.x
+	velocity.z = drive_velocity.z
 	if speed_kmh > 1.0:
 		# 高速转向迟滞：速度越快打舵越缓，倒退时按实际行进方向反向打舵；水上舵效减半
 		var ratio: float = speed_kmh / main_node.MAX_KMH
@@ -277,15 +282,14 @@ func _physics_process(delta: float) -> void:
 			# 行进方向是 -Z：目标朝向 = atan2(bx, +2d)，否则会掉头往后开
 			var target := atan2(bx, 2.0 * d)
 			rotation.y = lerp_angle(rotation.y, target, delta * 1.2 * (1.0 - 0.5 * ratio))
-	move_and_slide()
+	_move_with_support(delta)
 	_report_collisions()
 	if is_on_wall():
 		# 顶住障碍时采用实际位移速度，避免表显/耗油/车轮仍按油门目标速度运行
 		speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd * drive_dir) / KMH_TO_UNITS))
 
-	# 贴靠：陆地跟随地形高度，入水后平滑抬到水面（岸边不跳变）
+	# 移动后更新浮水混合，姿态与物理支撑保持同帧
 	_update_water(0.0)
-	position.y = _support_y
 
 	# 物理车身只贴合地形坡度；水面上保持水平。加速俯仰/转向侧倾仅作用于外壳
 	var gas_forward := throttle > 0.05 and not reversing
@@ -293,6 +297,17 @@ func _physics_process(delta: float) -> void:
 	_align_to_terrain(_water_f)
 	main_node.rv_model.rotation.x = lerpf(main_node.rv_model.rotation.x, pitch, delta * 3.0)
 	main_node.rv_model.rotation.z = lerpf(main_node.rv_model.rotation.z, steer_in * drive_dir * 0.035 * (speed_kmh / main_node.MAX_KMH), delta * 4.0)
+
+## 水平驾驶速度由各状态机给出；陆地交给原生地面碰撞，水面用限速浮力速度逼近支撑高度
+func _move_with_support(delta: float) -> void:
+	if _water_f > 0.01 and not is_inf(main_node.water_surface_height(position.x, position.z)):
+		velocity.y = clampf((_support_y - position.y) * 8.0, -6.0, 6.0)
+	elif is_on_floor():
+		# 微小向下速度维持坡面接触，避免零速驻车时地面状态逐帧丢失
+		velocity.y = -0.5
+	else:
+		velocity.y -= GRAVITY * delta
+	move_and_slide()
 
 ## 浮水状态：水面高于地形（车会落进水里）时浮起，_water_f 在岸边平滑过渡
 func _update_water(delta: float) -> void:
@@ -349,22 +364,15 @@ func _key_steer() -> float:
 		s -= 1.0
 	return s
 
-## 物理车身贴合局部地形平面：主路外的横坡也必须由俯仰和侧倾共同承担；water_f>0 时向水平姿态混合（船体水面平稳）
+## 物理车身贴合原生地面法线；水面向水平姿态混合，外壳加速俯仰/转向侧倾仍独立表现
 func _align_to_terrain(water_f := 0.0) -> void:
 	var yaw_basis := Basis(Vector3.UP, rotation.y)
 	var forward := -yaw_basis.z
-	var right := yaw_basis.x
-	var front_h: float = main_node.ground_height(position.x + forward.x * 2.5, position.z + forward.z * 2.5)
-	var back_h: float = main_node.ground_height(position.x - forward.x * 2.5, position.z - forward.z * 2.5)
-	var right_h: float = main_node.ground_height(position.x + right.x * 1.6, position.z + right.z * 1.6)
-	var left_h: float = main_node.ground_height(position.x - right.x * 1.6, position.z - right.z * 1.6)
-	var gradient := forward * ((front_h - back_h) / 5.0) + right * ((right_h - left_h) / 3.2)
-	var up := (Vector3.UP - gradient).normalized()
+	var up: Vector3 = get_floor_normal() if is_on_floor() else Vector3.UP
+	up = up.slerp(Vector3.UP, clampf(water_f, 0.0, 1.0)).normalized()
 	var back := -(forward - up * forward.dot(up)).normalized()
 	var side := up.cross(back).normalized()
 	basis = Basis(side, up, back).orthonormalized()
-	if water_f > 0.0:
-		basis = basis.slerp(Basis(Vector3.UP, rotation.y), clampf(water_f, 0.0, 1.0)).orthonormalized()
 
 ## 代驾前视：用整车碰撞盒扫描旁侧通道；返回最近扫描点距离，0 表示可走
 func _crew_obstacle_ahead(side_offset: float) -> float:

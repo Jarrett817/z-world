@@ -21,6 +21,7 @@ var _anim: AnimationPlayer
 var _muzzle: Node3D
 var _fire_cd := 0.0
 var _cur_anim := ""
+var _agent: NavigationAgent3D
 
 ## main.gd 在 add_child 前调用：指定队友 id 与站位序号
 func setup(cid: String, slot: int) -> void:
@@ -55,6 +56,12 @@ func _ready() -> void:
 	_muzzle = Node3D.new()
 	_muzzle.position = Vector3(0, 0.04, 0.72)
 	gun.add_child(_muzzle)
+	_agent = NavigationAgent3D.new()
+	_agent.radius = 0.45
+	_agent.max_speed = FOLLOW_SPEED
+	_agent.avoidance_enabled = true
+	_agent.velocity_computed.connect(_on_velocity_computed)
+	add_child(_agent)
 
 func _physics_process(delta: float) -> void:
 	if _main.game_over:
@@ -84,6 +91,7 @@ func _physics_process(delta: float) -> void:
 		if to.length() > 0.5:
 			var spd: float = FOLLOW_SPEED if to.length() > 4.0 else 3.2
 			var dir := to.normalized()
+			_agent.target_position = anchor
 			velocity.x = dir.x * spd
 			velocity.z = dir.z * spd
 			rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 10.0)
@@ -92,10 +100,18 @@ func _physics_process(delta: float) -> void:
 			# 就位后面向玩家瞄准方向戒备
 			rotation.y = lerp_angle(rotation.y, _player.aim_yaw + PI, delta * 4.0)
 			_play("aim")
+	_agent.velocity = Vector3(velocity.x, 0.0, velocity.z)
+
+## 原生 RVO 局部避让只在水平面修正速度，重力与地面碰撞仍由 CharacterBody3D 处理
+func _on_velocity_computed(safe_velocity: Vector3) -> void:
+	if _main.game_over:
+		return
+	velocity.x = safe_velocity.x
+	velocity.z = safe_velocity.z
 	if is_on_floor():
 		velocity.y = 0.0
 	else:
-		velocity.y -= GRAVITY * delta
+		velocity.y -= GRAVITY * get_physics_process_delta_time()
 	move_and_slide()
 
 ## 丧尸贴身啃咬钩子：应急反杀（救命一发，不耗库存）

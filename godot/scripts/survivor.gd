@@ -19,6 +19,7 @@ var _state: int = St.FLEE
 var _curb_x := 0.0
 var _kite_z := 0.0
 var _fire_cd := 0.0
+var _agent: NavigationAgent3D
 
 ## main.gd 在 add_child 前调用：指定本幸存者对应的队友 id
 func setup(cid: String) -> void:
@@ -36,6 +37,12 @@ func _ready() -> void:
 	col.shape = cap
 	col.position.y = 0.75
 	add_child(col)
+	_agent = NavigationAgent3D.new()
+	_agent.radius = 0.45
+	_agent.max_speed = RUN_SPEED
+	_agent.avoidance_enabled = true
+	_agent.velocity_computed.connect(_on_velocity_computed)
+	add_child(_agent)
 	# 战斗态自管 run/aim，关掉活感插播（CharLively 会周期性插播闲置动作打断据枪）
 	var made := CharUtil.instantiate(crew_id, "run", {}, false)
 	add_child(made["node"])
@@ -130,10 +137,18 @@ func _physics_process(delta: float) -> void:
 				queue_free()
 			else:
 				_move_toward(door, delta)
+	_agent.velocity = Vector3(velocity.x, 0.0, velocity.z)
+
+## 原生 RVO 局部避让只修正水平速度，垂直支撑仍由角色碰撞处理
+func _on_velocity_computed(safe_velocity: Vector3) -> void:
+	if _main.game_over:
+		return
+	velocity.x = safe_velocity.x
+	velocity.z = safe_velocity.z
 	if is_on_floor():
 		velocity.y = 0.0
 	else:
-		velocity.y -= GRAVITY * delta
+		velocity.y -= GRAVITY * get_physics_process_delta_time()
 	move_and_slide()
 
 ## 被招募上车：脱离战斗，收起求救光柱跑向房车
@@ -161,6 +176,7 @@ func _move_toward(target: Vector3, delta: float) -> void:
 	to.y = 0.0
 	if to.length() > 0.01:
 		var dir := to.normalized()
+		_agent.target_position = target
 		var spd: float = minf(RUN_SPEED, to.length() / delta)
 		velocity.x = dir.x * spd
 		velocity.z = dir.z * spd
