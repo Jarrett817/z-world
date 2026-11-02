@@ -11,6 +11,9 @@ const RV_BITE_RANGE := 1.25
 const BITE_INTERVAL := 0.8
 const WANDER_SPEED := 0.9
 const CHASE_SPEED_BASE := 5.2
+const FAR_AI_DISTANCE := 45.0
+const FAR_AI_INTERVAL := 0.1
+const ANIM_DISTANCE := 70.0
 
 enum St { WANDER, IDLE, CHASE }
 
@@ -31,6 +34,7 @@ var should_free := false
 var growl_t := 0.0
 var anim: AnimationPlayer
 var _agent: NavigationAgent3D
+var _ai_accum := 0.0
 
 func setup(main: Node3D) -> void:
 	main_node = main
@@ -55,6 +59,8 @@ func setup(main: Node3D) -> void:
 	_vary_materials(self)
 	anim = _find_anim_player(self)
 	state = St.WANDER if randf() < 0.7 else St.IDLE
+	_agent.avoidance_enabled = state != St.IDLE
+	_ai_accum = randf_range(0.0, FAR_AI_INTERVAL)
 	state_t = randf_range(1.5, 5.0)
 	_pick_wander_target()
 	if anim == null:
@@ -132,7 +138,17 @@ func _physics_process(delta: float) -> void:
 		_agent.velocity = Vector3.ZERO
 		linear_velocity = Vector3(0, linear_velocity.y, 0)
 		return
-	_ai(delta)
+	var rv_dist_sq := global_position.distance_squared_to(rv.global_position)
+	if anim != null:
+		var should_animate := rv_dist_sq < ANIM_DISTANCE * ANIM_DISTANCE
+		if anim.active != should_animate:
+			anim.active = should_animate
+	_ai_accum += delta
+	if rv_dist_sq > FAR_AI_DISTANCE * FAR_AI_DISTANCE and _ai_accum < FAR_AI_INTERVAL:
+		return
+	var ai_delta := _ai_accum
+	_ai_accum = 0.0
+	_ai(ai_delta)
 
 ## 原生 RVO 避让只接管追逐/游荡的水平速度；撞飞、硬直和死亡仍由刚体物理接管
 func _on_velocity_computed(safe_velocity: Vector3) -> void:
@@ -159,6 +175,7 @@ func on_engine_noise(pos: Vector3, radius: float) -> void:
 
 func _enter_chase() -> void:
 	state = St.CHASE
+	_agent.avoidance_enabled = true
 	bite_t = 0.0
 
 ## 是否正在狂暴冲锋（供音乐/氛围状态判定）
@@ -181,6 +198,7 @@ func _ai(delta: float) -> void:
 				anim.speed_scale = 1.0
 			if state_t <= 0.0:
 				state = St.WANDER
+				_agent.avoidance_enabled = true
 				state_t = randf_range(3.0, 8.0)
 				_pick_wander_target()
 		St.WANDER:
@@ -194,12 +212,12 @@ func _wander(delta: float) -> void:
 	to.y = 0.0
 	if to.length() < 1.5 or state_t <= 0.0:
 		state = St.IDLE
+		_agent.avoidance_enabled = false
 		state_t = randf_range(1.5, 5.0)
 		_agent.velocity = Vector3.ZERO
 		linear_velocity = Vector3(0, linear_velocity.y, 0)
 		return
 	var dir := to.normalized()
-	_agent.target_position = wander_target
 	_agent.velocity = dir * WANDER_SPEED
 	rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 4.0)
 	if anim != null:
@@ -211,6 +229,7 @@ func _pick_wander_target() -> void:
 	var r := randf_range(3.0, 14.0)
 	wander_target = global_position + Vector3(cos(ang) * r, 0.0, sin(ang) * r)
 	wander_target.y = global_position.y
+	_agent.target_position = wander_target
 
 ## 与车壳重叠时沿最近侧面撤到车外；居中固定向正侧脱离，避免 signf(0) 原地停留
 func _rv_escape(local: Vector3) -> Vector3:
