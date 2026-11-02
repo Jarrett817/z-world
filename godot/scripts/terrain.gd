@@ -5,7 +5,7 @@ extends MeshInstance3D
 const SPAN := 900.0
 const GROUND_Y := -1.56
 const ROAD_HALF := 7.0
-const SEG_LEN := 2.0
+const SEG_LEN := 2.5
 const DASH_PERIOD := 7.0
 const DASH_LEN := 3.0
 const RAIL_OFFSET := 8.9
@@ -80,7 +80,7 @@ func _process(_delta: float) -> void:
 		var base := _col_row * w
 		for xi in w:
 			var x := -COL_HALF_X + xi * COL_STEP
-			_col_map[base + xi] = _main.ground_height_c(x, z, gy, rx, zone)
+			_col_map[base + xi] = _main.ground_height_c(x, z, gy, rx, zone) - 0.02
 		_col_row += 1
 	if _col_row < d:
 		return
@@ -105,7 +105,7 @@ func _rebuild_collision(start_z: float) -> void:
 		var base := zi * w
 		for xi in w:
 			var x := -COL_HALF_X + xi * COL_STEP
-			map[base + xi] = _main.ground_height_c(x, z, gy, rx, zone)
+			map[base + xi] = _main.ground_height_c(x, z, gy, rx, zone) - 0.02
 	_apply_collision(map, w, d, z0)
 
 func _apply_collision(map: PackedFloat32Array, w: int, d: int, z0: float) -> void:
@@ -128,10 +128,11 @@ func _make_mesh(start_z: float) -> ArrayMesh:
 func _surface_arrays(index: int, start_z: float) -> Array:
 	match index:
 		0:
-			var gxs := PackedFloat32Array([-600.0, -380.0, -220.0, -180.0])
-			for xi in range(-52, 53):
+			# 与 HeightMapShape3D 共用同一世界坐标采样网格，避免弯曲道路两侧视觉/碰撞高度分叉
+			var gxs := PackedFloat32Array([-600.0, -500.0, -450.0])
+			for xi in range(-160, 161):
 				gxs.append(float(xi) * COL_STEP)
-			gxs.append_array(PackedFloat32Array([180.0, 220.0, 380.0, 600.0]))
+			gxs.append_array(PackedFloat32Array([450.0, 500.0, 600.0]))
 			return _band(start_z, 0.0, 0.0, -0.3, false, 1, gxs)
 		1:
 			return _band(start_z, -ROAD_HALF - 16.0, -ROAD_HALF, -0.05, false, 2)
@@ -258,16 +259,18 @@ func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool, nx 
 		var row_a: int = verts.size()
 		for j in enx + 1:
 			var xx: float = xs[j] if use_xs else lerpf(x0, x1, float(j) / nx)
-			var height: float = _main.ground_height_c(cxa + xx, za, gya, cxa, zone_a) - 0.02 if use_xs else ya
-			verts.append(Vector3(cxa + xx, height, za))
+			var x: float = xx if use_xs else cxa + xx
+			var height: float = _main.ground_height_c(x, za, gya, cxa, zone_a) - 0.02 if use_xs else ya
+			verts.append(Vector3(x, height, za))
 			normals.append(Vector3.UP)
-			colors.append(_mottle(cxa + xx, za, zone_a, use_xs))
+			colors.append(_mottle(x, za, zone_a, use_xs))
 		for j in enx + 1:
 			var xx: float = xs[j] if use_xs else lerpf(x0, x1, float(j) / nx)
-			var height: float = _main.ground_height_c(cxb + xx, zb, gyb, cxb, zone_b) - 0.02 if use_xs else yb
-			verts.append(Vector3(cxb + xx, height, zb))
+			var x: float = xx if use_xs else cxb + xx
+			var height: float = _main.ground_height_c(x, zb, gyb, cxb, zone_b) - 0.02 if use_xs else yb
+			verts.append(Vector3(x, height, zb))
 			normals.append(Vector3.UP)
-			colors.append(_mottle(cxb + xx, zb, zone_b, use_xs))
+			colors.append(_mottle(x, zb, zone_b, use_xs))
 		for j in enx:
 			var a := row_a + j
 			var b := row_a + j + 1
@@ -275,6 +278,20 @@ func _band(start_z: float, x0: float, x1: float, y_off: float, dashed: bool, nx 
 			var d := row_a + (enx + 1) + j
 			indices.append(a); indices.append(c); indices.append(b)
 			indices.append(a); indices.append(d); indices.append(c)
+	# 按实际三角形累加顶点法线，坡面光照不再沿用固定竖直法线
+	normals.fill(Vector3.ZERO)
+	for k in range(0, indices.size(), 3):
+		var ia := indices[k]
+		var ib := indices[k + 1]
+		var ic := indices[k + 2]
+		var n: Vector3 = (verts[ib] - verts[ia]).cross(verts[ic] - verts[ia])
+		if n.y < 0.0:
+			n = -n
+		normals[ia] += n
+		normals[ib] += n
+		normals[ic] += n
+	for i in normals.size():
+		normals[i] = normals[i].normalized()
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = verts

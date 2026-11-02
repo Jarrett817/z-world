@@ -1,4 +1,4 @@
-extends Node3D
+extends CharacterBody3D
 ## 路边幸存者：从野地逃命（run）跑向路缘，据枪（aim）反击追兵，被贴身则应急反杀；
 ## 车辆驶入范围即招募。橙色求救光柱远距可见。
 
@@ -7,6 +7,7 @@ enum St { FLEE, STAND, KITE, BOARD }
 const RUN_SPEED := 4.8
 const FIRE_RANGE := 16.0
 const FIRE_CD := 1.3
+const GRAVITY := 18.0
 const KITE_RANGE := 3.0   # 丧尸贴身则沿路缘向房车驶来方向风筝
 
 var crew_id := ""
@@ -25,6 +26,16 @@ func setup(cid: String) -> void:
 
 func _ready() -> void:
 	_main = get_parent()
+	collision_layer = 0
+	collision_mask = 1
+	floor_snap_length = 0.5
+	var col := CollisionShape3D.new()
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.35
+	cap.height = 1.5
+	col.shape = cap
+	col.position.y = 0.75
+	add_child(col)
 	# 战斗态自管 run/aim，关掉活感插播（CharLively 会周期性插播闲置动作打断据枪）
 	var made := CharUtil.instantiate(crew_id, "run", {}, false)
 	add_child(made["node"])
@@ -79,11 +90,13 @@ func _ready() -> void:
 	area.body_entered.connect(_on_body)
 	add_child(area)
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	_beam.rotate_y(delta * 0.6)
 	if _main.game_over:
 		return
 	_fire_cd -= delta
+	velocity.x = 0.0
+	velocity.z = 0.0
 	match _state:
 		St.FLEE:
 			_move_toward(Vector3(_curb_x, 0.0, position.z), delta)
@@ -117,6 +130,11 @@ func _process(delta: float) -> void:
 				queue_free()
 			else:
 				_move_toward(door, delta)
+	if is_on_floor():
+		velocity.y = 0.0
+	else:
+		velocity.y -= GRAVITY * delta
+	move_and_slide()
 
 ## 被招募上车：脱离战斗，收起求救光柱跑向房车
 func board() -> void:
@@ -141,15 +159,12 @@ func _fire_at(z: Node3D) -> void:
 func _move_toward(target: Vector3, delta: float) -> void:
 	var to := target - position
 	to.y = 0.0
-	var step: float = RUN_SPEED * delta
-	if to.length() > step:
+	if to.length() > 0.01:
 		var dir := to.normalized()
-		position += dir * step
+		var spd: float = minf(RUN_SPEED, to.length() / delta)
+		velocity.x = dir.x * spd
+		velocity.z = dir.z * spd
 		rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 10.0)
-	else:
-		position.x = target.x
-		position.z = target.z
-	position.y = _main.ground_height(position.x, position.z)
 
 func _face(target: Vector3, delta: float) -> void:
 	var to := target - global_position

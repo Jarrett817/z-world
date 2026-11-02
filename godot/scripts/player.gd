@@ -77,6 +77,10 @@ func _ready() -> void:
 	# 车内/车顶玩家不参与房车碰撞，避免房车把自己的玩家胶囊当障碍；车内只检测独立内饰层
 	collision_layer = 1 if mode == Mode.ON_FOOT else 0
 	collision_mask = main_node.INTERIOR_COLLISION_LAYER if mode == Mode.RV_WALK else 1
+	floor_snap_length = 0.5
+	if mode == Mode.RV_WALK:
+		# 玩家已作为房车子节点随父节点移动，不能再叠加移动平台速度
+		platform_floor_layers = 0
 	# 车内胶囊略收窄，保证中央过道可通行；车外与丧尸同款尺寸
 	var col := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
@@ -270,6 +274,8 @@ func _physics_process(delta: float) -> void:
 	elif mode == Mode.ON_FOOT:
 		_move_foot(delta)
 	else:
+		# 房车先完成物理移动，再在同一物理帧锚定车顶并更新相机，避免渲染帧二次改位置
+		position = main_node.rv.to_global(main_node.ROOF_ACCESS_POS)
 		_move_speed = 0.0
 		velocity = Vector3.ZERO
 		move_and_slide()
@@ -280,7 +286,7 @@ func _physics_process(delta: float) -> void:
 	_aim_and_camera(delta)
 
 ## 车内行走：输入在 rv 本地空间解算，转换成世界速度后由物理引擎碰撞；地板顶 y=-0.4，车头 -Z
-func _move_rv(_delta: float) -> void:
+func _move_rv(delta: float) -> void:
 	var input := Vector2.ZERO
 	if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP):
 		input.y -= 1.0
@@ -296,8 +302,11 @@ func _move_rv(_delta: float) -> void:
 	_move_speed = WALK_SPEED * 0.55 if dir.length() > 0.01 else 0.0
 	var local_velocity := dir.normalized() * _move_speed if dir.length() > 0.01 else Vector3.ZERO
 	velocity = main_node.rv.global_transform.basis * local_velocity
+	if is_on_floor():
+		velocity.y = 0.0
+	else:
+		velocity.y -= GRAVITY * delta
 	move_and_slide()
-	position.y = -0.4
 	# 车内行走恒第一人称：锁端枪姿势，避免手臂摆动脱离枪挂点
 	if _cur_anim != "aim":
 		_cur_anim = "aim"
@@ -340,21 +349,15 @@ func _move_foot(delta: float) -> void:
 		dir = dir.normalized()
 	velocity.x = dir.x * spd
 	velocity.z = dir.z * spd
-	velocity.y -= GRAVITY * delta
-	move_and_slide()
-	var ground: float = main_node.ground_height(position.x, position.z)
-	if _airborne:
-		# 滞空：仅下落段才检测落地（起跳帧 y 还在地面，直接判会瞬间落地）；落到地形或实体（残骸/障碍/车体）上都算
-		if velocity.y <= 0.0 and (position.y <= ground or is_on_floor()):
-			if not is_on_floor():
-				position.y = ground
-			velocity.y = 0.0
-			_airborne = false
-	else:
-		# 贴地：跟随地形；被实体托住（站上残骸/障碍）时不拉回地面
-		if not (is_on_floor() and position.y > ground + 0.05):
-			position.y = ground
+	if is_on_floor() and not _airborne:
 		velocity.y = 0.0
+	else:
+		velocity.y -= GRAVITY * delta
+	move_and_slide()
+	# 落地完全由 CharacterBody3D 碰撞判定；走离实体边缘时保留重力自然下落
+	if _airborne and is_on_floor():
+		velocity.y = 0.0
+		_airborne = false
 	# 下蹲时枪挂点下放在 _apply_gun 统一处理
 	# 模型朝瞄准方向（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
 	model_root.rotation.y = aim_yaw + PI

@@ -764,7 +764,6 @@ func _process(delta: float) -> void:
 	# 车顶/射孔/遇袭生活位射手在行驶/驻车/战斗/玩家车内走动时都持续自动射击
 	_update_auto_gunners(delta)
 	if combat_active:
-		_sync_player_to_rv(delta)
 		trauma = maxf(0.0, trauma - delta * 1.4)
 		return
 	# 驻车（F）与设施（E）：车内行走时也必须响应（驻车键=出发），故在行走提前 return 之前读
@@ -1757,7 +1756,7 @@ func _build_interior() -> void:
 	_add_interior_collision(Vector3(2.72, 2.30, 0.12), Vector3(0, 0.75, 2.85))
 
 func _add_interior_collision(size: Vector3, pos: Vector3) -> void:
-	var body := StaticBody3D.new()
+	var body := AnimatableBody3D.new()
 	body.collision_layer = INTERIOR_COLLISION_LAYER
 	body.collision_mask = 0
 	var col := CollisionShape3D.new()
@@ -2996,7 +2995,7 @@ func start_combat(m: int) -> void:
 	# 下车模式：全队队友下车协同作战（天窗模式身体探出车顶，队友留车内）
 	if m == 0:
 		for i in crew_members.size():
-			var mate := Node3D.new()
+			var mate := CharacterBody3D.new()
 			mate.set_script(MATE_SCRIPT)
 			mate.setup(crew_members[i].get("id", ""), i)
 			mate.position = p.position + Vector3(randf_range(-2.0, 2.0), 0.0, randf_range(-2.0, 2.0))
@@ -3162,14 +3161,6 @@ func end_rv_walk() -> void:
 	if driver_figure != null:
 		driver_figure.visible = view_mode == 2 and not crew_driving
 	hud.set_drive_buttons_visible(not parked and not crew_driving)
-
-## 天窗模式：玩家身体每帧锚在行驶中的车顶
-func _sync_player_to_rv(_delta: float) -> void:
-	var p := get_player_body()
-	if p == null or p.mode != 1:
-		return
-	p.position = rv.to_global(ROOF_ACCESS_POS)
-	p.velocity = Vector3.ZERO
 
 func on_zombie_shot(killed := true, headshot := false) -> void:
 	hud.flash_hit_marker(killed, headshot)
@@ -4228,7 +4219,7 @@ func _spawn_pickup(z: float) -> void:
 	add_child(p)
 
 func _spawn_survivor(z: float) -> void:
-	var s := Node3D.new()
+	var s := CharacterBody3D.new()
 	s.set_script(SURVIVOR_SCRIPT)
 	s.add_to_group("consumable")
 	s.add_to_group("survivor")

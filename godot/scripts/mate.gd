@@ -1,10 +1,11 @@
-extends Node3D
+extends CharacterBody3D
 ## 下车协同作战的队友：跟随玩家（背后扇形站位），自动索敌据枪射击，贴身应急反杀。
 ## 仅 ground 下车模式生成，回车即回收；本轮队友不设死亡（与幸存者同理）。
 
 const FOLLOW_SPEED := 7.2    # 略快于玩家跑速，保证跟上
 const FIRE_RANGE := 16.0
 const FIRE_CD := 1.3
+const GRAVITY := 18.0
 
 # 背后扇形站位偏移（x 横向 / z 玩家背后距离），按 slot 取
 const SLOTS := [
@@ -29,6 +30,16 @@ func setup(cid: String, slot: int) -> void:
 func _ready() -> void:
 	_main = get_parent()
 	_player = _main.get_player_body()
+	collision_layer = 0
+	collision_mask = 1
+	floor_snap_length = 0.5
+	var col := CollisionShape3D.new()
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.35
+	cap.height = 1.5
+	col.shape = cap
+	col.position.y = 0.75
+	add_child(col)
 	# 战斗态自管 run/walk/aim，关掉活感插播（CharLively 会周期性打断据枪）
 	var made := CharUtil.instantiate(crew_id, "run", {}, false)
 	add_child(made["node"])
@@ -45,14 +56,14 @@ func _ready() -> void:
 	_muzzle.position = Vector3(0, 0.04, 0.72)
 	gun.add_child(_muzzle)
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if _main.game_over:
 		return
 	_fire_cd -= delta
+	velocity.x = 0.0
+	velocity.z = 0.0
 	if not is_instance_valid(_player):
 		_player = _main.get_player_body()
-		if _player == null:
-			return
 	# 索敌：射程内最近丧尸优先据枪射击
 	var z := _nearest_zombie(FIRE_RANGE)
 	if z != null:
@@ -63,24 +74,29 @@ func _process(delta: float) -> void:
 			else:
 				_fire_cd = 1.0   # 备弹打光：停火等补给，每秒重试
 		_play("aim")
-		return
-	# 无威胁：回到玩家背后扇形站位
-	var off: Vector2 = SLOTS[_slot]
-	var anchor: Vector3 = _player.global_position \
-		+ Basis(Vector3.UP, _player.aim_yaw) * Vector3(off.x, 0.0, off.y)
-	var to := anchor - global_position
-	to.y = 0.0
-	if to.length() > 0.5:
-		var spd: float = FOLLOW_SPEED if to.length() > 4.0 else 3.2
-		var dir := to.normalized()
-		global_position += dir * minf(spd * delta, to.length())
-		rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 10.0)
-		_play("run" if to.length() > 4.0 else "walk")
+	elif _player != null:
+		# 无威胁：回到玩家背后扇形站位
+		var off: Vector2 = SLOTS[_slot]
+		var anchor: Vector3 = _player.global_position \
+			+ Basis(Vector3.UP, _player.aim_yaw) * Vector3(off.x, 0.0, off.y)
+		var to := anchor - global_position
+		to.y = 0.0
+		if to.length() > 0.5:
+			var spd: float = FOLLOW_SPEED if to.length() > 4.0 else 3.2
+			var dir := to.normalized()
+			velocity.x = dir.x * spd
+			velocity.z = dir.z * spd
+			rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 10.0)
+			_play("run" if to.length() > 4.0 else "walk")
+		else:
+			# 就位后面向玩家瞄准方向戒备
+			rotation.y = lerp_angle(rotation.y, _player.aim_yaw + PI, delta * 4.0)
+			_play("aim")
+	if is_on_floor():
+		velocity.y = 0.0
 	else:
-		# 就位后面向玩家瞄准方向戒备
-		rotation.y = lerp_angle(rotation.y, _player.aim_yaw + PI, delta * 4.0)
-		_play("aim")
-	global_position.y = _main.ground_height(global_position.x, global_position.z)
+		velocity.y -= GRAVITY * delta
+	move_and_slide()
 
 ## 丧尸贴身啃咬钩子：应急反杀（救命一发，不耗库存）
 func on_bitten(z: Node3D) -> void:
