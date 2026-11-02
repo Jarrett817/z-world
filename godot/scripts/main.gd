@@ -1757,15 +1757,18 @@ func _build_interior() -> void:
 
 func _add_interior_collision(size: Vector3, pos: Vector3) -> void:
 	var body := AnimatableBody3D.new()
+	# 由房车物理节点带动，而非动画直接驱动；关闭反向同步，避免碰撞停留在初始局部位置
+	body.sync_to_physics = false
 	body.collision_layer = INTERIOR_COLLISION_LAYER
 	body.collision_mask = 0
 	var col := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = size
+	# 碰撞体直接挂在房车下，避免旋转与非均匀缩放的视觉父节点叠加出剪切变换
+	box.size = size * INTERIOR_SCALE
 	col.shape = box
 	body.add_child(col)
-	body.position = pos
-	interior.add_child(body)
+	body.position = pos * INTERIOR_SCALE
+	rv.add_child(body)
 
 ## 车底两侧侧开式储物柜：地板与轮底之间囤水和物资，挂在车壳上随俯仰/侧倾一起运动
 func _build_underbody_storage() -> void:

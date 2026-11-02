@@ -312,7 +312,9 @@ func _move_rv(delta: float) -> void:
 	var dir := yaw_basis * Vector3(input.x, 0, input.y)
 	_move_speed = WALK_SPEED * 0.55 if dir.length() > 0.01 else 0.0
 	var local_velocity := dir.normalized() * _move_speed if dir.length() > 0.01 else Vector3.ZERO
-	velocity = main_node.rv.global_transform.basis * local_velocity
+	var world_velocity: Vector3 = main_node.rv.global_transform.basis * local_velocity
+	velocity.x = world_velocity.x
+	velocity.z = world_velocity.z
 	if is_on_floor():
 		velocity.y = 0.0
 	else:

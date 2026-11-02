@@ -23,6 +23,7 @@ var touch_steer := 0.0      # -1 右 / +1 左
 var in_water := false       # 当前是否浮在水面
 var _water_f := 0.0         # 浮水混合 0=陆地 1=水面（岸边平滑）
 var _support_y := 0.0       # 本帧车身贴靠高度（地面或水面）
+var _ground_normal := Vector3.UP
 var main_node: Node3D
 var _wheels: Array[Node3D] = []   # 车轴轮一体网格（滚动动画）
 var _crew_cruise_kmh := 0.0
@@ -368,8 +369,10 @@ func _key_steer() -> float:
 func _align_to_terrain(water_f := 0.0) -> void:
 	var yaw_basis := Basis(Vector3.UP, rotation.y)
 	var forward := -yaw_basis.z
-	var up: Vector3 = get_floor_normal() if is_on_floor() else Vector3.UP
-	up = up.slerp(Vector3.UP, clampf(water_f, 0.0, 1.0)).normalized()
+	if is_on_floor():
+		_ground_normal = get_floor_normal()
+	# 短暂失去地板接触时延续坡面姿态，避免大型碰撞盒反复转平又贴坡而弹跳
+	var up := _ground_normal.slerp(Vector3.UP, clampf(water_f, 0.0, 1.0)).normalized()
 	var back := -(forward - up * forward.dot(up)).normalized()
 	var side := up.cross(back).normalized()
 	basis = Basis(side, up, back).orthonormalized()
