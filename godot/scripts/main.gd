@@ -797,7 +797,7 @@ func _process(delta: float) -> void:
 	_update_banter(delta)
 	_update_crew_wander(delta)
 	if view_mode == 1:
-		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -1.9) * INTERIOR_SCALE)
+		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -2.85) * INTERIOR_SCALE)
 		cam.look_at(rv.to_global(Vector3(-0.55, 0.9, -30.0) * INTERIOR_SCALE))
 		cam.fov = 82.0
 	elif view_mode == 2:
@@ -1743,16 +1743,16 @@ func _build_interior() -> void:
 		mi.material_override = mat
 		mi.position = pos
 		interior.add_child(mi)
-	windshield_part.call(Vector3(2.42, 1.20, 0.02), Vector3(0, 1.05, -2.89), glass_mat)
+	windshield_part.call(Vector3(2.42, 1.20, 0.02), Vector3(0, 1.05, -4.15), glass_mat)
 	for y in [0.41, 1.69]:
-		windshield_part.call(Vector3(2.62, 0.08, 0.08), Vector3(0, y, -2.87), frame_mat)
-	for x in [-1.27, 0.0, 1.27]:
-		windshield_part.call(Vector3(0.08, 1.36, 0.08), Vector3(x, 1.05, -2.87), frame_mat)
-	# 车内代理碰撞与车壳隔离：地板、舱壁、仪表台后和尾壁
-	_add_interior_collision(Vector3(2.72, 0.16, 5.85), Vector3(0, -0.48, -0.02))
+		windshield_part.call(Vector3(2.62, 0.08, 0.08), Vector3(0, y, -4.15), frame_mat)
+	for x in [-1.27, 1.27]:
+		windshield_part.call(Vector3(0.08, 1.36, 0.08), Vector3(x, 1.05, -4.15), frame_mat)
+	# 车内代理碰撞与车壳隔离：驾驶室与生活舱贯通，前墙位于真实前挡处
+	_add_interior_collision(Vector3(2.72, 0.16, 7.15), Vector3(0, -0.48, -0.67))
 	for side in [-1.0, 1.0]:
-		_add_interior_collision(Vector3(0.12, 2.30, 5.85), Vector3(side * 1.36, 0.75, -0.02))
-	_add_interior_collision(Vector3(2.72, 2.30, 0.12), Vector3(0, 0.75, -2.90))
+		_add_interior_collision(Vector3(0.12, 2.30, 7.15), Vector3(side * 1.36, 0.75, -0.67))
+	_add_interior_collision(Vector3(2.72, 2.30, 0.12), Vector3(0, 0.75, -4.18))
 	_add_interior_collision(Vector3(2.72, 2.30, 0.12), Vector3(0, 0.75, 2.85))
 
 func _add_interior_collision(size: Vector3, pos: Vector3) -> void:
@@ -1877,6 +1877,7 @@ func _build_crew() -> void:
 		fig.set_meta("face", st[1])
 		fig.set_meta("home_pos", st[0])
 		fig.visible = false
+		fig.visibility_changed.connect(_on_crew_visibility_changed.bind(fig))
 		rv.add_child(fig)
 		crew_figures.append(fig)
 	_sync_crew()
@@ -2207,7 +2208,13 @@ func _sync_crew() -> void:
 	for i in crew_figures.size():
 		var f: Node3D = crew_figures[i]
 		var lb: Label3D = f.get_meta("label")
+		var m: Dictionary = crew_members[i] if i < crew_members.size() else {}
+		var member_id := String(m.get("id", ""))
+		lb.text = "%s · %s" % [m.get("name", ""), f.get_meta("duty_label")] if not m.is_empty() else ""
 		var old: Node = f.get_node_or_null("Char")
+		# 招募/换班只重建受影响的槽位，避免满编时同帧实例化整队高精角色
+		if old != null and String(old.get_meta("crew_id", "")) == member_id:
+			continue
 		# 旧节点先 remove_child 再 queue_free：同帧 queue_free 不立即出树，
 		# 新 Char 重名被改名，下次 get_node_or_null("Char") 找不到旧节点 → 叠加重影
 		if old:
@@ -2215,18 +2222,17 @@ func _sync_crew() -> void:
 			old.queue_free()
 			f.remove_meta("muzzle")
 			f.remove_meta("gun_node")
-		if i < crew_members.size():
-			var m: Dictionary = crew_members[i]
-			lb.text = "%s · %s" % [m.get("name", ""), f.get_meta("duty_label")]
+		if not m.is_empty():
 			var duty := String(f.get_meta("duty"))
 			var anim_name := "idle"
 			match duty:
 				"sit": anim_name = "sit"
 				"roof": anim_name = "prone"
 				"port": anim_name = "aim"
-			var made := CharUtil.instantiate(String(m.get("id", "")), anim_name, m.get("expression", {}))
+			var made := CharUtil.instantiate(member_id, anim_name, m.get("expression", {}))
 			var char: Node3D = made["node"]
 			char.name = "Char"
+			char.set_meta("crew_id", member_id)
 			f.add_child(char)
 			# 固定射手位持枪：枪口节点供 _update_auto_gunners 取世界坐标
 			if duty == "roof" or duty == "port":
@@ -2236,8 +2242,7 @@ func _sync_crew() -> void:
 				var lively := char.get_node_or_null("CharLively") as CharLively
 				if lively != null:
 					lively.play_combat(&"aim")
-		else:
-			lb.text = ""
+			_on_crew_visibility_changed(f)
 	if crew_driving and not crew_members.is_empty():
 		# 招募/换班重建人物后，代驾队友仍留在主驾
 		var f: Node3D = crew_figures[0]
@@ -2246,6 +2251,18 @@ func _sync_crew() -> void:
 		var driver_anim := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
 		driver_anim.play("drive", 0.15)
 		(f.get_meta("label") as Label3D).text = "%s · 代驾" % crew_members[0].get("name", "")
+
+func _on_crew_visibility_changed(f: Node3D) -> void:
+	var char: Node = f.get_node_or_null("Char")
+	if char == null:
+		return
+	var active := f.is_visible_in_tree()
+	var anim := char.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if anim != null:
+		anim.active = active
+	var lively := char.get_node_or_null("CharLively") as CharLively
+	if lively != null:
+		lively.set_process(active)
 
 ## 给槽位模型挂步枪 + muzzle；只在首次领枪时装满弹匣，之后重建/收枪均保留余弹
 func _equip_fig_gun(f: Node3D, prone := false) -> void:
@@ -2324,8 +2341,10 @@ func _build_driver() -> void:
 	char.name = "Char"
 	fig.add_child(char)
 	fig.visible = false
+	fig.visibility_changed.connect(_on_crew_visibility_changed.bind(fig))
 	rv.add_child(fig)
 	driver_figure = fig
+	_on_crew_visibility_changed(fig)
 
 # ---------- 队友互动 ----------
 ## 车内视角下，队友之间隔一阵子搭一句话，听的人转头看向说的人
