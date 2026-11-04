@@ -2894,6 +2894,8 @@ func _spawn_zombie() -> void:
 		add_child(body)
 		body.setup(self)
 		zombies.append(body)
+		if i < count - 1:
+			await get_tree().process_frame
 
 ## 创建一只丧尸实体（胶囊碰撞 + Quaternius 模型随机缩放）；位置与 AI 目标由调用者设置
 func _make_zombie_body() -> RigidBody3D:

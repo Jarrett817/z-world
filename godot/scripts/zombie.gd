@@ -13,7 +13,9 @@ const WANDER_SPEED := 0.9
 const CHASE_SPEED_BASE := 5.2
 const FAR_AI_DISTANCE := 45.0
 const FAR_AI_INTERVAL := 0.1
+const SHADOW_DISTANCE := 30.0
 const ANIM_DISTANCE := 70.0
+const RENDER_DISTANCE := 100.0
 
 enum St { WANDER, IDLE, CHASE }
 
@@ -35,6 +37,8 @@ var growl_t := 0.0
 var anim: AnimationPlayer
 var _agent: NavigationAgent3D
 var _ai_accum := 0.0
+var _meshes: Array[MeshInstance3D] = []
+var _shadows_on := true
 
 func setup(main: Node3D) -> void:
 	main_node = main
@@ -90,7 +94,10 @@ func _vary_materials(node: Node) -> void:
 	var brightness := randf_range(0.85, 1.05)
 	for c in node.get_children():
 		if c is MeshInstance3D:
-			_tint_mesh(c as MeshInstance3D, tint * brightness)
+			var mi := c as MeshInstance3D
+			_tint_mesh(mi, tint * brightness)
+			mi.visibility_range_end = RENDER_DISTANCE
+			_meshes.append(mi)
 		_vary_materials(c)
 
 func _tint_mesh(mi: MeshInstance3D, tint: Color) -> void:
@@ -139,6 +146,11 @@ func _physics_process(delta: float) -> void:
 		linear_velocity = Vector3(0, linear_velocity.y, 0)
 		return
 	var rv_dist_sq := global_position.distance_squared_to(rv.global_position)
+	var shadows_on := rv_dist_sq < SHADOW_DISTANCE * SHADOW_DISTANCE
+	if shadows_on != _shadows_on:
+		_shadows_on = shadows_on
+		for mi in _meshes:
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows_on else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	if anim != null:
 		var should_animate := rv_dist_sq < ANIM_DISTANCE * ANIM_DISTANCE
 		if anim.active != should_animate:
