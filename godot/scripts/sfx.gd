@@ -6,12 +6,15 @@ const DIR := "res://assets/sfx/"
 const KEYS := ["gunshot", "reload", "zombie_die", "zombie_growl", "zombie_bite", "run_over", "zombie_thud", "pickup", "story_open", "engine"]
 const POOL_2D := 8
 const POOL_3D := 6
+const HORDE_INTERVAL := {"zombie_growl": 0.55, "zombie_bite": 0.18}
+const HORDE_LIMIT := {"zombie_growl": 2, "zombie_bite": 3}
 
 var _streams: Dictionary = {}
 var _pool2d: Array[AudioStreamPlayer] = []
 var _i2d := 0
 var _pool3d: Array[AudioStreamPlayer3D] = []
 var _i3d := 0
+var _last_horde_sound: Dictionary = {}
 var _engine: AudioStreamPlayer
 var rv_growl_attenuation_db := 0.0
 var _rv_interior := false
@@ -56,6 +59,18 @@ func play(key: String, pitch := 1.0, var_ := 0.07, vol := 0.0) -> void:
 func play3d(key: String, pos: Vector3, pitch := 1.0, var_ := 0.07, vol := 0.0) -> void:
 	if DisplayServer.get_name() == "headless":
 		return
+	# 尸群声音按整体限流；单只仍保留 3D 方位，几十只围车时不会同帧叠满音池
+	if HORDE_INTERVAL.has(key):
+		var now := float(Time.get_ticks_msec()) / 1000.0
+		if now - float(_last_horde_sound.get(key, -1000.0)) < float(HORDE_INTERVAL[key]):
+			return
+		var playing := 0
+		for voice in _pool3d:
+			if voice.playing and voice.stream == _streams[key]:
+				playing += 1
+		if playing >= int(HORDE_LIMIT[key]):
+			return
+		_last_horde_sound[key] = now
 	var p := _pool3d[_i3d]
 	_i3d = (_i3d + 1) % POOL_3D
 	p.stream = _streams[key]
