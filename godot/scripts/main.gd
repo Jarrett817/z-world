@@ -16,6 +16,7 @@ const SOLAR_PANEL_SCENE := preload("res://assets/props/solar_panel.glb")
 const RV_SCRIPT := preload("res://scripts/rv.gd")
 const TERRAIN_SCRIPT := preload("res://scripts/terrain.gd")
 const ZOMBIE_SCRIPT := preload("res://scripts/zombie.gd")
+const RAIDER_SCRIPT := preload("res://scripts/raider.gd")
 const HUD_SCRIPT := preload("res://scripts/hud.gd")
 const PICKUP_SCRIPT := preload("res://scripts/pickup.gd")
 const SURVIVOR_SCRIPT := preload("res://scripts/survivor.gd")
@@ -105,6 +106,9 @@ var story: Node
 var quest: Node
 
 var zombies: Array = []
+var raiders: Array = []          # 邪恶人类掠夺者小队（路边袭击，80km 后出现）
+var raider_timer := 30.0         # 下一支掠夺者小队倒计时
+var raider_atk_cd := 0.0         # 掠夺者命中房车的全局冷却，防多人点射秒杀
 var props: Array = []
 var zombie_timer := 2.0
 var obs_z := -30.0
@@ -381,6 +385,7 @@ func _physics_process(delta: float) -> void:
 	_update_crew_fatigue(delta)
 	_update_weather(delta)
 	_update_zombies(delta)
+	_update_raiders(delta)
 	_update_bullets(delta)
 	_update_grenades(delta)
 	# 驻车自动刹车：停稳即完成驻车（复用正常驻车路径）
@@ -395,6 +400,7 @@ func _physics_process(delta: float) -> void:
 		_spawn_ark_camp()
 	hit_cd = maxf(0.0, hit_cd - delta)
 	bite_cd = maxf(0.0, bite_cd - delta)
+	raider_atk_cd = maxf(0.0, raider_atk_cd - delta)
 	# 撞飞的残骸落到当地地面后冻结留作路障（平面碰撞只有最低海拔，高海拔段会沉穿）
 	for i in range(_wrecks.size() - 1, -1, -1):
 		var w = _wrecks[i]
@@ -2964,6 +2970,66 @@ func _make_zombie_body() -> RigidBody3D:
 	model.scale = Vector3.ONE * randf_range(0.75, 0.9)
 	body.add_child(model)
 	return body
+
+# ---------- 邪恶人类掠夺者 ----------
+const RAIDER_MIN_KM := 80.0          # 驶过 80km 后才开始遇袭，留给新手适应期
+const RAIDER_MAX_ALIVE := 8          # 同屏掠夺者上限，远低于丧尸
+const RAIDER_ROLES := ["hero", "role1", "role2"]
+
+func _update_raiders(delta: float) -> void:
+	raider_timer -= delta
+	# 方舟防区停刷；未到里程或人数达上限只冷却计时
+	var in_ark_zone: bool = dist_km >= GOAL_KM - 1.5
+	if not in_ark_zone and dist_km >= RAIDER_MIN_KM and raider_timer <= 0.0 and raiders.size() < RAIDER_MAX_ALIVE:
+		# 越接近终点遇袭越频繁（45s → 20s）
+		raider_timer = lerpf(45.0, 20.0, clampf((dist_km - RAIDER_MIN_KM) / (GOAL_KM - RAIDER_MIN_KM), 0.0, 1.0))
+		_spawn_raider_squad()
+	# 反向遍历回收（与丧尸同一范式）
+	for i in range(raiders.size() - 1, -1, -1):
+		var r = raiders[i]
+		if not is_instance_valid(r) or r.should_free:
+			if is_instance_valid(r):
+				r.queue_free()
+			raiders.remove_at(i)
+
+## 一支 2~4 人的掠夺者小队：刷在车前 40~80m 的同一侧路肩外，成队压上来
+func _spawn_raider_squad() -> void:
+	var rvz := rv.global_position.z
+	var base_z := rvz - 40.0 - randf() * 40.0
+	var side := 1.0 if randf() > 0.5 else -1.0
+	var count := randi_range(2, 4)
+	for i in count:
+		var zz := base_z - i * randf_range(1.5, 3.5)
+		var off := ROAD_HALF + randf_range(2.0, 7.0)
+		var x := road_x(zz) + side * off
+		var body := RigidBody3D.new()
+		body.set_script(RAIDER_SCRIPT)
+		body.name = "Raider"
+		body.position = Vector3(x, ground_height(x, zz) + 0.03, zz)
+		add_child(body)
+		body.setup(self, RAIDER_ROLES.pick_random())
+		raiders.append(body)
+
+## 掠夺者点射命中房车：独立全局冷却限流，多人群殴也不会一帧秒杀
+func raider_hit_rv(dmg: float, _pos: Vector3) -> void:
+	if game_over or raider_atk_cd > 0.0:
+		return
+	raider_atk_cd = 0.9
+	durability = maxf(0.0, durability - dmg)
+	add_trauma(0.15)
+	hud.update_stats(self)
+	sfx.play3d("gunshot", rv.global_position, 0.7, 0.12)
+
+## 掠夺者被击毙掉落：弹药或食物（路面物资，房车靠近自动拾取）
+func spawn_raider_loot(pos: Vector3) -> void:
+	var p := Node3D.new()
+	p.set_script(PICKUP_SCRIPT)
+	p.add_to_group("consumable")
+	p.add_to_group("pickup")
+	p.kind = "ammo" if randf() < 0.6 else "food"
+	p.walkable = false
+	p.position = Vector3(pos.x, ground_height(pos.x, pos.z), pos.z)
+	add_child(p)
 
 ## 玩家下车后的角色实体（战斗系统启用；在车内时为 null，丧尸追车）
 var player_body: Node3D = null
