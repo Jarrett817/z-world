@@ -283,7 +283,6 @@ func _chase(delta: float) -> void:
 	var d_xz := Vector2(to_t.x, to_t.z).length()
 	if d_xz > bite_range:
 		var dir := Vector3(to_t.x, 0.0, to_t.z).normalized()
-		_agent.target_position = target_pos
 		_agent.velocity = dir * speed
 		rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 8.0)
 		_play(WALK)
