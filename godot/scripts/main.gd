@@ -763,6 +763,7 @@ func _process(delta: float) -> void:
 	_t_down = tk
 	# 车顶/射孔/遇袭生活位射手在行驶/驻车/战斗/玩家车内走动时都持续自动射击
 	_update_auto_gunners(delta)
+	_update_sit_crew_animations(delta)
 	if combat_active:
 		trauma = maxf(0.0, trauma - delta * 1.4)
 		return
@@ -789,15 +790,15 @@ func _process(delta: float) -> void:
 	rv_model.visible = view_mode == 0
 	interior.visible = view_mode != 0
 	for i in crew_figures.size():
-		# 车顶哨随外露车壳一起可见（追尾视角）；舱内槽位只在车厢视角可见
+		# 车顶哨随外露车壳一起可见（追尾视角）；舱内槽位在驾驶舱/车厢视角可见
 		var on_roof: bool = crew_figures[i].get_meta("exterior", false)
-		crew_figures[i].visible = i < crew_members.size() and ((on_roof and view_mode == 0) or (not on_roof and view_mode == 2))
+		crew_figures[i].visible = i < crew_members.size() and ((on_roof and view_mode == 0) or (not on_roof and view_mode != 0))
 	if driver_figure != null:
 		driver_figure.visible = view_mode == 2 and not combat_active and not crew_driving
 	_update_banter(delta)
 	_update_crew_wander(delta)
 	if view_mode == 1:
-		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -2.85) * INTERIOR_SCALE)
+		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -3.05) * INTERIOR_SCALE)
 		cam.look_at(rv.to_global(Vector3(-0.55, 0.9, -30.0) * INTERIOR_SCALE))
 		cam.fov = 82.0
 	elif view_mode == 2:
@@ -810,13 +811,13 @@ func _process(delta: float) -> void:
 		cam.fov = 78.0
 		if _shot_cab_cam:
 			# --shotcab：主驾正侧面近拍，验收坐姿穿模
-			cam.global_position = rv.to_global(Vector3(0.5, 0.95, -2.85) * INTERIOR_SCALE)
-			cam.look_at(rv.to_global(Vector3(-0.55, 0.5, -2.85) * INTERIOR_SCALE), Vector3.UP)
+			cam.global_position = rv.to_global(Vector3(0.5, 0.95, -3.05) * INTERIOR_SCALE)
+			cam.look_at(rv.to_global(Vector3(-0.55, 0.5, -3.05) * INTERIOR_SCALE), Vector3.UP)
 			cam.fov = 55.0
 		if _shot_seat_cam:
 			# --shotseat：副驾正侧面近拍，验收座位队友
-			cam.global_position = rv.to_global(Vector3(-0.5, 0.95, -2.85) * INTERIOR_SCALE)
-			cam.look_at(rv.to_global(Vector3(0.55, 0.5, -2.85) * INTERIOR_SCALE), Vector3.UP)
+			cam.global_position = rv.to_global(Vector3(-0.5, 0.95, -3.05) * INTERIOR_SCALE)
+			cam.look_at(rv.to_global(Vector3(0.55, 0.5, -3.05) * INTERIOR_SCALE), Vector3.UP)
 			cam.fov = 55.0
 		if _shot_bunk_cam:
 			# --shotbunk：床尾高位越过半墙俯拍，两层铺/枕头/布帘同框
@@ -1707,11 +1708,16 @@ func _build_interior() -> void:
 	cab_light.omni_range = 8.0
 	cab_light.position = Vector3(0, 1.85, 0.4)
 	interior.add_child(cab_light)
-	# 内饰 GLB 座椅建模位置距方向盘约 1.7m（建模缺陷）：双排座椅整体前移 1.27m 贴向仪表台（坐垫中心 -1.5 → -2.77）
+	# 双排座椅前移 1.47m：坐垫中心 -1.5 → -2.97，驾驶员双手正好落在方向盘下缘
 	for sn in ["seat_c0", "seat_c1", "seat_b0", "seat_b1", "headrest0", "headrest1"]:
 		var seat_mesh: Node3D = interior.find_child(sn, true, false)
 		if seat_mesh != null:
-			seat_mesh.position.z -= 1.27
+			seat_mesh.position.z -= 1.47
+	# steer_col 导入后拆成静态碰撞体与 steer 网格；网格原向座椅伸出 0.6m，缩短后只连接仪表台与方向盘
+	var steer_col: Node3D = interior.find_child("steer", true, false)
+	if steer_col != null:
+		steer_col.scale.z = 0.25
+		steer_col.position.z = -2.5575
 	# 生活舱由 _build_life_props 统一布局；隐藏旧床、宽柜台、落地货架、餐桌及依附摆件，避免两套家具叠在一起
 	for part_name in [
 		"bed", "bed_pad", "blanket", "pillow", "roll",
@@ -1819,8 +1825,8 @@ func _build_crew() -> void:
 	# 地板顶面 y=-0.4；车顶哨 root 踩车顶(RV_ROOF_Y)、播 prone 趴卧据枪。GLB 正面朝 +Z，朝车头(-Z)的槽转 PI
 	var stations := [
 		# ---- 10 个战斗编制：1 个瞭望 + 9 个射手 ----
-		# 副驾（坐姿朝车头；座椅已前移贴方向盘，sit 髋部在 root 后方 0.324 故 root 再靠前 0.33）
-		[Vector3(0.55, -0.4, -3.18) * INTERIOR_SCALE, PI, "sit", "瞭望", false],
+		# 副驾（坐垫中心 z=-2.97；sit 髋部在 root 后方 0.324，故 root 再靠前 0.33）
+		[Vector3(0.55, -0.4, -3.38) * INTERIOR_SCALE, PI, "sit", "瞭望", false],
 		# 车顶：四哨趴卧各守一侧半平面，尾哨趴卧守正后方弧
 		[Vector3(-0.82, RV_RAISED_ROOF_Y, 0.55), -PI * 0.5, "roof", "哨兵", true],
 		[Vector3(0.82, RV_RAISED_ROOF_Y, 0.55), PI * 0.5, "roof", "哨兵", true],
@@ -2222,6 +2228,7 @@ func _sync_crew() -> void:
 			old.queue_free()
 			f.remove_meta("muzzle")
 			f.remove_meta("gun_node")
+			f.remove_meta("anim_player")
 		if not m.is_empty():
 			var duty := String(f.get_meta("duty"))
 			var anim_name := "idle"
@@ -2234,6 +2241,7 @@ func _sync_crew() -> void:
 			char.name = "Char"
 			char.set_meta("crew_id", member_id)
 			f.add_child(char)
+			f.set_meta("anim_player", made["anim"])
 			# 固定射手位持枪：枪口节点供 _update_auto_gunners 取世界坐标
 			if duty == "roof" or duty == "port":
 				_equip_fig_gun(f, duty == "roof")
@@ -2246,7 +2254,7 @@ func _sync_crew() -> void:
 	if crew_driving and not crew_members.is_empty():
 		# 招募/换班重建人物后，代驾队友仍留在主驾
 		var f: Node3D = crew_figures[0]
-		f.position = Vector3(-0.55, -0.42, -2.85) * INTERIOR_SCALE
+		f.position = Vector3(-0.55, -0.42, -3.05) * INTERIOR_SCALE
 		f.rotation.y = PI
 		var driver_anim := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
 		driver_anim.play("drive", 0.15)
@@ -2259,10 +2267,31 @@ func _on_crew_visibility_changed(f: Node3D) -> void:
 	var active := f.is_visible_in_tree()
 	var anim := char.find_child("AnimationPlayer", true, false) as AnimationPlayer
 	if anim != null:
-		anim.active = active
+		# 坐姿生活位由主场景低频推进；射手与主角保持逐帧动画
+		anim.active = active and String(f.get_meta("duty", "")) != "sit"
 	var lively := char.get_node_or_null("CharLively") as CharLively
 	if lively != null:
 		lively.set_process(active)
+
+## 生活位的轻微坐姿动作无需 60Hz 骨骼求值；隐藏时完全停止，射击逻辑不受影响
+func _update_sit_crew_animations(delta: float) -> void:
+	for f in crew_figures:
+		if String(f.get_meta("duty", "")) != "sit":
+			continue
+		if not f.has_meta("anim_player"):
+			continue
+		var anim := f.get_meta("anim_player") as AnimationPlayer
+		if anim == null:
+			continue
+		if not f.is_visible_in_tree():
+			f.set_meta("sit_anim_accum", 0.0)
+			continue
+		var accum := float(f.get_meta("sit_anim_accum", 0.0)) + delta
+		if accum < 1.0 / 15.0:
+			f.set_meta("sit_anim_accum", accum)
+			continue
+		anim.advance(accum)
+		f.set_meta("sit_anim_accum", 0.0)
 
 ## 给槽位模型挂步枪 + muzzle；只在首次领枪时装满弹匣，之后重建/收枪均保留余弹
 func _equip_fig_gun(f: Node3D, prone := false) -> void:
@@ -2323,8 +2352,8 @@ func _set_life_combat(on: bool) -> void:
 ## 主角驾驶位：hero 坐主驾播 drive 动画（坐姿+双手握方向盘已烘焙，仅车内视角可见）
 func _build_driver() -> void:
 	var fig := Node3D.new()
-	# 主驾坐垫后部（座椅已前移贴方向盘：坐垫 z -3.04..-2.50）；drive 动画髋部已前移 13cm 够到方向盘
-	fig.position = Vector3(-0.55, -0.42, -2.85) * INTERIOR_SCALE
+	# 主驾坐垫后部（坐垫 z -3.24..-2.70）；前移后 drive 双手落在方向盘下缘，不再握着长转向柱
+	fig.position = Vector3(-0.55, -0.42, -3.05) * INTERIOR_SCALE
 	fig.rotation.y = PI  # 朝车头
 	var lb := Label3D.new()
 	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -3082,7 +3111,7 @@ func end_combat() -> void:
 	interior.visible = view_mode != 0
 	for i in crew_figures.size():
 		var on_roof2: bool = crew_figures[i].get_meta("exterior", false)
-		crew_figures[i].visible = i < crew_members.size() and ((on_roof2 and view_mode == 0) or (not on_roof2 and view_mode == 2))
+		crew_figures[i].visible = i < crew_members.size() and ((on_roof2 and view_mode == 0) or (not on_roof2 and view_mode != 0))
 	if driver_figure != null:
 		driver_figure.visible = view_mode == 2 and not crew_driving
 	# 驻车状态下恢复设施面板（start_combat 时收起了）
@@ -3105,7 +3134,7 @@ func set_crew_driving(v: bool) -> void:
 		var driver_anim := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
 		var lb: Label3D = f.get_meta("label")
 		if crew_driving:
-			f.position = Vector3(-0.55, -0.42, -2.85) * INTERIOR_SCALE
+			f.position = Vector3(-0.55, -0.42, -3.05) * INTERIOR_SCALE
 			f.rotation.y = PI
 			driver_anim.play("drive", 0.15)
 			lb.text = "%s · 代驾" % crew_members[0].get("name", "")
@@ -3181,7 +3210,7 @@ func end_rv_walk() -> void:
 	interior.visible = view_mode != 0
 	for i in crew_figures.size():
 		var on_roof: bool = crew_figures[i].get_meta("exterior", false)
-		crew_figures[i].visible = i < crew_members.size() and ((on_roof and view_mode == 0) or (not on_roof and view_mode == 2))
+		crew_figures[i].visible = i < crew_members.size() and ((on_roof and view_mode == 0) or (not on_roof and view_mode != 0))
 	if driver_figure != null:
 		driver_figure.visible = view_mode == 2 and not crew_driving
 	hud.set_drive_buttons_visible(not parked and not crew_driving)
