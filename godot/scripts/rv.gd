@@ -349,19 +349,23 @@ func _spin_wheels(delta: float) -> void:
 	for wheel in _wheels:
 		wheel.rotate_x(w)
 
+## 物理键位（防键盘布局差异）+ 逻辑键位（远程串流工具注入的键事件通常只带逻辑键码）双通道检测
+static func _key_down(k: int) -> bool:
+	return Input.is_physical_key_pressed(k) or Input.is_key_pressed(k)
+
 func _key_throttle() -> float:
 	var t := 0.0
-	if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP):
+	if _key_down(KEY_W) or _key_down(KEY_UP):
 		t += 1.0
-	if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN):
+	if _key_down(KEY_S) or _key_down(KEY_DOWN):
 		t -= 1.0
 	return t
 
 func _key_steer() -> float:
 	var s := 0.0
-	if Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_LEFT):
+	if _key_down(KEY_A) or _key_down(KEY_LEFT):
 		s += 1.0
-	if Input.is_physical_key_pressed(KEY_D) or Input.is_physical_key_pressed(KEY_RIGHT):
+	if _key_down(KEY_D) or _key_down(KEY_RIGHT):
 		s -= 1.0
 	return s
 

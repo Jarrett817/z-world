@@ -267,15 +267,15 @@ func _physics_process(delta: float) -> void:
 	if _firing and bool(_cfg()["auto"]):
 		_try_fire()
 	# G/T 撤离由 main 统一处理（同时负责开关）；R：换弹
-	var rk := Input.is_physical_key_pressed(KEY_R)
+	var rk := _key_down(KEY_R)
 	if rk and not _r_down:
 		reload()
 	_r_down = rk
-	var sk := Input.is_physical_key_pressed(KEY_SPACE)
+	var sk := _key_down(KEY_SPACE)
 	if sk and not _space_down:
 		jump()
 	_space_down = sk
-	var ck := Input.is_physical_key_pressed(KEY_C)
+	var ck := _key_down(KEY_C)
 	if ck and not _c_down:
 		toggle_crouch()
 	_c_down = ck
@@ -296,16 +296,20 @@ func _physics_process(delta: float) -> void:
 	_update_sway(delta)
 	_aim_and_camera(delta)
 
+## 物理键位 + 逻辑键位双通道：远程串流注入的键事件通常只带逻辑键码
+static func _key_down(k: int) -> bool:
+	return Input.is_physical_key_pressed(k) or Input.is_key_pressed(k)
+
 ## 车内行走：输入在 rv 本地空间解算，转换成世界速度后由物理引擎碰撞；地板顶 y=-0.4，车头 -Z
 func _move_rv(delta: float) -> void:
 	var input := Vector2.ZERO
-	if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP):
+	if _key_down(KEY_W) or _key_down(KEY_UP):
 		input.y -= 1.0
-	if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN):
+	if _key_down(KEY_S) or _key_down(KEY_DOWN):
 		input.y += 1.0
-	if Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_LEFT):
+	if _key_down(KEY_A) or _key_down(KEY_LEFT):
 		input.x -= 1.0
-	if Input.is_physical_key_pressed(KEY_D) or Input.is_physical_key_pressed(KEY_RIGHT):
+	if _key_down(KEY_D) or _key_down(KEY_RIGHT):
 		input.x += 1.0
 	input += touch_move
 	var yaw_basis := Basis(Vector3.UP, aim_yaw)
@@ -341,17 +345,17 @@ func toggle_crouch() -> void:
 
 func _move_foot(delta: float) -> void:
 	var input := Vector2.ZERO
-	if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP):
+	if _key_down(KEY_W) or _key_down(KEY_UP):
 		input.y -= 1.0
-	if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN):
+	if _key_down(KEY_S) or _key_down(KEY_DOWN):
 		input.y += 1.0
-	if Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_LEFT):
+	if _key_down(KEY_A) or _key_down(KEY_LEFT):
 		input.x -= 1.0
-	if Input.is_physical_key_pressed(KEY_D) or Input.is_physical_key_pressed(KEY_RIGHT):
+	if _key_down(KEY_D) or _key_down(KEY_RIGHT):
 		input.x += 1.0
 	# 触屏摇杆输入叠加，推满自动奔跑（下蹲时强制慢走）
 	input += touch_move
-	var sprinting := (Input.is_physical_key_pressed(KEY_SHIFT) or touch_move.length() > 0.85) and not _crouching
+	var sprinting := (_key_down(KEY_SHIFT) or touch_move.length() > 0.85) and not _crouching
 	var spd := RUN_SPEED if sprinting else WALK_SPEED
 	if _crouching:
 		spd *= CROUCH_MUL

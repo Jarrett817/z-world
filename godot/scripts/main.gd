@@ -376,6 +376,10 @@ func _ready() -> void:
 			_hamlet_km = _next_hamlet_km(_hamlet_km)
 	_apply_save(sv)
 
+## 物理键位 + 逻辑键位双通道：远程串流工具注入的键事件通常只带逻辑键码
+static func _key_down(k: int) -> bool:
+	return Input.is_physical_key_pressed(k) or Input.is_key_pressed(k)
+
 func _physics_process(delta: float) -> void:
 	_update_time(delta)
 	# 太阳与天气光照变化很慢，10Hz 更新足够平滑，避免每物理帧重复写渲染属性
@@ -384,7 +388,7 @@ func _physics_process(delta: float) -> void:
 		_sun_tick = 0.1
 		_update_sun()
 	if game_over:
-		if Input.is_physical_key_pressed(KEY_R):
+		if _key_down(KEY_R):
 			get_tree().reload_current_scene()
 		return
 	# 自动存档：定时 + 驻车状态变化即存
@@ -765,7 +769,7 @@ func _process(delta: float) -> void:
 	# 驾驶舱/车厢/车内行走隔音；下车与车顶战斗保持原音量
 	sfx.set_rv_interior(view_mode != 0 and not combat_active)
 	# G：驻车时下车战斗 / 战斗中回到驾驶座或车内走动（player.gd 内部也处理结束）
-	var gk := Input.is_physical_key_pressed(KEY_G)
+	var gk := _key_down(KEY_G)
 	if gk and not _g_down and not game_over and not story_active:
 		if combat_active:
 			end_combat()
@@ -775,7 +779,7 @@ func _process(delta: float) -> void:
 			start_combat(0)
 	_g_down = gk
 	# T：天窗/车顶守卫（行驶中也可探身开火）；车内走动中按 T = 队友继续代驾，自己爬车顶
-	var tk := Input.is_physical_key_pressed(KEY_T)
+	var tk := _key_down(KEY_T)
 	if tk and not _t_down and not game_over and not story_active:
 		if combat_active or rv_walk_active:
 			end_combat()
@@ -789,18 +793,18 @@ func _process(delta: float) -> void:
 		trauma = maxf(0.0, trauma - delta * 1.4)
 		return
 	# 驻车（F）与设施（E）：车内行走时也必须响应（驻车键=出发），故在行走提前 return 之前读
-	var f := Input.is_physical_key_pressed(KEY_F)
+	var f := _key_down(KEY_F)
 	if f and not _f_down and not game_over:
 		_toggle_park()
 	_f_down = f
-	var e := Input.is_physical_key_pressed(KEY_E)
+	var e := _key_down(KEY_E)
 	if e and not _e_down and parked and not game_over:
 		set_facilities_ui(not facilities_visible)
 	_e_down = e
 	if rv_walk_active:
 		# 车内行走：相机由玩家节点接管，显隐在 start/end 里一次性设好
 		return
-	var pressed := Input.is_physical_key_pressed(KEY_C)
+	var pressed := _key_down(KEY_C)
 	if pressed and not _c_down:
 		view_mode = (view_mode + 1) % 3
 		_fv_yaw = 0.0
