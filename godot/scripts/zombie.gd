@@ -18,7 +18,6 @@ const ANIM_DISTANCE := 70.0
 const RENDER_DISTANCE := 100.0
 const RVO_DISTANCE := 26.0        # 仅近身丧尸参与 RVO 局部避让，远处游荡丧尸关闭以降尸群开销
 const GROUND_SNAP_TOL := 0.35     # 活体离地超过该高度则拉回地形面（修浮空）
-const HEADSHOT_Y := 1.05          # 命中点高于碰撞原点该值即爆头（胶囊上半球=头颈，一击必杀）
 const FLASH_TIME := 0.14          # 受击红闪时长
 const HP_BAR_HEIGHT := 2.35       # 头顶血条离地高度
 const ROOF_SAFE_DY := 2.2         # 玩家高出丧尸该米数时处于车顶/够不到的位置，免疫啃咬
@@ -35,7 +34,7 @@ var state_t := 0.0
 var wander_target := Vector3.ZERO
 var flung_t := 0.0
 var stagger_t := 0.0  # 中弹硬直：短暂定身，读得出命中感
-var hp := 2.0         # 身体血量；爆头一击必杀，身体按枪械 dmg 扣血
+var hp := 2.0         # 身体血量；爆头伤害 ×2，身体按枪械 dmg 扣血
 var max_hp := 2.0     # 血量上限（血条比例用，setup 时与 hp 同步）
 var bite_t := 0.0
 var dead := false
@@ -351,17 +350,14 @@ func on_hit_by_rv(speed_kmh: float, _normal: Vector3) -> void:
 		main_node.sfx.play3d("zombie_die", global_position, 1.1, 0.12)
 		_play_once(DEATH)
 
-## 被玩家武器击中：爆头一击必杀；身体命中扣血并触发红闪/血条/伤害数字/硬直
+## 被玩家武器击中：爆头伤害 ×2；每次命中触发红闪/血条/伤害数字/硬直，血量耗尽则死亡
 func on_shot(dmg: float, headshot: bool, dir: Vector3) -> bool:
 	if dead:
 		return true
-	if headshot:
-		hp = 0.0
-		_spawn_damage_number(0.0, true)
-		return _die()
-	hp -= dmg
+	var dealt := dmg * (2.0 if headshot else 1.0)
+	hp -= dealt
 	_trigger_flash()
-	_spawn_damage_number(dmg, false)
+	_spawn_damage_number(dealt, headshot)
 	if hp > 0.0:
 		_update_hp_bar()
 		stagger_t = 0.32
@@ -460,7 +456,7 @@ func _update_hp_bar() -> void:
 ## 伤害数字：挂到 main 下（尸体 queue_free 不影响飘字），上浮淡出后自动释放
 func _spawn_damage_number(amount: float, headshot: bool) -> void:
 	var label := Label3D.new()
-	label.text = "爆头!" if headshot else str(int(round(amount)))
+	label.text = "爆头 " + str(int(round(amount))) if headshot else str(int(round(amount)))
 	label.font_size = 48
 	label.pixel_size = 0.006
 	label.outline_size = 10

@@ -3389,11 +3389,11 @@ func _update_bullets(delta: float) -> void:
 			node.queue_free()
 			_bullets.remove_at(i)
 
-## 命中结算：丧尸中弹（命中头颈算爆头，一击必杀）+ 命中点火花
+## 命中结算：丧尸中弹（命中头颈算爆头，伤害 ×2）+ 命中点火花
 func _bullet_impact(hit: Dictionary, dmg: float, dir: Vector3) -> void:
 	var col: Object = hit["collider"]
 	if col is RigidBody3D and col.has_method("on_shot"):
-		# 命中点高于碰撞原点 1.05m（胶囊上半球=头颈）算爆头；丧尸爆头一击必杀
+		# 命中点高于碰撞原点 1.05m（胶囊上半球=头颈）算爆头，伤害 ×2
 		var headshot: bool = hit["position"].y > col.global_position.y + 1.05
 		on_zombie_shot(col.on_shot(dmg, headshot, dir), headshot)
 	var flash := OmniLight3D.new()
