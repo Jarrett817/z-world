@@ -16,6 +16,13 @@ const FAR_AI_INTERVAL := 0.1
 const SHADOW_DISTANCE := 30.0
 const ANIM_DISTANCE := 70.0
 const RENDER_DISTANCE := 100.0
+const RVO_DISTANCE := 26.0        # 仅近身丧尸参与 RVO 局部避让，远处游荡丧尸关闭以降尸群开销
+const GROUND_SNAP_TOL := 0.35     # 活体离地超过该高度则拉回地形面（修浮空）
+const HEADSHOT_Y := 1.05          # 命中点高于碰撞原点该值即爆头（胶囊上半球=头颈，一击必杀）
+const FLASH_TIME := 0.14          # 受击红闪时长
+const HP_BAR_HEIGHT := 2.35       # 头顶血条离地高度
+const ROOF_SAFE_DY := 2.2         # 玩家高出丧尸该米数时处于车顶/够不到的位置，免疫啃咬
+const PLAYER_SUNROOF := 1         # player.Mode.SUNROOF 枚举值（避免跨脚本类型依赖）
 
 enum St { WANDER, IDLE, CHASE }
 
@@ -28,7 +35,8 @@ var state_t := 0.0
 var wander_target := Vector3.ZERO
 var flung_t := 0.0
 var stagger_t := 0.0  # 中弹硬直：短暂定身，读得出命中感
-var hp := 2.0         # 身体血量；爆头伤害 ×2，AKM/沙鹰 2 伤可一枪倒
+var hp := 2.0         # 身体血量；爆头一击必杀，身体按枪械 dmg 扣血
+var max_hp := 2.0     # 血量上限（血条比例用，setup 时与 hp 同步）
 var bite_t := 0.0
 var dead := false
 var death_t := 0.0
@@ -39,12 +47,20 @@ var _agent: NavigationAgent3D
 var _ai_accum := 0.0
 var _meshes: Array[MeshInstance3D] = []
 var _shadows_on := true
+var _flash_t := 0.0                       # 受击红闪剩余时间
+var _flash_mats: Array[StandardMaterial3D] = []  # 各网格当前的红闪材质（还原用）
+var _origin_mats: Array[Material] = []    # 与 _flash_mats 对应的原始材质
+var _flash_slots: Array = []              # 与 _flash_mats 平行的 [MeshInstance3D, surface_index] 还原位置
+var _hp_bar: Sprite3D                     # 头顶世界空间血条（仅受损后出现）
+var _hp_bar_bg: Sprite3D
+var _hp_bar_w := 0.9
 
 func setup(main: Node3D) -> void:
 	main_node = main
 	rv = main.rv
 	speed = CHASE_SPEED_BASE + randf_range(-0.8, 1.4) * (1.0 + clampf(main.dist_km * 0.05, 0.0, 0.5))
 	hp = 2.0 + clampf(main.dist_km / 150.0, 0.0, 2.0)  # 后期更耐打：150km 后 3、300km 后 4
+	max_hp = hp
 	mass = 70.0
 	linear_damp = 1.2
 	# layer=层3(丧尸独占)：房车不再与丧尸物理互撞（碾压由房车触发区接管），子弹射线仍正常命中
@@ -123,6 +139,7 @@ func _find_anim_player(node: Node) -> AnimationPlayer:
 func _physics_process(delta: float) -> void:
 	if main_node == null or rv == null:
 		return
+	_update_hit_flash(delta)
 	if dead:
 		death_t -= delta
 		if death_t <= 0.0:
@@ -145,6 +162,10 @@ func _physics_process(delta: float) -> void:
 		_agent.velocity = Vector3.ZERO
 		linear_velocity = Vector3(0, linear_velocity.y, 0)
 		return
+	# 地面贴合：活体（非撞飞/硬直）若因地形重建等原因离地或陷入，拉回地形高度
+	var gy: float = main_node.ground_height(global_position.x, global_position.z)
+	if absf(global_position.y - gy) > GROUND_SNAP_TOL:
+		global_position.y = gy
 	var rv_dist_sq := global_position.distance_squared_to(rv.global_position)
 	var shadows_on := rv_dist_sq < SHADOW_DISTANCE * SHADOW_DISTANCE
 	if shadows_on != _shadows_on:
@@ -155,6 +176,10 @@ func _physics_process(delta: float) -> void:
 		var should_animate := rv_dist_sq < ANIM_DISTANCE * ANIM_DISTANCE
 		if anim.active != should_animate:
 			anim.active = should_animate
+	# RVO 性能门控：只有近身的冲锋丧尸才参与局部避让计算，远处游荡者关闭，减少尸群导航开销
+	var want_rvo := state == St.CHASE and rv_dist_sq < RVO_DISTANCE * RVO_DISTANCE
+	if _agent.avoidance_enabled != want_rvo:
+		_agent.avoidance_enabled = want_rvo
 	_ai_accum += delta
 	if rv_dist_sq > FAR_AI_DISTANCE * FAR_AI_DISTANCE and _ai_accum < FAR_AI_INTERVAL:
 		return
@@ -187,7 +212,6 @@ func on_engine_noise(pos: Vector3, radius: float) -> void:
 
 func _enter_chase() -> void:
 	state = St.CHASE
-	_agent.avoidance_enabled = true
 	bite_t = 0.0
 
 ## 是否正在狂暴冲锋（供音乐/氛围状态判定）
@@ -263,6 +287,10 @@ func _chase(delta: float) -> void:
 	var target_pos: Vector3 = rv.global_position
 	# 车内行走玩家不是可啃咬目标：追车外壳，不能穿过车厢追人
 	var player: Node3D = null if main_node.rv_walk_active else main_node.get_player_body()
+	if is_instance_valid(player) and int(player.get("mode")) == PLAYER_SUNROOF \
+			and player.global_position.y - global_position.y > ROOF_SAFE_DY:
+		# 玩家在车顶天窗守卫位、垂直高差超出丧尸可达范围：够不到，改为围车
+		player = null
 	var hunt: Node3D = hunt_target if is_instance_valid(hunt_target) else null
 	if hunt != null:
 		target_pos = hunt.global_position
@@ -323,25 +351,136 @@ func on_hit_by_rv(speed_kmh: float, _normal: Vector3) -> void:
 		main_node.sfx.play3d("zombie_die", global_position, 1.1, 0.12)
 		_play_once(DEATH)
 
-## 被玩家武器击中：爆头 ×2；未死则硬直 + 沿弹道击退，读得出命中感
+## 被玩家武器击中：爆头一击必杀；身体命中扣血并触发红闪/血条/伤害数字/硬直
 func on_shot(dmg: float, headshot: bool, dir: Vector3) -> bool:
 	if dead:
 		return true
-	hp -= dmg * (2.0 if headshot else 1.0)
+	if headshot:
+		hp = 0.0
+		_spawn_damage_number(0.0, true)
+		return _die()
+	hp -= dmg
+	_trigger_flash()
+	_spawn_damage_number(dmg, false)
 	if hp > 0.0:
+		_update_hp_bar()
 		stagger_t = 0.32
 		var push := Vector3(dir.x, 0.0, dir.z)
 		if push.length() > 0.01:
 			apply_central_impulse(push.normalized() * mass * 0.9)
 		return false
-	set_collision_mask_value(2, false)  # 尸体不挡车
+	return _die()
+
+## 死亡公共路径：尸体不挡车、停 AI、播死亡音效与动画，返回 true 供调用方做击杀反馈
+func _die() -> bool:
+	set_collision_mask_value(2, false)
 	dead = true
 	death_t = 1.5
 	_agent.velocity = Vector3.ZERO
 	linear_velocity = Vector3(0, linear_velocity.y, 0)
+	if _hp_bar != null:
+		_hp_bar.visible = false
+		_hp_bar_bg.visible = false
 	main_node.sfx.play3d("zombie_die", global_position, 1.0, 0.12)
 	_play_once(DEATH)
 	return true
+
+# ---------- 命中反馈 ----------
+
+## 受击红闪：各网格材质临时换为自发光红色，FLASH_TIME 后由 _update_hit_flash 还原
+func _trigger_flash() -> void:
+	_flash_t = FLASH_TIME
+	if not _flash_mats.is_empty():
+		return
+	for mi in _meshes:
+		if mi.mesh == null:
+			continue
+		for si in mi.mesh.get_surface_count():
+			var src: Material = mi.get_surface_override_material(si)
+			if src == null or not (src is StandardMaterial3D):
+				continue
+			_origin_mats.append(src)
+			var fm: StandardMaterial3D = (src as StandardMaterial3D).duplicate()
+			fm.albedo_color = Color(1.0, 0.15, 0.12)
+			fm.emission_enabled = true
+			fm.emission = Color(1.0, 0.08, 0.05)
+			fm.emission_energy_multiplier = 1.6
+			mi.set_surface_override_material(si, fm)
+			_flash_mats.append(fm)
+			_flash_slots.append([mi, si])
+
+func _update_hit_flash(delta: float) -> void:
+	if _flash_t <= 0.0 or _flash_mats.is_empty():
+		return
+	_flash_t -= delta
+	if _flash_t > 0.0:
+		return
+	# 倒计时结束：按记录的 (网格, 表面) 配对还原原始材质
+	for i in _flash_slots.size():
+		var slot: Array = _flash_slots[i]
+		(slot[0] as MeshInstance3D).set_surface_override_material(int(slot[1]), _origin_mats[i])
+	_flash_mats.clear()
+	_origin_mats.clear()
+	_flash_slots.clear()
+
+## 头顶血条：受损后才懒构建，Sprite3D 自带 billboard 始终面向相机
+func _build_hp_bar() -> void:
+	var tex := _white_texture()
+	_hp_bar_bg = Sprite3D.new()
+	_hp_bar_bg.texture = tex
+	_hp_bar_bg.modulate = Color(0.12, 0.05, 0.05, 0.92)
+	_hp_bar_bg.pixel_size = 0.02
+	_hp_bar_bg.scale = Vector3(_hp_bar_w + 0.08, 0.16, 1.0)
+	_hp_bar_bg.no_depth_test = true
+	_hp_bar_bg.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_hp_bar_bg.visible = false
+	add_child(_hp_bar_bg)
+	_hp_bar = Sprite3D.new()
+	_hp_bar.texture = tex
+	_hp_bar.modulate = Color(0.25, 0.9, 0.3)
+	_hp_bar.pixel_size = 0.02
+	_hp_bar.scale = Vector3(_hp_bar_w, 0.1, 1.0)
+	_hp_bar.no_depth_test = true
+	_hp_bar.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_hp_bar.visible = false
+	add_child(_hp_bar)
+
+func _update_hp_bar() -> void:
+	if _hp_bar == null:
+		_build_hp_bar()
+	var ratio: float = clampf(hp / max_hp, 0.0, 1.0)
+	_hp_bar.visible = true
+	_hp_bar_bg.visible = true
+	_hp_bar_bg.position.y = HP_BAR_HEIGHT
+	# 前景左对齐缩窄：中心随宽度左移，保持左端固定
+	_hp_bar.scale.x = _hp_bar_w * ratio
+	_hp_bar.position = Vector3(-_hp_bar_w * (1.0 - ratio) * 0.5, HP_BAR_HEIGHT, 0.0)
+	_hp_bar.modulate = Color(0.25, 0.9, 0.3) if ratio > 0.5 else (Color(1.0, 0.75, 0.2) if ratio > 0.25 else Color(1.0, 0.25, 0.2))
+
+## 伤害数字：挂到 main 下（尸体 queue_free 不影响飘字），上浮淡出后自动释放
+func _spawn_damage_number(amount: float, headshot: bool) -> void:
+	var label := Label3D.new()
+	label.text = "爆头!" if headshot else str(int(round(amount)))
+	label.font_size = 48
+	label.pixel_size = 0.006
+	label.outline_size = 10
+	label.modulate = Color(1.0, 0.3, 0.25) if headshot else Color(1.0, 0.95, 0.7)
+	label.outline_modulate = Color(0.05, 0.02, 0.02)
+	label.no_depth_test = true
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.position = global_position + Vector3(randf_range(-0.2, 0.2), HP_BAR_HEIGHT + 0.25, randf_range(-0.2, 0.2))
+	main_node.add_child(label)
+	var tw := main_node.create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(label, "position:y", label.position.y + 0.9, 0.7)
+	tw.tween_property(label, "modulate:a", 0.0, 0.7)
+	tw.chain().tween_callback(label.queue_free)
+
+## 1×1 白纹理（血条底图，靠 modulate 染色 + scale 成条）
+func _white_texture() -> Texture2D:
+	var img := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+	img.set_pixel(0, 0, Color.WHITE)
+	return ImageTexture.create_from_image(img)
 
 func _apply_anim_rate() -> void:
 	if anim != null:

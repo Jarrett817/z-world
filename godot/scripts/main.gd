@@ -3063,15 +3063,18 @@ func alert_gunshot(pos: Vector3) -> void:
 func on_player_bitten() -> void:
 	if game_over or bite_cd > 0.0 or rv_walk_active:
 		return
+	var pb := get_player_body()
+	# 车顶天窗守卫位：地面丧尸够不到，免疫啃咬（_chase 已拦截，此处为结算兜底）
+	if pb != null and int(pb.get("mode")) == 1:
+		return
 	bite_cd = 1.2
 	add_trauma(0.2)
-	var p := get_player_body()
-	if p != null:
+	if pb != null:
 		# 唐糖·教练：身手矫健，受伤减轻 40%；士气越低越容易乱
 		var dmg := 8.0 * (2.0 - morale_factor())
 		if _has_passive("tang_tang"):
 			dmg *= 0.6
-		p.take_damage(dmg)
+		pb.take_damage(dmg)
 	hud.toast("被丧尸抓伤了！快回车里")
 
 # ---------- 下车 / 天窗战斗 ----------
@@ -3386,11 +3389,12 @@ func _update_bullets(delta: float) -> void:
 			node.queue_free()
 			_bullets.remove_at(i)
 
-## 命中结算：丧尸中弹（命中点过肩算爆头 ×2）+ 命中点火花
+## 命中结算：丧尸中弹（命中头颈算爆头，一击必杀）+ 命中点火花
 func _bullet_impact(hit: Dictionary, dmg: float, dir: Vector3) -> void:
 	var col: Object = hit["collider"]
 	if col is RigidBody3D and col.has_method("on_shot"):
-		var headshot: bool = hit["position"].y > col.global_position.y + 0.75
+		# 命中点高于碰撞原点 1.05m（胶囊上半球=头颈）算爆头；丧尸爆头一击必杀
+		var headshot: bool = hit["position"].y > col.global_position.y + 1.05
 		on_zombie_shot(col.on_shot(dmg, headshot, dir), headshot)
 	var flash := OmniLight3D.new()
 	flash.light_color = Color(1.0, 0.8, 0.45)
