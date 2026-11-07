@@ -20,6 +20,7 @@ const RAIDER_SCRIPT := preload("res://scripts/raider.gd")
 const HUD_SCRIPT := preload("res://scripts/hud.gd")
 const PICKUP_SCRIPT := preload("res://scripts/pickup.gd")
 const SURVIVOR_SCRIPT := preload("res://scripts/survivor.gd")
+const ANIMAL_SCRIPT := preload("res://scripts/animal.gd")
 const STORY_SCRIPT := preload("res://scripts/story.gd")
 const QUEST_SCRIPT := preload("res://scripts/quest.gd")
 const PLAYER_SCRIPT := preload("res://scripts/player.gd")
@@ -56,6 +57,12 @@ const RV_PORT_POINTS := [
 	Vector3(1.05, -0.4, 1.60),
 ]
 const RV_PORT_RANGE := 0.85
+
+# 路边救助小动物：物种表、即时士气收益、车内宠物持续慰藉（每只）与上限
+const ANIMAL_SPECIES := ["dog", "cat", "rabbit"]
+const ANIMAL_RESCUE_MORALE := 8.0
+const PET_COMFORT_PER := 0.04
+const PET_COMFORT_CAP := 6
 
 # 场景音乐（六种处境各一首，交叉淡入淡出切换）
 const MUSIC_TRACKS := {
@@ -114,6 +121,8 @@ var zombie_timer := 2.0
 var obs_z := -30.0
 var pick_z := -20.0
 var surv_z := -180.0
+var animal_z := -120.0        # 路边待救助小动物生成游标
+var pets_rescued := 0         # 已救上车的小动物数量（车内温馨慰藉来源）
 var terrain_front := 0.0
 var trauma := 0.0
 var hit_cd := 0.0
@@ -344,6 +353,7 @@ func _ready() -> void:
 		obs_z = rv.global_position.z - 30.0
 		pick_z = rv.global_position.z - 20.0
 		surv_z = rv.global_position.z - 180.0
+		animal_z = rv.global_position.z - 120.0
 		lamp_z = rv.global_position.z - 30.0
 		scenery_z = rv.global_position.z - 20.0
 		pole_z = rv.global_position.z - 40.0
@@ -1013,7 +1023,9 @@ func _update_resources(delta: float) -> void:
 	else:
 		# 行驶中的精神消耗：缓慢但持续，事件与驻车是主要士气来源
 		if rv.speed_kmh > 1.0:
-			morale = maxf(0.0, morale - delta * 0.05)
+			# 车内宠物的温馨慰藉：每只小幅回春，上限 6 只，部分抵消旅途精神消耗
+			var comfort := minf(pets_rescued, PET_COMFORT_CAP) * PET_COMFORT_PER
+			morale = clampf(morale - delta * 0.05 + delta * comfort, 0.0, 100.0)
 		# 混动行驶同时消耗燃料与电量（沈蔓·驾驶：油耗 -25%；高士气开车更稳更省）
 		if rv.speed_kmh > 1.0:
 			var burn: float = rv.speed_kmh * delta * float(_hybrid_cfg.get("fuel_burn_per_speed", 0.0014))
@@ -1132,6 +1144,7 @@ func save_game() -> void:
 		"story_fired": story.fired,
 		"quests": quest.save_state(),
 		"bonds": bonds,
+		"pets": pets_rescued,
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
@@ -1184,6 +1197,7 @@ func _apply_save(sv: Dictionary) -> void:
 	var bd: Dictionary = sv.get("bonds", {})
 	for k in bd:
 		bonds[String(k)] = float(bd[k])
+	pets_rescued = int(sv.get("pets", 0))
 	_sync_crew()
 	hud.set_crew(crew_members)
 	hud.update_stats(self)
@@ -3509,6 +3523,13 @@ func _update_frontier() -> void:
 		_wseed(surv_z, 3)
 		_spawn_survivor(surv_z)
 		surv_z -= randf_range(250.0, 450.0)
+	while animal_z > rvz - VIEW_AHEAD:
+		if animal_z < safe_z:
+			animal_z = safe_z - 1.0
+			break
+		_wseed(animal_z, 8)
+		_spawn_animal(animal_z)
+		animal_z -= randf_range(180.0, 320.0)
 	while lamp_z > rvz - VIEW_AHEAD:
 		if lamp_z < safe_z:
 			lamp_z = safe_z - 1.0
@@ -4373,6 +4394,17 @@ func _spawn_survivor(z: float) -> void:
 		body._enter_chase()
 		zombies.append(body)
 
+## 路边待救助小动物：刷在路肩外野地，温顺踱步，房车/下车玩家靠近即被救上车
+func _spawn_animal(z: float) -> void:
+	var a := Node3D.new()
+	a.set_script(ANIMAL_SCRIPT)
+	a.setup(ANIMAL_SPECIES.pick_random())
+	var side := 1.0 if randf() > 0.5 else -1.0
+	var off := randf_range(ROAD_HALF + 2.0, ROAD_HALF + 8.0)
+	var ax := road_x(z) + side * off
+	a.position = Vector3(ax, ground_height(ax, z), z)
+	add_child(a)
+
 ## 路灯：杆 + 朝路面的悬臂 + 自发光灯头，每 55m 交替两侧
 func _spawn_lamp(z: float) -> void:
 	lamp_side = -lamp_side
@@ -4608,6 +4640,17 @@ func try_recruit(survivor: Node3D) -> void:
 	var ev_id := "recruit_" + String(member.get("id", ""))
 	if story.events.has(ev_id):
 		story._open(ev_id)
+
+## 救助小动物上车：即时士气 +1，车内宠物提供持续慰藉（不占人类编制、不耗食物）
+func rescue_animal(species: String) -> void:
+	if game_over:
+		return
+	pets_rescued += 1
+	morale = minf(100.0, morale + ANIMAL_RESCUE_MORALE)
+	var names := {"dog": "小狗", "cat": "小猫", "rabbit": "兔子"}
+	hud.toast("救起一只%s · 士气 +%d · 车上的宠物 %d 只" % [names.get(species, "小动物"), int(ANIMAL_RESCUE_MORALE), pets_rescued])
+	sfx.play("pickup")
+	hud.update_stats(self)
 
 ## 队友专长是否已在车上
 func _has_passive(id: String) -> bool:
