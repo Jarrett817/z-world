@@ -2531,18 +2531,18 @@ func _build_driver() -> void:
 	_on_crew_visibility_changed(fig)
 
 # ---------- 队友互动 ----------
-## 车内视角下，队友之间隔一阵子搭一句话，听的人转头看向说的人
+## 队友之间隔一阵子搭一句话：车厢视角弹 3D 气泡、听者转头；驾驶/追尾视角用 toast 带名字播报
 func _update_banter(delta: float) -> void:
 	if banter_busy or story_active or game_over or combat_active:
 		return
-	if view_mode != 2 or crew_members.size() < 2:
+	if crew_members.size() < 2:
 		return
 	banter_t -= delta
 	if banter_t <= 0.0:
 		_start_banter()
 
 func _start_banter() -> void:
-	banter_t = randf_range(14.0, 24.0)
+	banter_t = randf_range(18.0, 30.0)
 	var n := mini(crew_members.size(), crew_figures.size())
 	if n < 2:
 		return
@@ -2551,8 +2551,17 @@ func _start_banter() -> void:
 	var lines: Array = crew_members[a].get("banter", [])
 	if lines.is_empty():
 		return
+	var line := String(lines[randi() % lines.size()])
+	var speaker_name := String(crew_members[a].get("name", "队友"))
 	var fa: Node3D = crew_figures[a]
 	var fb: Node3D = crew_figures[b]
+	# 非车厢视角：驾驶中看不到 3D 气泡，走屏幕 toast 让每个队员（含泛型幸存者）都有台词存在感
+	if view_mode != 2:
+		hud.toast("%s：%s" % [speaker_name, line])
+		var la0 := fa.find_child("CharLively", true, false) as CharLively
+		if la0 != null:
+			la0.talk(3.0)
+		return
 	var bubble: Label3D = fa.get_meta("bubble", null)
 	if bubble == null:
 		bubble = Label3D.new()
@@ -2566,7 +2575,7 @@ func _start_banter() -> void:
 		bubble.visible = false
 		fa.add_child(bubble)
 		fa.set_meta("bubble", bubble)
-	bubble.text = String(lines[randi() % lines.size()])
+	bubble.text = line
 	bubble.visible = true
 	banter_busy = true
 	# 说话者嘴动 + 表情，听者转向说话者，说完转回原位
