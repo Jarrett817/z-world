@@ -21,6 +21,7 @@ const HUD_SCRIPT := preload("res://scripts/hud.gd")
 const PICKUP_SCRIPT := preload("res://scripts/pickup.gd")
 const SURVIVOR_SCRIPT := preload("res://scripts/survivor.gd")
 const ANIMAL_SCRIPT := preload("res://scripts/animal.gd")
+const PET_PROP_SCRIPT := preload("res://scripts/pet_prop.gd")
 const STORY_SCRIPT := preload("res://scripts/story.gd")
 const QUEST_SCRIPT := preload("res://scripts/quest.gd")
 const PLAYER_SCRIPT := preload("res://scripts/player.gd")
@@ -41,6 +42,9 @@ const VIEW_AHEAD := 260.0
 const LANDMARK_VIEW_AHEAD := 700.0  # 大型固定地标提前出现，承担远距离方向引导
 const VIEW_BEHIND := 40.0
 const RV_MODEL_FOOT := 1.557   # GLB 轮底到模型原点的距离
+const RV_SCALE := 1.12         # 房车整体等比放大：根节点缩放，碰撞/内饰/车顶件/上下车点全部同步
+const RV_HALF_WIDTH := 1.9 * RV_SCALE    # 碰撞盒半宽 3.8/2 乘整车缩放，丧尸脱壳判定用
+const RV_HALF_LENGTH := 5.0 * RV_SCALE   # 碰撞盒半长 10/2 乘整车缩放，丧尸脱壳判定用
 const RV_ROOF_Y := 1.51        # 实测 gs_001.glb 主车顶平面局部高度（物理射线），天窗/平顶哨位用
 const RV_RAISED_ROOF_Y := 2.04 # 车顶中部凸起舱顶（rv z≈0.55）实测高度
 const INTERIOR_SCALE := Vector3(1.18, 1.0, 1.55)  # 10 米车壳内约 8.4 米有效舱长，30 人编制
@@ -123,6 +127,7 @@ var pick_z := -20.0
 var surv_z := -180.0
 var animal_z := -120.0        # 路边待救助小动物生成游标
 var pets_rescued := 0         # 已救上车的小动物数量（车内温馨慰藉来源）
+var pet_species: Array = []   # 已救上车宠物的物种序列（dog/cat/rabbit），驱动车内宠物角摆件
 var terrain_front := 0.0
 var trauma := 0.0
 var hit_cd := 0.0
@@ -1145,6 +1150,7 @@ func save_game() -> void:
 		"quests": quest.save_state(),
 		"bonds": bonds,
 		"pets": pets_rescued,
+		"pet_species": pet_species,
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
@@ -1198,6 +1204,10 @@ func _apply_save(sv: Dictionary) -> void:
 	for k in bd:
 		bonds[String(k)] = float(bd[k])
 	pets_rescued = int(sv.get("pets", 0))
+	var saved_species: Array = sv.get("pet_species", [])
+	pet_species.clear()
+	for sp in saved_species:
+		pet_species.append(String(sp))
 	_sync_crew()
 	hud.set_crew(crew_members)
 	hud.update_stats(self)
@@ -1691,6 +1701,8 @@ func _build_rv() -> void:
 	for n in rv_model.find_children("*skirt*", "Node3D", true, false) + rv_model.find_children("*bumper*", "Node3D", true, false):
 		n.visible = false
 	rv.add_child(rv_model)
+	# 整车等比放大：根节点缩放连带碰撞盒、内饰、车顶件与所有子节点局部坐标
+	rv.scale = Vector3.ONE * RV_SCALE
 	# 车顶件挂到 rv_model 下：车壳加速俯仰/转向侧倾时护栏踏板随车一起动
 	roof_rig = Node3D.new()
 	roof_rig.name = "RoofRig"
@@ -1940,6 +1952,8 @@ func _build_duty_props() -> void:
 		interior.add_child(steam)
 	_build_roof_props()
 	_build_life_props()
+	_refresh_pet_corner()   # 读档后 pet_species 已就位，这里一次性摆好宠物角
+	_build_roof_coop()      # 车顶鸡笼（固定装饰，不随存档变化）
 
 ## 车顶哨兵台：护栏延伸为太阳能板低棚，主车顶可半蹲、凸起舱顶保留卧姿净空
 func _build_roof_props() -> void:
@@ -2227,6 +2241,127 @@ func _build_life_props() -> void:
 		mbox.call(Vector3(0.05, 0.06, 0.58), Vector3(hx, 1.47, 2.48), port_metal)
 	for hz in [2.19, 2.77]:
 		mbox.call(Vector3(0.75, 0.06, 0.05), Vector3(-0.45, 1.47, hz), port_metal)
+
+## 车内宠物角：尾墙中央软垫 + 按 pet_species 摆放的静态猫狗兔（内饰本地坐标，地板顶 y=-0.4）
+func _refresh_pet_corner() -> void:
+	var holder := interior.get_node_or_null("PetCorner")
+	if holder != null:
+		holder.queue_free()
+	holder = Node3D.new()
+	holder.name = "PetCorner"
+	interior.add_child(holder)
+	# 软垫（暗红棕同地毯色系），不设碰撞：贴尾墙放，不占过道
+	var pad := MeshInstance3D.new()
+	var pm := BoxMesh.new()
+	pm.size = Vector3(0.86, 0.06, 0.5)
+	pad.mesh = pm
+	var pad_mat := StandardMaterial3D.new()
+	pad_mat.albedo_color = Color(0.42, 0.24, 0.2)
+	pad_mat.roughness = 1.0
+	pad.material_override = pad_mat
+	pad.position = Vector3(0.0, -0.37, 2.5)
+	holder.add_child(pad)
+	# 软垫围栏边
+	for rz in [-0.25, 0.25]:
+		var rim := MeshInstance3D.new()
+		var rm := BoxMesh.new()
+		rm.size = Vector3(0.86, 0.1, 0.05)
+		rim.mesh = rm
+		rim.material_override = pad_mat
+		rim.position = Vector3(0.0, -0.32, 2.5 + rz)
+		holder.add_child(rim)
+	# 宠物两列三行排在垫上，最多展示 6 只，超出的仍计入慰藉收益
+	for i in mini(pet_species.size(), 6):
+		var col := i % 2
+		var row := i / 2
+		var pos := Vector3(-0.22 + col * 0.44, -0.34, 2.34 + row * 0.16)
+		PET_PROP_SCRIPT.build(holder, String(pet_species[i]), pos, PI)
+
+## 车顶鸡笼：铁丝栅栏笼 + 三只小鸡摆件（roof_rig 本地坐标 = rv 本地坐标）
+func _build_roof_coop() -> void:
+	var coop := Node3D.new()
+	coop.name = "RoofCoop"
+	roof_rig.add_child(coop)
+	var wire := StandardMaterial3D.new()
+	wire.albedo_color = Color(0.32, 0.3, 0.27)
+	wire.metallic = 0.5
+	wire.roughness = 0.6
+	var tray_col := StandardMaterial3D.new()
+	tray_col.albedo_color = Color(0.28, 0.24, 0.18)
+	tray_col.roughness = 0.95
+	var cw := 1.05   # 笼宽（x）
+	var cd := 0.95   # 笼深（z）
+	var ch := 0.78   # 笼高
+	var cx := 0.42
+	var cy := RV_ROOF_Y + 0.06
+	var cz := -2.55
+	# 底盘托盘
+	var tray := MeshInstance3D.new()
+	var tm := BoxMesh.new()
+	tm.size = Vector3(cw + 0.08, 0.05, cd + 0.08)
+	tray.mesh = tm
+	tray.material_override = tray_col
+	tray.position = Vector3(cx, cy, cz)
+	coop.add_child(tray)
+	# 四角立柱
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			var post := MeshInstance3D.new()
+			post.mesh = BoxMesh.new()
+			post.mesh.size = Vector3(0.05, ch, 0.05)
+			post.material_override = wire
+			post.position = Vector3(cx + sx * cw * 0.5, cy + ch * 0.5, cz + sz * cd * 0.5)
+			coop.add_child(post)
+	# 四周横杆：上中下三道
+	for hy in [0.18, 0.46, ch - 0.05]:
+		for sz in [-1.0, 1.0]:
+			var bar := MeshInstance3D.new()
+			bar.mesh = BoxMesh.new()
+			bar.mesh.size = Vector3(cw, 0.04, 0.04)
+			bar.material_override = wire
+			bar.position = Vector3(cx, cy + hy, cz + sz * cd * 0.5)
+			coop.add_child(bar)
+		for sx in [-1.0, 1.0]:
+			var bar2 := MeshInstance3D.new()
+			bar2.mesh = BoxMesh.new()
+			bar2.mesh.size = Vector3(0.04, 0.04, cd)
+			bar2.material_override = wire
+			bar2.position = Vector3(cx + sx * cw * 0.5, cy + hy, cz)
+			coop.add_child(bar2)
+	# 竖栅（前后两面各 4 根、左右两面各 3 根），稀疏到能看清笼内小鸡
+	for i in 4:
+		var gx := cx - cw * 0.5 + cw * (float(i) + 0.5) / 4.0
+		for sz in [-1.0, 1.0]:
+			var rod := MeshInstance3D.new()
+			rod.mesh = BoxMesh.new()
+			rod.mesh.size = Vector3(0.025, ch - 0.12, 0.025)
+			rod.material_override = wire
+			rod.position = Vector3(gx, cy + ch * 0.5, cz + sz * cd * 0.5)
+			coop.add_child(rod)
+	for i in 3:
+		var gz := cz - cd * 0.5 + cd * (float(i) + 0.5) / 3.0
+		for sx in [-1.0, 1.0]:
+			var rod2 := MeshInstance3D.new()
+			rod2.mesh = BoxMesh.new()
+			rod2.mesh.size = Vector3(0.025, ch - 0.12, 0.025)
+			rod2.material_override = wire
+			rod2.position = Vector3(cx + sx * cw * 0.5, cy + ch * 0.5, gz)
+			coop.add_child(rod2)
+	# 顶盖网格框
+	var lid := MeshInstance3D.new()
+	lid.mesh = BoxMesh.new()
+	lid.mesh.size = Vector3(cw + 0.06, 0.05, cd + 0.06)
+	lid.material_override = wire
+	lid.position = Vector3(cx, cy + ch, cz)
+	coop.add_child(lid)
+	# 三只小鸡站在托盘上
+	var chick_pts := [
+		Vector3(cx - 0.28, cy + 0.025, cz - 0.22),
+		Vector3(cx + 0.22, cy + 0.025, cz - 0.18),
+		Vector3(cx - 0.02, cy + 0.025, cz + 0.24),
+	]
+	for cp in chick_pts:
+		PET_PROP_SCRIPT.build(coop, "chick", cp, randf() * TAU)
 
 ## 队员加入/刷新时：按 id 实例化对应 VRM 基底并更新名牌；岗位弹匣留在槽位，换班不补弹
 func _sync_crew() -> void:
@@ -3100,8 +3235,8 @@ func start_combat(m: int) -> void:
 	var p := CharacterBody3D.new()
 	p.set_script(PLAYER_SCRIPT)
 	if m == 0:
-		# 左车门旁落地
-		p.position = rv.global_position + rv.global_transform.basis.x * 2.4 + Vector3(0, -RV_MODEL_FOOT, 0.0)
+		# 左车门旁落地（横向偏移与下沉量随整车缩放）
+		p.position = rv.global_position + rv.global_transform.basis.x * (2.4 * RV_SCALE) + Vector3(0, -RV_MODEL_FOOT * RV_SCALE, 0.0)
 		p.position.y = ground_height(p.position.x, p.position.z)
 	else:
 		# 车顶天窗：脚踩实测车壳顶面（to_global 含行驶俯仰，不再悬空）
@@ -4650,6 +4785,8 @@ func rescue_animal(species: String) -> void:
 	if game_over:
 		return
 	pets_rescued += 1
+	pet_species.append(species)
+	_refresh_pet_corner()
 	morale = minf(100.0, morale + ANIMAL_RESCUE_MORALE)
 	var names := {"dog": "小狗", "cat": "小猫", "rabbit": "兔子"}
 	hud.toast("救起一只%s · 士气 +%d · 车上的宠物 %d 只" % [names.get(species, "小动物"), int(ANIMAL_RESCUE_MORALE), pets_rescued])

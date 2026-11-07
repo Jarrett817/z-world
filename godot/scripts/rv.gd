@@ -327,7 +327,7 @@ func _update_water(delta: float) -> void:
 		support_h = lerpf(ground_h, water_h, _water_f)
 	elif _water_f < 0.02:
 		_water_f = 0.0
-	_support_y = support_h + main_node.RV_MODEL_FOOT
+	_support_y = support_h + main_node.RV_MODEL_FOOT * main_node.RV_SCALE
 
 ## 碾压：触发区内的丧尸直接撞飞（车速 >8 才触发，停车时丧尸仍可围车）；动量按质量比衰减
 func _on_zombie_area(body: Node) -> void:

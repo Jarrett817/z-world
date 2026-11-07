@@ -152,7 +152,7 @@ func _physics_process(delta: float) -> void:
 		flung_t -= delta
 		if flung_t <= 0.0:
 			var local := rv.to_local(global_position)
-			if absf(local.x) < 2.35 and absf(local.z) < 5.45:
+			if absf(local.x) < _rv_escape_half_w() and absf(local.z) < _rv_escape_half_l():
 				global_position = rv.to_global(_rv_escape(local))
 			set_collision_mask_value(2, true)  # 先脱离重叠再恢复车身碰撞，避免把丧尸弹入地下或留在车厢
 		return
@@ -267,13 +267,19 @@ func _pick_wander_target() -> void:
 	_agent.target_position = wander_target
 
 ## 与车壳重叠时沿最近侧面撤到车外；居中固定向正侧脱离，避免 signf(0) 原地停留
+func _rv_escape_half_w() -> float:
+	return main_node.RV_HALF_WIDTH + 0.45
+
+func _rv_escape_half_l() -> float:
+	return main_node.RV_HALF_LENGTH + 0.45
+
 func _rv_escape(local: Vector3) -> Vector3:
-	var gap_x := 2.35 - absf(local.x)
-	var gap_z := 5.45 - absf(local.z)
+	var gap_x := _rv_escape_half_w() - absf(local.x)
+	var gap_z := _rv_escape_half_l() - absf(local.z)
 	if gap_x < gap_z:
-		local.x = (1.0 if local.x >= 0.0 else -1.0) * 2.35
+		local.x = (1.0 if local.x >= 0.0 else -1.0) * _rv_escape_half_w()
 	else:
-		local.z = (1.0 if local.z >= 0.0 else -1.0) * 5.45
+		local.z = (1.0 if local.z >= 0.0 else -1.0) * _rv_escape_half_l()
 	return local
 
 ## 狂暴冲锋：玩家下车优先追玩家，否则追房车，贴身啃咬
@@ -297,13 +303,15 @@ func _chase(delta: float) -> void:
 		target_pos = player.global_position
 	var bite_range := BITE_RANGE
 	if hunt == null and not is_instance_valid(player):
-		# 房车是 3.8×10m 长方体：重叠时先强制退出车壳，正常追击仍只贴外表面
+		# 房车是 3.8×10m 长方体（含整车缩放）：重叠时先强制退出车壳，正常追击仍只贴外表面
 		var local := rv.to_local(global_position)
-		if absf(local.x) < 2.35 and absf(local.z) < 5.45:
+		if absf(local.x) < _rv_escape_half_w() and absf(local.z) < _rv_escape_half_l():
 			target_pos = rv.to_global(_rv_escape(local))
 			bite_range = 0.0
 		else:
-			var surface := Vector2(clampf(local.x, -1.95, 1.95), clampf(local.z, -5.05, 5.05))
+			var surface := Vector2(
+				clampf(local.x, -main_node.RV_HALF_WIDTH + 0.05, main_node.RV_HALF_WIDTH - 0.05),
+				clampf(local.z, -main_node.RV_HALF_LENGTH + 0.05, main_node.RV_HALF_LENGTH - 0.05))
 			target_pos = rv.to_global(Vector3(surface.x, 0.0, surface.y))
 			bite_range = RV_BITE_RANGE
 	var to_t := target_pos - global_position
