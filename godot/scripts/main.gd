@@ -5940,6 +5940,16 @@ func _make_scenery(z: float) -> Node3D:
 	var sx2 := road_x(z) + side * (ROAD_HALF + 15.0 + randf() * 22.0)
 	root.position = Vector3(sx2, ground_height(sx2, z), z)
 	root.set_meta("x_band", Vector2(ROAD_HALF + 15.0, ROAD_HALF + 37.0))
+	# 出生区同样混入程序化设施/车残骸，让近处就有可读的末日生活痕迹
+	var facility_roll := randf()
+	if facility_roll < 0.10:
+		root.rotation.y = side * PI * 0.5 + randf_range(-0.12, 0.12)
+		if facility_roll < 0.03:
+			_build_wreck(root)
+		else:
+			_build_facility(root, randi() % 6)
+		add_child(root)
+		return root
 	var roll := randf()
 	if roll < 0.06:
 		# 枯树：树干 + 歪斜枯枝（少量点缀，提醒这是末世）
@@ -6725,6 +6735,7 @@ func _spawn_scenery(z: float) -> void:
 		_:
 			if randf() < 0.18:
 				_spawn_shrub(rx + _side() * randf_range(10.0, 19.0), z + randf_range(-5.0, 5.0))
+	_spawn_roadside_facility(z, zone)
 	for i in range(tree_n):
 		if randf() >= tree_p:
 			continue
@@ -6761,6 +6772,284 @@ func _spawn_shrub(x: float, z: float) -> void:
 	shrub.position = Vector3(x, ground_height(x, z), z)
 	shrub.add_to_group("consumable")
 	add_child(shrub)
+
+# ---------- 程序化路边设施与车残骸（全部代码生成，无外部资产） ----------
+var _poster_cache: Dictionary = {}
+var _grid_cache: Texture2D
+
+## 通用盒体零件
+func _prop_box(parent: Node3D, size: Vector3, pos: Vector3, col: Color, rot := Vector3.ZERO) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.position = pos
+	mi.rotation = rot
+	mi.material_override = _mat(col)
+	parent.add_child(mi)
+	return mi
+
+## 通用圆柱零件（锥筒/灯柱/轮胎等）
+func _prop_cyl(parent: Node3D, top_r: float, bot_r: float, h: float, pos: Vector3, col: Color, rot := Vector3.ZERO) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = top_r
+	cm.bottom_radius = bot_r
+	cm.height = h
+	mi.mesh = cm
+	mi.position = pos
+	mi.rotation = rot
+	mi.material_override = _mat(col)
+	parent.add_child(mi)
+	return mi
+
+## 程序化褪色海报贴图：底色 + 随机色块 + 标题条，四种随机结果缓存复用
+func _poster_tex(variant: int) -> Texture2D:
+	var key := str(variant % 4)
+	if _poster_cache.has(key):
+		return _poster_cache[key]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4100 + variant % 4
+	var img := Image.create(64, 48, false, Image.FORMAT_RGBA8)
+	var bgs := [Color(0.72, 0.62, 0.45), Color(0.30, 0.42, 0.50), Color(0.55, 0.30, 0.28), Color(0.42, 0.46, 0.36)]
+	img.fill(bgs[variant % 4])
+	for i in rng.randi_range(2, 3):
+		var w := rng.randi_range(10, 28)
+		var h := rng.randi_range(8, 18)
+		var x0 := rng.randi_range(2, 64 - w - 2)
+		var y0 := rng.randi_range(2, 48 - h - 2)
+		var c := Color(rng.randf_range(0.6, 0.95), rng.randf_range(0.5, 0.8), rng.randf_range(0.3, 0.55))
+		for px in range(x0, x0 + w):
+			for py in range(y0, y0 + h):
+				img.set_pixel(px, py, c)
+	for px in range(4, 60):
+		for py in range(38, 43):
+			img.set_pixel(px, py, Color(0.92, 0.90, 0.84))
+	var tex := ImageTexture.create_from_image(img)
+	_poster_cache[key] = tex
+	return tex
+
+## 铁网围栏贴图：透明底 + 细网格线
+func _grid_tex() -> Texture2D:
+	if _grid_cache != null:
+		return _grid_cache
+	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	for i in 32:
+		if i % 8 == 0:
+			for j in 32:
+				img.set_pixel(i, j, Color(0.58, 0.60, 0.56, 0.8))
+				img.set_pixel(j, i, Color(0.58, 0.60, 0.56, 0.8))
+	_grid_cache = ImageTexture.create_from_image(img)
+	return _grid_cache
+
+## 流式路边设施：按区域概率在护栏外 16–20m 投放设施或车残骸
+func _spawn_roadside_facility(z: float, zone: String) -> void:
+	var chance := 0.16
+	match zone:
+		"city": chance = 0.24
+		"forest": chance = 0.07
+		"mountain": chance = 0.05
+		"hills", "lake", "coast": chance = 0.12
+	if randf() > chance:
+		return
+	var side := _side()
+	var x: float = road_x(z) + side * randf_range(ROAD_HALF + 9.0, ROAD_HALF + 13.0)
+	if loop_road_distance(x, z) < 5.0 or _in_water(x, z):
+		return
+	var root := Node3D.new()
+	root.position = Vector3(x, ground_height(x, z), z)
+	# 本地 -Z 朝向公路：+X 侧路右转 +90°
+	root.rotation.y = side * PI * 0.5 + randf_range(-0.12, 0.12)
+	root.add_to_group("consumable")
+	add_child(root)
+	if randf() < 0.32:
+		root.name = "RoadWreck"
+		_build_wreck(root)
+	else:
+		var kind := randi() % 6
+		root.name = ["BusStopProp", "TollBoothProp", "ConeProp", "TireProp", "DumpsterProp", "FenceProp"][kind]
+		_build_facility(root, kind)
+
+func _build_facility(root: Node3D, kind: int) -> void:
+	match kind:
+		0: _prop_bus_stop(root)
+		1: _prop_toll_booth(root)
+		2: _prop_cones(root)
+		3: _prop_tire_stack(root)
+		4: _prop_dumpster(root)
+		_: _prop_fence(root)
+
+## 公交站：混凝土台 + 背板 + 顶棚 + 长椅 + 侧灯箱海报
+func _prop_bus_stop(root: Node3D) -> void:
+	var steel := Color(0.30, 0.32, 0.33)
+	var concrete := Color(0.45, 0.44, 0.40)
+	_prop_box(root, Vector3(4.2, 0.10, 1.9), Vector3(0, 0.05, 0), concrete)
+	_prop_box(root, Vector3(4.0, 1.55, 0.06), Vector3(0, 1.10, 0.82), Color(0.26, 0.28, 0.27))
+	for px in [-1.95, 1.95]:
+		_prop_box(root, Vector3(0.10, 2.25, 0.10), Vector3(px, 1.13, 0.78), steel)
+	_prop_box(root, Vector3(4.4, 0.09, 2.15), Vector3(0, 2.28, 0.30), steel, Vector3(-0.05, 0, 0))
+	_prop_box(root, Vector3(2.8, 0.09, 0.42), Vector3(0, 0.56, 0.42), Color(0.42, 0.30, 0.20))
+	for bx in [-1.2, 1.2]:
+		_prop_box(root, Vector3(0.08, 0.52, 0.36), Vector3(bx, 0.28, 0.42), steel)
+	_prop_box(root, Vector3(0.10, 1.55, 1.10), Vector3(2.12, 1.18, 0.10), steel)
+	var poster := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(1.0, 1.4)
+	poster.mesh = pm
+	poster.position = Vector3(2.17, 1.18, 0.10)
+	poster.rotation.y = PI * 0.5
+	var pmat := StandardMaterial3D.new()
+	pmat.albedo_texture = _poster_tex(randi())
+	pmat.roughness = 1.0
+	pmat.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+	pmat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	poster.material_override = pmat
+	root.add_child(poster)
+	_solid_box(root, Vector3(4.0, 1.6, 0.10), Vector3(0, 1.10, 0.82))
+	_solid_box(root, Vector3(0.14, 1.6, 1.15), Vector3(2.12, 1.18, 0.10))
+
+## 收费亭：底座 + 小 cabin + 环窗 + 顶板
+func _prop_toll_booth(root: Node3D) -> void:
+	var concrete := Color(0.52, 0.50, 0.45)
+	_prop_box(root, Vector3(2.6, 0.18, 2.6), Vector3(0, 0.09, 0), concrete)
+	_prop_box(root, Vector3(2.0, 2.3, 2.0), Vector3(0, 1.33, 0), Color(0.62, 0.60, 0.54))
+	_prop_box(root, Vector3(2.06, 0.85, 2.06), Vector3(0, 1.62, 0), Color(0.16, 0.22, 0.26))
+	_prop_box(root, Vector3(2.45, 0.16, 2.45), Vector3(0, 2.52, 0), concrete)
+	_prop_box(root, Vector3(0.10, 1.35, 0.90), Vector3(-1.02, 1.10, 0), Color(0.30, 0.26, 0.20))
+	_solid_box(root, Vector3(2.1, 2.6, 2.1), Vector3(0, 1.3, 0))
+
+## 锥桶阵：施工管制残留，沿路肩排成斜线
+func _prop_cones(root: Node3D) -> void:
+	var orange := Color(0.86, 0.34, 0.10)
+	var white := Color(0.90, 0.88, 0.80)
+	for i in randi_range(5, 8):
+		var cx := randf_range(-0.7, 0.7)
+		var cz := 0.4 + float(i) * 0.85
+		_prop_box(root, Vector3(0.34, 0.04, 0.34), Vector3(cx, 0.02, cz), Color(0.16, 0.15, 0.14))
+		_prop_cyl(root, 0.03, 0.13, 0.55, Vector3(cx, 0.31, cz), orange)
+		_prop_cyl(root, 0.095, 0.105, 0.07, Vector3(cx, 0.34, cz), white)
+
+## 轮胎堆：平叠 + 一只靠着的斜胎
+func _prop_tire_stack(root: Node3D) -> void:
+	var rubber := Color(0.10, 0.10, 0.11)
+	for i in randi_range(3, 5):
+		var t := MeshInstance3D.new()
+		var tm := TorusMesh.new()
+		tm.inner_radius = 0.22
+		tm.outer_radius = 0.42
+		t.mesh = tm
+		t.position = Vector3(randf_range(-0.05, 0.05), 0.14 + float(i) * 0.21, randf_range(-0.05, 0.05))
+		t.rotation.y = randf() * TAU
+		t.material_override = _mat(rubber)
+		root.add_child(t)
+	var lean := MeshInstance3D.new()
+	var lm := TorusMesh.new()
+	lm.inner_radius = 0.22
+	lm.outer_radius = 0.42
+	lean.mesh = lm
+	lean.position = Vector3(0.8, 0.40, 0.15)
+	lean.rotation = Vector3(PI * 0.5, 0.0, 0.25)
+	lean.material_override = _mat(rubber)
+	root.add_child(lean)
+	_solid_box(root, Vector3(0.9, 1.0, 0.9), Vector3(0, 0.5, 0))
+
+## 垃圾箱：柜体 + 掀开的盖 + 轮子
+func _prop_dumpster(root: Node3D) -> void:
+	var green := Color(0.20, 0.34, 0.27)
+	var dark := Color(0.14, 0.14, 0.14)
+	_prop_box(root, Vector3(1.9, 1.0, 1.15), Vector3(0, 0.62, 0), green)
+	_prop_box(root, Vector3(2.0, 0.10, 1.22), Vector3(0, 1.16, 0), green.darkened(0.15), Vector3(0, 0, 0.06))
+	_prop_box(root, Vector3(1.2, 0.16, 0.05), Vector3(0, 1.24, 0.61), dark)
+	for wx in [-0.75, 0.75]:
+		_prop_box(root, Vector3(0.18, 0.18, 0.18), Vector3(wx, 0.09, 0.45), dark)
+	_solid_box(root, Vector3(2.0, 1.25, 1.2), Vector3(0, 0.62, 0))
+
+## 铁网围栏：四根立柱 + 顶部横杆 + 网格贴图片段
+func _prop_fence(root: Node3D) -> void:
+	var post_col := Color(0.30, 0.31, 0.30)
+	for i in 4:
+		_prop_box(root, Vector3(0.08, 2.05, 0.08), Vector3(-3.0 + float(i) * 2.0, 1.02, 0), post_col)
+	_prop_box(root, Vector3(6.1, 0.06, 0.06), Vector3(0, 1.92, 0), post_col)
+	var mesh_mat := StandardMaterial3D.new()
+	mesh_mat.albedo_color = Color(0.55, 0.58, 0.55)
+	mesh_mat.albedo_texture = _grid_tex()
+	mesh_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mesh_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mesh_mat.roughness = 0.9
+	for i in 3:
+		var p := MeshInstance3D.new()
+		var pm := PlaneMesh.new()
+		pm.size = Vector2(2.0, 1.75)
+		p.mesh = pm
+		p.position = Vector3(-2.0 + float(i) * 2.0, 1.02, 0)
+		p.material_override = mesh_mat
+		root.add_child(p)
+	_solid_box(root, Vector3(6.1, 2.05, 0.12), Vector3(0, 1.02, 0))
+
+## 车轮零件（默认半径 0.34，巴士/货车可加大）
+func _wreck_wheel(root: Node3D, x: float, z: float, radius := 0.34) -> MeshInstance3D:
+	var w := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = radius
+	cyl.bottom_radius = radius
+	cyl.height = 0.24
+	w.mesh = cyl
+	w.rotation.z = PI * 0.5
+	w.position = Vector3(x, radius, z)
+	w.material_override = _mat(Color(0.09, 0.09, 0.10))
+	root.add_child(w)
+	return w
+
+## 程序化低模车残骸：轿车/皮卡/巴士/货车，随机褪色车漆，近似碰撞盒
+func _build_wreck(root: Node3D) -> void:
+	var r := randf()
+	var kind := 0 if r < 0.40 else (1 if r < 0.70 else (2 if r < 0.82 else 3))
+	var paints := [
+		Color(0.55, 0.20, 0.18), Color(0.20, 0.32, 0.45),
+		Color(0.62, 0.58, 0.48), Color(0.30, 0.38, 0.28),
+		Color(0.48, 0.42, 0.30),
+	]
+	var paint: Color = paints[randi() % paints.size()].darkened(randf_range(0.05, 0.25))
+	var rust := Color(0.34, 0.20, 0.12)
+	var glass := Color(0.12, 0.15, 0.17)
+	var size := Vector3(2.0, 1.6, 4.4)
+	match kind:
+		0:
+			_prop_box(root, Vector3(1.8, 0.55, 4.2), Vector3(0, 0.62, 0), paint)
+			_prop_box(root, Vector3(1.62, 0.62, 2.0), Vector3(0, 1.18, 0.18), paint.darkened(0.08))
+			_prop_box(root, Vector3(1.50, 0.42, 1.86), Vector3(0, 1.22, 0.18), glass)
+			for wx in [-0.86, 0.86]:
+				for wz in [-1.35, 1.35]:
+					_wreck_wheel(root, wx, wz)
+			# 掀起的锈蚀引擎盖
+			_prop_box(root, Vector3(1.7, 0.05, 1.0), Vector3(0, 0.95, -1.6), rust, Vector3(-0.12, 0.05, 0.03))
+		1:
+			_prop_box(root, Vector3(1.95, 0.62, 4.8), Vector3(0, 0.66, 0), paint)
+			_prop_box(root, Vector3(1.80, 0.68, 1.7), Vector3(0, 1.26, -0.95), paint.darkened(0.06))
+			_prop_box(root, Vector3(1.66, 0.44, 1.56), Vector3(0, 1.30, -0.95), glass)
+			_prop_box(root, Vector3(1.70, 0.34, 2.1), Vector3(0, 1.06, 1.25), rust)
+			for wx in [-0.92, 0.92]:
+				for wz in [-1.55, 1.55]:
+					_wreck_wheel(root, wx, wz)
+			size = Vector3(2.1, 1.7, 4.9)
+		2:
+			_prop_box(root, Vector3(2.35, 2.5, 9.4), Vector3(0, 1.55, 0), paint)
+			_prop_box(root, Vector3(2.40, 0.85, 8.4), Vector3(0, 2.0, 0), glass)
+			_prop_box(root, Vector3(2.30, 0.22, 9.0), Vector3(0, 2.86, 0), paint.lightened(0.15))
+			for wx in [-1.05, 1.05]:
+				for wz in [-3.3, 0.0, 3.2]:
+					_wreck_wheel(root, wx, wz, 0.42)
+			size = Vector3(2.45, 3.0, 9.5)
+		_:
+			_prop_box(root, Vector3(2.15, 2.25, 2.7), Vector3(0, 1.55, -2.6), paint)
+			_prop_box(root, Vector3(2.02, 0.72, 1.2), Vector3(0, 2.05, -3.55), glass)
+			_prop_box(root, Vector3(2.30, 2.45, 4.6), Vector3(0, 1.65, 1.3), Color(0.44, 0.42, 0.38))
+			for wx in [-1.02, 1.02]:
+				for wz in [-2.9, 1.3, 2.6]:
+					_wreck_wheel(root, wx, wz, 0.40)
+			size = Vector3(2.4, 2.9, 8.3)
+	_solid_box(root, size, Vector3(0, size.y * 0.5, 0))
 
 var _scene_aabbs: Dictionary = {}
 
