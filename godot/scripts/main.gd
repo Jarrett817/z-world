@@ -95,6 +95,19 @@ var rain: CPUParticles3D
 var snow: CPUParticles3D
 var motes: CPUParticles3D   # 晴天空气漂浮光点（花粉/尘光）
 var splash: CPUParticles3D  # 雨滴落地溅射（相机周围地面）
+var dust: CPUParticles3D    # 车尾扬尘 / 雨天轮胎水雾
+var _dust_mat: StandardMaterial3D
+var cabin_motes: CPUParticles3D  # 车内阳光尘光
+var _pendant: Node3D             # 车顶悬挂摆件（随加减速与转向摆动）
+var _skids: Array = []           # 急刹胎痕 {mesh, mat, life}
+var _skid_prev_speed := 0.0
+var _skid_last := Vector3.ZERO
+var _pend_ang := Vector2.ZERO    # 摆件当前角（x 前后 / y 侧向）
+var _pend_vel := Vector2.ZERO
+var _pend_last_speed := 0.0
+var _pend_last_yaw := 0.0
+var _birds: Array = []           # 路边鸟群，房车靠近惊飞
+var bird_z := -180.0             # 鸟群生成前沿
 var _wet := 0.0             # 路面湿度 0..1，雨天缓动升高驱动材质与 SSR
 var headlight: SpotLight3D
 
@@ -362,6 +375,7 @@ func _ready() -> void:
 	hud.refresh_quests()
 	last_z = rv.global_position.z
 	terrain_front = rv.global_position.z + 100.0
+	bird_z = rv.global_position.z - 180.0
 	# --jump 直达：同步里程与房车位置，跳过已走过的生成游标，避免一帧补刷全程
 	if _jump_km > 0.0:
 		var rvz0 := rv.global_position.z
@@ -378,6 +392,7 @@ func _ready() -> void:
 		lamp_z = rv.global_position.z - 30.0
 		scenery_z = rv.global_position.z - 20.0
 		pole_z = rv.global_position.z - 40.0
+		bird_z = rv.global_position.z - 60.0
 		# 草丛条带对齐 GRASS_LEN 绝对网格：同一世界位置无论是否跳转都重建出相同草丛
 		grass_front = -float(floori(-(rv.global_position.z + 30.0) / GRASS_LEN)) * GRASS_LEN
 		_pole_prev.clear()
@@ -407,6 +422,7 @@ func _physics_process(delta: float) -> void:
 		if _key_down(KEY_R):
 			get_tree().reload_current_scene()
 		return
+	_update_drive_fx(delta)
 	# 自动存档：定时 + 驻车状态变化即存
 	_save_t += delta
 	if _save_t >= SAVE_INTERVAL or parked != _saved_parked:
@@ -812,6 +828,7 @@ func _process(delta: float) -> void:
 	# 车顶/射孔/遇袭生活位射手在行驶/驻车/战斗/玩家车内走动时都持续自动射击
 	_update_auto_gunners(delta)
 	_update_sit_crew_animations(delta)
+	_update_cabin_fx(delta)
 	if combat_active:
 		trauma = maxf(0.0, trauma - delta * 1.4)
 		return
@@ -1846,6 +1863,121 @@ func _build_interior() -> void:
 		_add_interior_collision(Vector3(0.12, 2.30, 7.15), Vector3(side * 1.36, 0.75, -0.67))
 	_add_interior_collision(Vector3(2.72, 2.30, 0.12), Vector3(0, 0.75, -4.18))
 	_add_interior_collision(Vector3(2.72, 2.30, 0.12), Vector3(0, 0.75, 2.85))
+	_build_cabin_fx()
+
+## 车内氛围：车顶手工挂饰（随加减速/转向摆动）+ 窗光里的空气微尘
+func _build_cabin_fx() -> void:
+	# 挂在 rv 而非内饰节点：内饰为非均匀缩放，直接挂会被拉伸变形
+	_pendant = Node3D.new()
+	_pendant.name = "CabinPendant"
+	_pendant.position = Vector3(-0.58, 1.92, 1.02)
+	rv.add_child(_pendant)
+	var cord_mat := StandardMaterial3D.new()
+	cord_mat.albedo_color = Color(0.30, 0.24, 0.18)
+	cord_mat.roughness = 0.9
+	var cord := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.008
+	cm.bottom_radius = 0.008
+	cm.height = 0.42
+	cord.mesh = cm
+	cord.position.y = -0.21
+	cord.material_override = cord_mat
+	_pendant.add_child(cord)
+	var wood_mat := StandardMaterial3D.new()
+	wood_mat.albedo_color = Color(0.62, 0.46, 0.28)
+	wood_mat.roughness = 0.78
+	var ring := MeshInstance3D.new()
+	var rm := TorusMesh.new()
+	rm.inner_radius = 0.055
+	rm.outer_radius = 0.085
+	ring.mesh = rm
+	ring.rotation.x = PI * 0.5   # 环面竖起，行进方向能看到整圈
+	ring.position.y = -0.48
+	ring.material_override = wood_mat
+	_pendant.add_child(ring)
+	# 三根垂下的羽饰，错位悬挂成手工捕梦网的样子
+	var feather_cols := [Color(0.90, 0.85, 0.74), Color(0.74, 0.60, 0.42), Color(0.86, 0.80, 0.66)]
+	for i in 3:
+		var f := MeshInstance3D.new()
+		var fm := BoxMesh.new()
+		fm.size = Vector3(0.022, 0.20, 0.012)
+		f.mesh = fm
+		var fmat := StandardMaterial3D.new()
+		fmat.albedo_color = feather_cols[i]
+		fmat.roughness = 1.0
+		f.material_override = fmat
+		f.position = Vector3(-0.045 + 0.045 * i, -0.60, 0.0)
+		f.rotation = Vector3(0.0, 0.5 * i, -0.12 + 0.12 * i)
+		_pendant.add_child(f)
+	# 舱内尘光：跟随车辆（local_coords），只在车内/驾驶舱视角发射
+	cabin_motes = CPUParticles3D.new()
+	cabin_motes.amount = 44
+	cabin_motes.lifetime = 9.0
+	cabin_motes.preprocess = 3.0
+	cabin_motes.local_coords = true
+	cabin_motes.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	cabin_motes.emission_box_extents = Vector3(1.0, 0.85, 2.9)
+	cabin_motes.direction = Vector3(0, 1, 0)
+	cabin_motes.spread = 180.0
+	cabin_motes.gravity = Vector3(0.01, 0.015, 0.0)
+	cabin_motes.initial_velocity_min = 0.02
+	cabin_motes.initial_velocity_max = 0.10
+	cabin_motes.scale_amount_min = 0.4
+	cabin_motes.scale_amount_max = 1.0
+	var dq := QuadMesh.new()
+	dq.size = Vector2(0.055, 0.055)
+	var dimg := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	for py in 16:
+		for px in 16:
+			var dd: float = Vector2(px - 7.5, py - 7.5).length() / 7.5
+			dimg.set_pixel(px, py, Color(1, 1, 1, clampf(1.0 - smoothstep(0.0, 1.0, dd), 0.0, 1.0)))
+	var dmat := StandardMaterial3D.new()
+	dmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	dmat.albedo_color = Color(1.0, 0.92, 0.72, 0.55)
+	dmat.albedo_texture = ImageTexture.create_from_image(dimg)
+	dmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	dmat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	dq.material = dmat
+	cabin_motes.mesh = dq
+	cabin_motes.position = Vector3(0, 0.55, 0.15)
+	cabin_motes.emitting = false
+	rv.add_child(cabin_motes)
+
+## 车尾扬尘 / 轮胎水雾：挂在 rv 上，粒子留在世界空间形成拖尾；颜色随天气切换
+func _build_dust() -> void:
+	dust = CPUParticles3D.new()
+	dust.amount = 80
+	dust.lifetime = 1.15
+	dust.preprocess = 0.2
+	dust.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	dust.emission_box_extents = Vector3(1.35, 0.14, 0.22)
+	dust.direction = Vector3(0, 0.3, 1)
+	dust.spread = 22.0
+	dust.gravity = Vector3(0, 0.5, 0)
+	dust.initial_velocity_min = 1.6
+	dust.initial_velocity_max = 3.0
+	dust.scale_amount_min = 0.6
+	dust.scale_amount_max = 1.5
+	var dq := QuadMesh.new()
+	dq.size = Vector2(0.6, 0.6)
+	var dimg := Image.create(24, 24, false, Image.FORMAT_RGBA8)
+	for py in 24:
+		for px in 24:
+			var dd: float = Vector2(px - 11.5, py - 11.5).length() / 11.5
+			var a: float = clampf(1.0 - smoothstep(0.0, 1.0, dd), 0.0, 1.0)
+			dimg.set_pixel(px, py, Color(1, 1, 1, a * a))
+	_dust_mat = StandardMaterial3D.new()
+	_dust_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_dust_mat.albedo_color = Color(0.72, 0.63, 0.48, 0.30)
+	_dust_mat.albedo_texture = ImageTexture.create_from_image(dimg)
+	_dust_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_dust_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	dq.material = _dust_mat
+	dust.mesh = dq
+	dust.emitting = false
+	dust.position = Vector3(0, 0.12, 4.75)
+	rv.add_child(dust)
 
 func _add_interior_collision(size: Vector3, pos: Vector3) -> void:
 	var body := AnimatableBody3D.new()
@@ -3094,6 +3226,8 @@ func _build_weather() -> void:
 	splash.visible = false
 	add_child(splash)
 
+	_build_dust()
+
 func _apply_weather() -> void:
 	var raining := weather in ["rain", "heavy_rain"]
 	var heavy := weather == "heavy_rain"
@@ -3144,6 +3278,152 @@ func _update_weather(delta: float) -> void:
 	else:
 		weather = "clear"
 	_apply_weather()
+
+## 行驶细节：车尾扬尘/水雾、急刹胎痕淡出、路边鸟群惊飞
+func _update_drive_fx(delta: float) -> void:
+	# 扬尘只在追尾视角发射：车内看不见，省掉整条粒子拖尾
+	var moving: bool = rv.speed_kmh > 18.0 and not parked and view_mode == 0
+	if dust.emitting != moving:
+		dust.emitting = moving
+	var col := Color(0.72, 0.63, 0.48, 0.30)
+	if weather in ["rain", "heavy_rain"] or rv.in_water:
+		col = Color(0.80, 0.88, 0.93, 0.36)
+	elif weather == "snow":
+		col = Color(0.92, 0.94, 0.97, 0.34)
+	if _dust_mat.albedo_color != col:
+		_dust_mat.albedo_color = col
+	# 急刹/手刹：后轮在路面上留深色胎痕，9 秒淡出，最多 60 条
+	var decel: float = (_skid_prev_speed - float(rv.speed_kmh)) / maxf(delta, 1e-4)
+	_skid_prev_speed = float(rv.speed_kmh)
+	if rv.speed_kmh > 26.0 and decel > 55.0:
+		var rear: Vector3 = rv.global_transform * Vector3(0.0, 0.0, 3.85)
+		if absf(rear.x - road_x(rear.z)) < ROAD_HALF and rear.distance_to(_skid_last) > 0.8:
+			_skid_last = rear
+			for side in [-1.0, 1.0]:
+				var wp: Vector3 = rv.global_transform * Vector3(side * 1.05, 0.0, 3.85)
+				var mi := MeshInstance3D.new()
+				var pm := PlaneMesh.new()
+				pm.size = Vector2(0.32, 1.1)
+				mi.mesh = pm
+				var m := StandardMaterial3D.new()
+				m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				m.albedo_color = Color(0.04, 0.04, 0.045, 0.5)
+				m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				mi.material_override = m
+				mi.basis = Basis(Vector3.UP, rv.rotation.y) * Basis(Vector3.RIGHT, -PI * 0.5)
+				mi.position = Vector3(wp.x, ground_height(wp.x, wp.z) + 0.03, wp.z)
+				add_child(mi)
+				_skids.append({"mesh": mi, "mat": m, "life": 9.0})
+	while _skids.size() > 60:
+		var old: Dictionary = _skids.pop_front()
+		(old["mesh"] as Node).queue_free()
+	for i in range(_skids.size() - 1, -1, -1):
+		var sk: Dictionary = _skids[i]
+		sk["life"] = float(sk["life"]) - delta
+		if float(sk["life"]) <= 0.0:
+			(sk["mesh"] as Node).queue_free()
+			_skids.remove_at(i)
+		else:
+			(sk["mat"] as StandardMaterial3D).albedo_color.a = 0.5 * minf(1.0, float(sk["life"]) / 3.0)
+	_update_birds(delta)
+
+## 路边鸟群：停在草地里的小鸟，房车驶近 42m 内集体惊飞，5 秒后离场销毁
+func _spawn_bird_flock(z: float) -> void:
+	if randf() > 0.55:
+		return
+	var zone := zone_at(z)
+	if zone == "city" or zone == "mountain":
+		return
+	var side := _side()
+	var cx: float = road_x(z) + side * randf_range(ROAD_HALF + 4.0, ROAD_HALF + 13.0)
+	var cy: float = ground_height(cx, z)
+	var bird_mat := StandardMaterial3D.new()
+	bird_mat.albedo_color = Color(0.17, 0.16, 0.15)
+	bird_mat.roughness = 0.85
+	var wing_mat := StandardMaterial3D.new()
+	wing_mat.albedo_color = Color(0.23, 0.21, 0.20)
+	wing_mat.roughness = 0.9
+	var flock := {"birds": [], "t": -1.0, "dir": Vector3.RIGHT}
+	for i in randi_range(4, 7):
+		var b := Node3D.new()
+		b.position = Vector3(cx + randf_range(-3.0, 3.0), cy + 0.12, z + randf_range(-3.0, 3.0))
+		b.rotation.y = randf() * TAU
+		var body := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.09, 0.09, 0.24)
+		body.mesh = bm
+		body.material_override = bird_mat
+		b.add_child(body)
+		var wings := []
+		for ws in [-1.0, 1.0]:
+			var wing := MeshInstance3D.new()
+			var wm := BoxMesh.new()
+			wm.size = Vector3(0.30, 0.015, 0.12)
+			wing.mesh = wm
+			wing.position = Vector3(ws * 0.16, 0.03, 0.0)
+			wing.material_override = wing_mat
+			b.add_child(wing)
+			wings.append(wing)
+		add_child(b)
+		flock["birds"].append({
+			"node": b,
+			"wings": wings,
+			"phase": randf() * TAU,
+			"speed": randf_range(5.5, 8.5),
+			"lift": randf_range(0.8, 1.6),
+		})
+	_birds.append(flock)
+
+func _update_birds(delta: float) -> void:
+	for i in range(_birds.size() - 1, -1, -1):
+		var f: Dictionary = _birds[i]
+		var head: Node3D = f["birds"][0]["node"]
+		if float(f["t"]) < 0.0:
+			if head.global_position.distance_to(rv.global_position) > 42.0:
+				continue
+			# 惊飞方向：远离房车的水平方向，起飞后一直沿该方向爬升远离
+			var away := head.global_position - rv.global_position
+			away.y = 0.0
+			f["dir"] = away.normalized() if away.length() > 0.1 else Vector3.RIGHT
+			f["t"] = 0.0
+		var t := float(f["t"]) + delta
+		f["t"] = t
+		if t > 5.0:
+			for bd in f["birds"]:
+				(bd["node"] as Node).queue_free()
+			_birds.remove_at(i)
+			continue
+		var dir: Vector3 = f["dir"]
+		var flap := sin(t * 16.0)
+		for bd in f["birds"]:
+			var b: Node3D = bd["node"]
+			b.global_position += (dir * float(bd["speed"]) + Vector3.UP * float(bd["lift"]) * 3.0) * delta
+			b.rotation.y = atan2(-dir.x, -dir.z)
+			for k in 2:
+				(bd["wings"][k] as Node3D).rotation.z = (flap * 0.9 + 0.15) * (-1.0 if k == 0 else 1.0)
+
+## 车内摆件摆动（阻尼弹簧）+ 尘光随视角开关
+func _update_cabin_fx(delta: float) -> void:
+	if _pendant == null:
+		return
+	var yaw := rv.rotation.y
+	var yaw_rate := angle_difference(_pend_last_yaw, yaw) / maxf(delta, 1e-4)
+	var accel: float = (float(rv.speed_kmh) - _pend_last_speed) / maxf(delta, 1e-4)
+	_pend_last_speed = float(rv.speed_kmh)
+	_pend_last_yaw = yaw
+	# 加速时向后甩、转弯时向外甩，弹簧回摆
+	var target := Vector2(
+		clampf(-accel * 0.0045, -0.45, 0.45),
+		clampf(-yaw_rate * rv.speed_kmh * 0.0025, -0.55, 0.55))
+	_pend_vel += (target - _pend_ang) * 30.0 * delta
+	_pend_vel *= exp(-3.4 * delta)
+	_pend_ang += _pend_vel * delta
+	_pendant.rotation.x = _pend_ang.x
+	_pendant.rotation.z = _pend_ang.y
+	var inside := view_mode != 0
+	if cabin_motes.emitting != inside:
+		cabin_motes.emitting = inside
+		cabin_motes.visible = inside
 
 # ---------- HUD ----------
 func _build_hud() -> void:
@@ -3947,6 +4227,12 @@ func _update_frontier() -> void:
 		_wseed(pole_z, 7)
 		_spawn_pole(pole_z)
 		pole_z -= 48.0
+	while bird_z > rvz - VIEW_AHEAD:
+		if bird_z < safe_z:
+			break
+		_wseed(bird_z, 11)
+		_spawn_bird_flock(bird_z)
+		bird_z -= randf_range(260.0, 520.0)
 	# 可探索支路：哈希命中（与 junctions_in 同式）+ _jh(n+5000) 再筛——尽头 POI + 岔口前 180m 锈牌
 	# 游标保持网格对齐：safe_z 截断时只 break 不改 _detour_z（车抵近终点后每帧一次空检查，无开销）
 	while _detour_z > rvz - VIEW_AHEAD - DETOUR_SIGN_LEAD:
