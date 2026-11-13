@@ -6945,10 +6945,10 @@ func _spawn_vignette(z: float, idx: int) -> void:
 func _update_vignettes() -> void:
 	for i in range(_vignette_live.size() - 1, -1, -1):
 		var v: Dictionary = _vignette_live[i]
-		var n: Node3D = v["node"]
-		if not is_instance_valid(n):
+		if not is_instance_valid(v["node"]):
 			_vignette_live.remove_at(i)
 			continue
+		var n: Node3D = v["node"]
 		if bool(v["shown"]):
 			continue
 		if n.global_position.distance_to(rv.global_position) < 16.0:
