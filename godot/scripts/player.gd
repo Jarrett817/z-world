@@ -571,6 +571,14 @@ func _aim_and_camera(delta: float) -> void:
 	if _fire_shake > 0.001:
 		cam.rotate_object_local(Vector3.RIGHT, randf_range(-1.0, 1.0) * _fire_shake * 0.4)
 		cam.rotate_object_local(Vector3.FORWARD, randf_range(-1.0, 1.0) * _fire_shake * 0.35)
+	# 受击/爆炸 trauma 抖动（main 在战斗态持续衰减），平方曲线让轻伤不晃、重伤明显
+	var shake: float = main_node.trauma * main_node.trauma
+	if shake > 0.0001:
+		cam.global_position += Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), 0.0) * 0.03 * shake
+		cam.rotate_object_local(Vector3.FORWARD, randf_range(-1.0, 1.0) * 0.035 * shake)
+	# 准星扩散：移动晃动与后坐放大，ADS 收拢
+	var spread := 1.0 + (_bob_amp * 0.22 + _recoil * 0.22) * (1.0 - _ads_t * 0.6)
+	main_node.hud.set_crosshair_spread(spread * lerpf(1.0, 0.7, _ads_t))
 	# 枪身随俯仰角指向瞄点，开火瞬间后坐上抬；sway/蹲姿下放统一在 _apply_gun
 	_apply_gun(delta)
 	main_node.hud.set_combat_aim(look_dir, cam.global_position)
@@ -656,9 +664,10 @@ func _finish_reload() -> void:
 	if take <= 0:
 		main_node.hud.toast("备弹打光了，回营地复装或搜刮弹药箱")
 
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, from := Vector3.ZERO) -> void:
 	hp = maxf(0.0, hp - amount)
 	main_node.add_trauma(0.35)
 	main_node.hud.set_combat_hp(hp)
+	main_node.hud.flash_damage(amount, from, aim_yaw, global_position)
 	if hp <= 0.0:
 		main_node.on_player_dead()

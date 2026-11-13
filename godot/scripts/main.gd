@@ -238,6 +238,7 @@ var _no_save := false       # 从头开始重载时禁止旧实例在 _exit_tree
 var _no_story := false      # --nostory：截帧验收时禁用剧情触发，避免冻结战斗准备
 var _shot_ads := false      # --ads：截帧验收时强制 ADS 瞄准
 var _shot_fire := false     # --fire：截帧当帧开一枪，验收枪口闪焰
+var _shot_hurt := false     # --hurt：截帧前受一次假伤，验收受击红晕与方向条
 var settings: Dictionary = {"master": 1.0, "music": 0.85, "sfx": 1.0, "fullscreen": false, "res_w": 1280, "res_h": 720}
 
 func _ready() -> void:
@@ -297,6 +298,8 @@ func _ready() -> void:
 			_shot_ads = true
 		elif a == "--fire":
 			_shot_fire = true
+		elif a == "--hurt":
+			_shot_hurt = true
 	_load_survivors()
 	# 有存档则续档：里程直接走 --jump 同一套游标对齐逻辑，数值在初始化末尾恢复（调试命令行/无头回归不读写档）
 	var sv := {} if not OS.get_cmdline_user_args().is_empty() or DisplayServer.get_name() == "headless" else _read_save()
@@ -773,6 +776,9 @@ func _process(delta: float) -> void:
 				hud.hide_story()
 			if _shot_fire and get_player_body() != null:
 				get_player_body()._try_fire()
+			if _shot_hurt and get_player_body() != null:
+				var pb := get_player_body()
+				pb.take_damage(12.0, pb.global_position + Vector3(3.0, 0.0, 4.0))
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(_shot_path)
 			get_tree().quit()
@@ -3223,7 +3229,7 @@ func alert_gunshot(pos: Vector3) -> void:
 			z.on_hear_gunshot(pos)
 
 ## 玩家被啃咬（下车战斗时）：全局冷却，转发伤害给玩家
-func on_player_bitten() -> void:
+func on_player_bitten(z: Node3D = null) -> void:
 	if game_over or bite_cd > 0.0 or rv_walk_active:
 		return
 	var pb := get_player_body()
@@ -3237,7 +3243,7 @@ func on_player_bitten() -> void:
 		var dmg := 8.0 * (2.0 - morale_factor())
 		if _has_passive("tang_tang"):
 			dmg *= 0.6
-		pb.take_damage(dmg)
+		pb.take_damage(dmg, z.global_position if z != null else Vector3.ZERO)
 	hud.toast("被丧尸抓伤了！快回车里")
 
 # ---------- 下车 / 天窗战斗 ----------

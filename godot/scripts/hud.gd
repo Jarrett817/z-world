@@ -114,6 +114,11 @@ var _cur_mag: int = 12
 var combat_hp_fill: ColorRect
 var combat_hp_label: Label
 var _hit_tween: Tween
+var _cross_spread := 1.0     # 准星扩散倍率（移动/连发放大，ADS 收拢）
+var _combat_hp := 100.0
+var _dmg_flash := 0.0        # 受击红晕强度，逐帧衰减
+var _dmg_overlay: ColorRect
+var _dmg_tick: ColorRect     # 指向攻击来源的红色短条
 
 # 电台剧情对话框
 var story_node: Node
@@ -571,6 +576,37 @@ func _build_combat(root: Control) -> void:
 	combat_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	combat_root.visible = false
 	root.add_child(combat_root)
+	# 受击红晕：全屏径向渐变（着色器算边缘暗角，中心完全透明），放在准星之下
+	var vsh := Shader.new()
+	vsh.code = """
+shader_type canvas_item;
+uniform float strength : hint_range(0.0, 1.0) = 0.0;
+void fragment() {
+	vec2 p = (UV - vec2(0.5)) * vec2(1.15, 1.0);
+	float d = length(p);
+	COLOR = vec4(0.70, 0.02, 0.02, smoothstep(0.25, 0.72, d) * strength);
+}
+"""
+	var vmat := ShaderMaterial.new()
+	vmat.shader = vsh
+	_dmg_overlay = ColorRect.new()
+	_dmg_overlay.color = Color(1, 1, 1, 1)
+	_dmg_overlay.material = vmat
+	_dmg_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_dmg_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	combat_root.add_child(_dmg_overlay)
+	# 受击方向短条：绕准星指向攻击来源
+	_dmg_tick = ColorRect.new()
+	_dmg_tick.color = Color(0.95, 0.25, 0.18)
+	_dmg_tick.set_anchors_preset(Control.PRESET_CENTER)
+	_dmg_tick.offset_left = -3
+	_dmg_tick.offset_right = 3
+	_dmg_tick.offset_top = -17
+	_dmg_tick.offset_bottom = 17
+	_dmg_tick.pivot_offset = Vector2(3, 17)
+	_dmg_tick.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_dmg_tick.modulate.a = 0.0
+	combat_root.add_child(_dmg_tick)
 	# 屏幕中心准星
 	crosshair = _label("+", 34, TEXT_MAIN)
 	crosshair.set_anchors_preset(Control.PRESET_CENTER)
@@ -739,6 +775,7 @@ func set_combat_grenades(n: int) -> void:
 	gun_label.text = _cur_gun_name + (" · 手雷×%d" % _grenade_count if _grenade_count > 0 else "")
 
 func set_combat_hp(hp: float) -> void:
+	_combat_hp = hp
 	var ratio := clampf(hp / 100.0, 0.0, 1.0)
 	combat_hp_fill.size.x = 206.0 * ratio
 	combat_hp_fill.offset_right = 72.0 + 206.0 * ratio
@@ -749,17 +786,41 @@ func set_combat_hp(hp: float) -> void:
 func flash_hit_marker(killed := true, headshot := false) -> void:
 	if killed:
 		crosshair.modulate = Color(1.0, 0.25, 0.15) if headshot else Color(1.0, 0.45, 0.2)
-		crosshair.scale = Vector2(1.35, 1.35)
+		crosshair.scale = Vector2(1.35, 1.35) * _cross_spread
 	else:
 		crosshair.modulate = ACCENT
-		crosshair.scale = Vector2(1.15, 1.15)
+		crosshair.scale = Vector2(1.15, 1.15) * _cross_spread
 	if _hit_tween != null:
 		_hit_tween.kill()
 	_hit_tween = create_tween()
 	_hit_tween.set_parallel(true)
 	_hit_tween.tween_interval(0.08)
 	_hit_tween.tween_property(crosshair, "modulate", TEXT_MAIN, 0.18).set_delay(0.08)
-	_hit_tween.tween_property(crosshair, "scale", Vector2.ONE, 0.18).set_delay(0.08)
+	_hit_tween.tween_property(crosshair, "scale", Vector2.ONE * _cross_spread, 0.18).set_delay(0.08)
+
+## 准星扩散：移动/连发时放大，ADS 时收拢；命中反馈动画期间不打断
+func set_crosshair_spread(v: float) -> void:
+	_cross_spread = v
+	if _hit_tween == null or not _hit_tween.is_running():
+		crosshair.scale = Vector2.ONE * v
+
+## 玩家受击：屏幕边缘红晕 + 准星外围指向攻击来源的短条
+func flash_damage(dmg: float, from: Vector3, yaw: float, origin: Vector3) -> void:
+	_dmg_flash = minf(0.6, 0.22 + dmg * 0.012)
+	if from == Vector3.ZERO or _dmg_tick == null:
+		return
+	var to := from - origin
+	var flat := Vector2(to.x, to.z)
+	if flat.length() < 0.01:
+		return
+	var rel := atan2(flat.dot(Vector2(cos(yaw), -sin(yaw))), flat.dot(Vector2(-sin(yaw), -cos(yaw))))
+	_dmg_tick.rotation = rel
+	var dx := sin(rel) * 130.0
+	var dy := -cos(rel) * 130.0
+	_dmg_tick.offset_left = -3 + dx
+	_dmg_tick.offset_right = 3 + dx
+	_dmg_tick.offset_top = -17 + dy
+	_dmg_tick.offset_bottom = 17 + dy
 
 ## 电台剧情对话框：全屏沉浸，左侧全身立绘 + 右侧说话人名、打字机正文与选项
 func _build_story(root: Control) -> void:
@@ -875,6 +936,7 @@ func _process(delta: float) -> void:
 		return
 	speed_label.text = ("R · %d km/h" if rv.reversing else "%d km/h") % int(rv.speed_kmh)
 	# 空格/回车：打字机直接出全文
+
 	var skip := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_ENTER)
 	if story_root.visible and story_root.is_inside_tree() and _shown < _full_text.length():
 		if skip and not _skip_down:
@@ -891,6 +953,15 @@ func _process(delta: float) -> void:
 			if _shown >= _full_text.length():
 				_show_options()
 	_skip_down = skip
+	# 受击红晕：衰减 + 低血量常驻脉动；方向短条跟随红晕淡出
+	_dmg_flash = maxf(0.0, _dmg_flash - delta * 0.9)
+	var low := 0.0
+	if combat_root != null and combat_root.visible and _combat_hp < 30.0:
+		low = (0.10 + 0.05 * sin(Time.get_ticks_msec() * 0.006)) * (1.0 - _combat_hp / 30.0)
+	if _dmg_overlay != null:
+		(_dmg_overlay.material as ShaderMaterial).set_shader_parameter("strength", maxf(_dmg_flash, low))
+	if _dmg_tick != null:
+		_dmg_tick.modulate.a = minf(1.0, _dmg_flash * 2.2)
 
 ## 点击对话框空白处：打字机直接出全文
 func _on_story_gui_input(ev: InputEvent) -> void:

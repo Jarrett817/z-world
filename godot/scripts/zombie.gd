@@ -335,7 +335,7 @@ func _chase(delta: float) -> void:
 			if hunt != null and hunt.has_method("on_bitten"):
 				hunt.on_bitten(self)
 			elif is_instance_valid(player):
-				main_node.on_player_bitten()
+				main_node.on_player_bitten(self)
 			else:
 				main_node.zombie_bite()
 			main_node.sfx.play3d("zombie_bite", global_position, 1.0, 0.1)
