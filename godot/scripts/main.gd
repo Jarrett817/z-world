@@ -1825,13 +1825,44 @@ func _build_interior() -> void:
 	for n in interior.find_children("*", "CollisionObject3D", true, false):
 		n.free()  # 未入树，立即删除避免延迟一帧的推挤
 	rv.add_child(interior)
-	# 舱内暖色小灯：夜间/雾天也能看清仪表台与舱内
+	# 压低仪表与顶灯自发光，避免 ACES 下小面积光源曝成白墙
+	var glow_levels := {"gauge_strip": 0.30, "gauges_face": 0.18, "nav_screen": 0.28, "lamp0": 0.35, "lamp1": 0.35}
+	for glow_name in glow_levels:
+		var glow_mesh := interior.find_child(glow_name, true, false) as MeshInstance3D
+		if glow_mesh != null:
+			var glow_mat := glow_mesh.get_active_material(0) as StandardMaterial3D
+			if glow_mat != null:
+				glow_mat.emission_energy_multiplier = glow_levels[glow_name]
+	# 舱内低亮度暖光：两个原顶灯分区照明，避免单灯把整车照白
 	var cab_light := OmniLight3D.new()
 	cab_light.light_color = Color(1.0, 0.82, 0.6)
-	cab_light.light_energy = 1.5
-	cab_light.omni_range = 8.0
-	cab_light.position = Vector3(0, 1.85, 0.4)
+	cab_light.light_energy = 0.22
+	cab_light.omni_range = 4.6
+	cab_light.position = Vector3(0, 1.72, -2.65)
 	interior.add_child(cab_light)
+	for lp in [Vector3(0, 1.82, -1.2), Vector3(0, 1.82, 1.6)]:
+		var lamp := OmniLight3D.new()
+		lamp.light_color = Color(1.0, 0.80, 0.56)
+		lamp.light_energy = 0.18
+		lamp.omni_range = 3.2
+		lamp.position = lp
+		interior.add_child(lamp)
+	# 顶棚两侧连续灯带：发光条与柔和补光分离，灯带本身不过曝
+	var strip_mat := _emis_mat(Color(1.0, 0.78, 0.46), 0.35)
+	for side in [-1.0, 1.0]:
+		var strip := MeshInstance3D.new()
+		var strip_mesh := BoxMesh.new()
+		strip_mesh.size = Vector3(0.035, 0.025, 4.8)
+		strip.mesh = strip_mesh
+		strip.material_override = strip_mat
+		strip.position = Vector3(side * 1.18, 1.92, 0.20)
+		interior.add_child(strip)
+		var fill := OmniLight3D.new()
+		fill.light_color = Color(1.0, 0.83, 0.62)
+		fill.light_energy = 0.08
+		fill.omni_range = 2.8
+		fill.position = Vector3(side * 0.92, 1.70, 0.20)
+		interior.add_child(fill)
 	# 双排座椅前移 1.47m：坐垫中心 -1.5 → -2.97，驾驶员双手正好落在方向盘下缘
 	for sn in ["seat_c0", "seat_c1", "seat_b0", "seat_b1", "headrest0", "headrest1"]:
 		var seat_mesh: Node3D = interior.find_child(sn, true, false)
@@ -2354,6 +2385,50 @@ func _build_life_props() -> void:
 	cyl.call(0.06, 0.07, 0.18, Vector3(-0.96, 0.585, 0.80), Color(0.55, 0.52, 0.45), 0.6)
 	for i in 3:
 		cyl.call(0.045, 0.045, 0.11, Vector3(-1.18 + float(i) * 0.11, 0.55, 0.05), Color(0.65, 0.55, 0.30), 0.4)
+	# 灶台生活痕迹：砧板、带盖汤锅、两只马克杯和挂在柜边的抹布
+	box.call(Vector3(0.28, 0.025, 0.36), Vector3(-1.04, 0.51, -0.36), Color(0.56, 0.38, 0.22), 0.9)
+	cyl.call(0.12, 0.11, 0.13, Vector3(-1.08, 0.565, -0.82), Color(0.20, 0.24, 0.25), 0.45)
+	cyl.call(0.125, 0.125, 0.025, Vector3(-1.08, 0.6425, -0.82), Color(0.34, 0.36, 0.35), 0.4)
+	cyl.call(0.025, 0.025, 0.035, Vector3(-1.08, 0.6725, -0.82), Color(0.12, 0.12, 0.11), 0.8)
+	for mug_pos in [Vector3(-1.15, 0.55, 0.42), Vector3(-0.96, 0.55, 0.58)]:
+		var mug: MeshInstance3D = cyl.call(0.042, 0.04, 0.105, mug_pos, Color(0.68, 0.72, 0.66), 0.55)
+		var handle := MeshInstance3D.new()
+		var hm := TorusMesh.new()
+		hm.inner_radius = 0.022
+		hm.outer_radius = 0.034
+		handle.mesh = hm
+		handle.material_override = mug.material_override
+		handle.rotation.z = PI * 0.5
+		handle.position = mug_pos + Vector3(0.048, 0.0, 0.0)
+		interior.add_child(handle)
+	box.call(Vector3(0.025, 0.24, 0.30), Vector3(-0.81, 0.38, 0.27), Color(0.60, 0.64, 0.58), 1.0)
+	# 吊柜拉手、柜底照明与床头阅读灯带，光只覆盖局部
+	for i in 2:
+		var cz := -0.55 + float(i) * 0.75
+		box.call(Vector3(0.025, 0.04, 0.20), Vector3(-0.867, 1.30, cz), Color(0.32, 0.31, 0.27), 0.5)
+		box.call(Vector3(0.012, 0.09, 0.16), Vector3(-0.873, 1.43, cz), Color(0.72, 0.67, 0.50), 1.0)
+	var task_glow := _emis_mat(Color(1.0, 0.80, 0.52), 0.30)
+	for lp in [Vector3(-0.86, 1.065, -0.20), Vector3(-0.71, 0.56, 1.82)]:
+		var task_strip := MeshInstance3D.new()
+		var tm := BoxMesh.new()
+		tm.size = Vector3(0.025, 0.02, 0.90)
+		task_strip.mesh = tm
+		task_strip.material_override = task_glow
+		task_strip.position = lp
+		interior.add_child(task_strip)
+	# 床尾书与折好的换洗衣物，全部压在床垫范围内
+	for bp in [Vector3(-1.02, -0.045, 1.25), Vector3(-1.02, 0.845, 1.25)]:
+		box.call(Vector3(0.22, 0.035, 0.28), bp, Color(0.40, 0.20, 0.15), 0.95)
+		box.call(Vector3(0.20, 0.012, 0.26), bp + Vector3(0, 0.024, 0), Color(0.74, 0.70, 0.57), 1.0)
+	box.call(Vector3(0.34, 0.08, 0.28), Vector3(-1.02, 0.86, 2.25), Color(0.46, 0.50, 0.42), 1.0)
+	# 床铺隔断背面的家庭照片；右墙路线图避开两处射孔
+	for i in 3:
+		var px := -1.00 + float(i) * 0.25
+		box.call(Vector3(0.18, 0.22, 0.025), Vector3(px, 0.38, 1.082), Color(0.26, 0.20, 0.15), 0.85)
+		box.call(Vector3(0.145, 0.17, 0.012), Vector3(px, 0.38, 1.102), [Color(0.54, 0.62, 0.60), Color(0.64, 0.53, 0.40), Color(0.48, 0.57, 0.65)][i], 1.0)
+	box.call(Vector3(0.02, 0.36, 0.52), Vector3(1.29, 0.72, -0.15), Color(0.72, 0.69, 0.56), 1.0)
+	box.call(Vector3(0.012, 0.025, 0.38), Vector3(1.274, 0.73, -0.15), Color(0.25, 0.43, 0.50), 0.9)
+	box.call(Vector3(0.012, 0.18, 0.025), Vector3(1.272, 0.78, -0.02), Color(0.25, 0.43, 0.50), 0.9)
 	# 吊柜顶小盆栽（末日生机）
 	cyl.call(0.06, 0.075, 0.10, Vector3(-1.08, 1.61, 0.20), Color(0.45, 0.28, 0.18))
 	var leaf := MeshInstance3D.new()
@@ -2371,7 +2446,7 @@ func _build_life_props() -> void:
 	var shade: MeshInstance3D = cyl.call(0.05, 0.16, 0.14, Vector3(0, 1.80, 0.4), Color(0.85, 0.70, 0.45), 0.6)
 	(shade.material_override as StandardMaterial3D).emission_enabled = true
 	(shade.material_override as StandardMaterial3D).emission = Color(1.0, 0.75, 0.45)
-	(shade.material_override as StandardMaterial3D).emission_energy_multiplier = 0.9
+	(shade.material_override as StandardMaterial3D).emission_energy_multiplier = 0.35
 	cyl.call(0.012, 0.012, 0.14, Vector3(0, 1.92, 0.4), Color(0.2, 0.2, 0.2), 0.6)
 	# 右后角储物箱堆（贴尾墙摞放，避开右墙长凳与尾射孔火线）+ 帆布袋压箱顶
 	box.call(Vector3(0.45, 0.34, 0.50), Vector3(1.00, -0.23, 2.54), wood.darkened(0.1))
@@ -2616,7 +2691,7 @@ func _sync_crew() -> void:
 	if crew_driving and not crew_members.is_empty():
 		# 招募/换班重建人物后，代驾队友仍留在主驾
 		var f: Node3D = crew_figures[0]
-		f.position = Vector3(-0.55, -0.42, -3.05) * INTERIOR_SCALE
+		f.position = Vector3(-0.55, -0.42, -2.95) * INTERIOR_SCALE
 		f.rotation.y = PI
 		var driver_anim := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
 		driver_anim.play("drive", 0.15)
@@ -2715,7 +2790,7 @@ func _set_life_combat(on: bool) -> void:
 func _build_driver() -> void:
 	var fig := Node3D.new()
 	# 主驾坐垫后部（坐垫 z -3.24..-2.70）；前移后 drive 双手落在方向盘下缘，不再握着长转向柱
-	fig.position = Vector3(-0.55, -0.42, -3.05) * INTERIOR_SCALE
+	fig.position = Vector3(-0.55, -0.42, -2.95) * INTERIOR_SCALE
 	fig.rotation.y = PI  # 朝车头
 	var lb := Label3D.new()
 	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -3752,7 +3827,7 @@ func set_crew_driving(v: bool) -> void:
 		var driver_anim := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
 		var lb: Label3D = f.get_meta("label")
 		if crew_driving:
-			f.position = Vector3(-0.55, -0.42, -3.05) * INTERIOR_SCALE
+			f.position = Vector3(-0.55, -0.42, -2.95) * INTERIOR_SCALE
 			f.rotation.y = PI
 			driver_anim.play("drive", 0.15)
 			lb.text = "%s · 代驾" % crew_members[0].get("name", "")
