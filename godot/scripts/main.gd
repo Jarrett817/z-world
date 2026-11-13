@@ -3831,8 +3831,8 @@ func spawn_muzzle_flash(muzzle_ws: Vector3) -> void:
 	if _flash_tex == null:
 		_flash_tex = _fx_soft()
 	var spark := Node3D.new()
-	spark.global_position = muzzle_ws
 	add_child(spark)
+	spark.global_position = muzzle_ws
 	for i in 2:
 		var sp := Sprite3D.new()
 		sp.texture = _flash_tex
