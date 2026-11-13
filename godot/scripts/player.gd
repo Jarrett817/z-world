@@ -70,6 +70,19 @@ var _breath_y := 0.0
 var _breath_roll := 0.0
 var _move_speed := 0.0
 
+## 瞄准与动作表现（参数见 guns.json ads/anim 节）：右键 ADS、开火上抬、换弹/换枪程序动画、抛壳
+var _ads_cfg: Dictionary = {}
+var _anim_cfg: Dictionary = {}
+var _ads := false
+var _ads_t := 0.0        # 0..1 ADS 过渡
+var _kick := 0.0         # 开火累积上抬（弧度），指数回正
+var _fire_shake := 0.0   # 开火瞬间镜头轻抖
+var _switch_t := 0.0     # 换枪动作剩余时间
+var _reload_p := 0.0     # 换弹进度 0..1，sin 包络驱动枪身下沉
+var _eject_t := 0.0
+var _shells: Array = []
+var _shell_mat: StandardMaterial3D
+
 func setup(main: Node, m: int) -> void:
 	main_node = main
 	mode = m
@@ -106,6 +119,8 @@ func _ready() -> void:
 	_guns = parsed["guns"]
 	_gun_order = parsed["order"]
 	_sway_cfg = parsed.get("sway", {})
+	_ads_cfg = parsed.get("ads", {})
+	_anim_cfg = parsed.get("anim", {})
 	_grenade_cfg = parsed.get("grenade", {})
 	_grenades = int(_grenade_cfg.get("count", 0))
 	for id in _gun_order:
@@ -170,6 +185,7 @@ func switch_gun(idx: int) -> void:
 		return
 	_gun_idx = idx
 	reload_t = 0.0
+	_switch_t = float(_anim_cfg.get("switch_time", 0.16))
 	_equip_current()
 	main_node.sfx.play("reload", 1.3)
 	main_node.hud.toast(_cfg()["name"])
@@ -194,6 +210,10 @@ func _exit() -> void:
 	cam.current = false
 	cam.fov = 68.0
 	_firing = false
+	_ads = false
+	_ads_t = 0.0
+	_kick = 0.0
+	_fire_shake = 0.0
 	if fps:
 		toggle_fps()
 	if mode == Mode.RV_WALK:
@@ -228,6 +248,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_firing = event.pressed
 		if event.pressed:
 			_try_fire()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT:
+		set_ads(event.pressed)
 	elif event is InputEventScreenDrag:
 		# 触屏右半屏拖动瞄准（摇杆区事件已被 HUD 消费，到不了这里）
 		aim_yaw -= event.relative.x * MOUSE_SENS * 1.6
@@ -263,6 +285,14 @@ func _physics_process(delta: float) -> void:
 	reload_t = maxf(0.0, reload_t - delta)
 	if reload_t == 0.0 and ammo() == 0 and fire_cd == 0.0:
 		_finish_reload()
+	# 动作表现：ADS 过渡、后坐回正、换枪计时、换弹包络、抛壳飞行
+	_switch_t = maxf(0.0, _switch_t - delta)
+	_ads_t = move_toward(_ads_t, 1.0 if _ads else 0.0, delta / maxf(0.01, float(_ads_cfg.get("in" if _ads else "out", 0.15))))
+	_kick = lerpf(_kick, 0.0, clampf(delta * float(_anim_cfg.get("kick_recover", 7.0)), 0.0, 1.0))
+	_fire_shake = maxf(0.0, _fire_shake - delta * 4.5)
+	_reload_p = (1.0 - reload_t / maxf(0.01, float(_cfg()["reload_time"]))) if reload_t > 0.0 else 0.0
+	_eject_t = maxf(0.0, _eject_t - delta)
+	_update_shells(delta)
 	# 全自动：按住左键持续开火
 	if _firing and bool(_cfg()["auto"]):
 		_try_fire()
@@ -299,6 +329,12 @@ func _physics_process(delta: float) -> void:
 ## 物理键位 + 逻辑键位双通道：远程串流注入的键事件通常只带逻辑键码
 static func _key_down(k: int) -> bool:
 	return Input.is_physical_key_pressed(k) or Input.is_key_pressed(k)
+
+## 右键 ADS：收窄视野、枪身向中线靠、晃动与移速衰减；车内行走禁用
+func set_ads(v: bool) -> void:
+	if mode == Mode.RV_WALK:
+		return
+	_ads = v
 
 ## 车内行走：输入在 rv 本地空间解算，转换成世界速度后由物理引擎碰撞；地板顶 y=-0.4，车头 -Z
 func _move_rv(delta: float) -> void:
@@ -353,12 +389,13 @@ func _move_foot(delta: float) -> void:
 		input.x -= 1.0
 	if _key_down(KEY_D) or _key_down(KEY_RIGHT):
 		input.x += 1.0
-	# 触屏摇杆输入叠加，推满自动奔跑（下蹲时强制慢走）
+	# 触屏摇杆输入叠加，推满自动奔跑（下蹲时强制慢走；ADS 禁冲刺）
 	input += touch_move
-	var sprinting := (_key_down(KEY_SHIFT) or touch_move.length() > 0.85) and not _crouching
+	var sprinting := (_key_down(KEY_SHIFT) or touch_move.length() > 0.85) and not _crouching and _ads_t < 0.5
 	var spd := RUN_SPEED if sprinting else WALK_SPEED
 	if _crouching:
 		spd *= CROUCH_MUL
+	spd *= lerpf(1.0, float(_ads_cfg.get("move_mul", 0.62)), _ads_t)
 	var yaw_basis := Basis(Vector3.UP, aim_yaw)
 	var dir := yaw_basis * Vector3(input.x, 0, input.y)
 	_move_speed = spd if dir.length() > 0.01 else 0.0
@@ -414,24 +451,86 @@ func _update_sway(delta: float) -> void:
 	_look_sway.x = clampf(_look_sway.x - dyaw * float(_sway_cfg.get("look_yaw", 0.9)), -float(_sway_cfg.get("look_max_x", 0.07)), float(_sway_cfg.get("look_max_x", 0.07)))
 	_look_sway.y = clampf(_look_sway.y + dpitch * float(_sway_cfg.get("look_pitch", 0.7)), -float(_sway_cfg.get("look_max_y", 0.05)), float(_sway_cfg.get("look_max_y", 0.05)))
 	_look_sway = _look_sway.lerp(Vector2.ZERO, delta * float(_sway_cfg.get("look_recover", 8.0)))
+	# ADS 时晃动整体收敛，瞄准更稳
+	var sway_mul := lerpf(1.0, float(_ads_cfg.get("sway_scale", 0.28)), _ads_t)
+	_bob_x *= sway_mul
+	_bob_y *= sway_mul
+	_bob_roll *= sway_mul
+	_breath_y *= sway_mul
+	_breath_roll *= sway_mul
+	_look_sway *= sway_mul
 
-## 统一写枪挂点姿态：后坐衰减 + sway 叠加 + 蹲姿下放
+## 统一写枪挂点姿态：后坐 + 开火上抬 + sway + ADS 靠中 + 换弹/换枪/跑动程序动画
 func _apply_gun(delta: float) -> void:
 	_recoil = maxf(0.0, _recoil - delta * 6.0)
-	gun.rotation.x = -aim_pitch - _recoil * 0.22 + _look_sway.y
+	var view_pitch := aim_pitch + _kick
+	var base_pos: Vector3 = GUN_POS_PRONE if mode == Mode.SUNROOF else GUN_POS
+	if mode == Mode.ON_FOOT and _ads_t > 0.0:
+		var ap: Array = _ads_cfg.get("pos", [-0.10, 1.24, 0.24])
+		base_pos = base_pos.lerp(Vector3(ap[0], ap[1], ap[2]), _ads_t)
+	# 换弹单峰包络下沉；换枪起手重压后抬回；跑动低持侧倾
+	var reload_env := sin(PI * _reload_p) if _reload_p > 0.0 else 0.0
+	var switch_env := 0.0
+	var switch_time := float(_anim_cfg.get("switch_time", 0.16))
+	if _switch_t > 0.0 and switch_time > 0.0:
+		switch_env = _switch_t / switch_time
+	var run_env := 0.0
+	if mode == Mode.ON_FOOT:
+		run_env = clampf((_move_speed - WALK_SPEED * 1.05) / maxf(0.01, RUN_SPEED - WALK_SPEED * 1.05), 0.0, 1.0) * (1.0 - _ads_t)
+	var dip := reload_env * float(_anim_cfg.get("reload_dip", 0.16)) + switch_env * 0.22 + run_env * float(_anim_cfg.get("run_drop", 0.10))
+	gun.rotation.x = -view_pitch - _recoil * 0.22 + _look_sway.y + run_env * 0.25
 	gun.rotation.y = _look_sway.x
-	gun.rotation.z = _bob_roll + _look_sway.x * 0.3 + _breath_roll
-	var base_pos := GUN_POS_PRONE if mode == Mode.SUNROOF else GUN_POS
+	gun.rotation.z = _bob_roll + _look_sway.x * 0.3 + _breath_roll + reload_env * float(_anim_cfg.get("reload_roll", 0.55)) + run_env * float(_anim_cfg.get("run_tilt", 0.30))
 	gun.position.x = base_pos.x + _bob_x + _look_sway.x * 0.35
-	gun.position.z = base_pos.z
+	gun.position.z = base_pos.z - _recoil * 0.03
 	var base_y := base_pos.y
 	if mode == Mode.ON_FOOT and _crouching:
-		base_y = 0.99
-	var target_y := base_y + _bob_y + _breath_y
+		base_y = minf(base_y, 0.99)
+	var target_y := base_y + _bob_y + _breath_y - dip
 	if mode == Mode.ON_FOOT:
 		gun.position.y = lerpf(gun.position.y, target_y, delta * 10.0)
 	else:
 		gun.position.y = target_y
+
+## 抛壳：轻量弹壳按抛物线飞出，落地即消失（不用刚体，避免每发创建物理体）
+func _eject_shell() -> void:
+	if not bool(_anim_cfg.get("eject", true)) or _eject_t > 0.0:
+		return
+	_eject_t = 0.09
+	if _shell_mat == null:
+		_shell_mat = StandardMaterial3D.new()
+		_shell_mat.albedo_color = Color(0.72, 0.52, 0.2)
+		_shell_mat.metallic = 0.35
+		_shell_mat.roughness = 0.5
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.007, 0.007, 0.022)
+	mi.mesh = bm
+	mi.material_override = _shell_mat
+	main_node.add_child(mi)
+	var right := global_transform.basis.x
+	var back := global_transform.basis.z
+	mi.global_position = muzzle.global_position + right * 0.12 + Vector3.UP * -0.02 + back * -0.1
+	_shells.append({
+		"node": mi,
+		"vel": right * randf_range(1.6, 2.4) + Vector3.UP * randf_range(1.2, 1.8) + back * randf_range(0.4, 0.9),
+		"t": 0.0,
+	})
+
+func _update_shells(delta: float) -> void:
+	for i in range(_shells.size() - 1, -1, -1):
+		var s: Dictionary = _shells[i]
+		var node: MeshInstance3D = s["node"]
+		var vel: Vector3 = s["vel"]
+		s["t"] = float(s["t"]) + delta
+		vel.y -= 9.8 * delta
+		s["vel"] = vel
+		node.global_position += vel * delta
+		node.rotate_x(delta * 9.0)
+		var gy: float = main_node.ground_height(node.global_position.x, node.global_position.z)
+		if node.global_position.y <= gy + 0.02 or float(s["t"]) > 1.6:
+			node.queue_free()
+			_shells.remove_at(i)
 
 func _aim_and_camera(delta: float) -> void:
 	# 身体随瞄准转身（GLB 正面朝 +Z，瞄准基准是 -Z，故补 180°）
@@ -444,6 +543,7 @@ func _aim_and_camera(delta: float) -> void:
 		cam.transform = Transform3D(Basis(Vector3.UP, aim_yaw) * Basis(Vector3.RIGHT, aim_pitch), eye)
 		_apply_gun(delta)
 		return
+	var view_pitch := aim_pitch + _kick
 	var cam_basis := Basis(Vector3.UP, aim_yaw)
 	var right := cam_basis.x
 	var back := cam_basis.z   # 瞄准基准 -Z，+Z 即玩家身后
@@ -464,8 +564,13 @@ func _aim_and_camera(delta: float) -> void:
 			# 车顶卧姿：保留贴近车顶的专用跟拍机位
 			cam.global_position = global_position + Vector3(0, 2.2, 0) + back * 3.6
 			cam.global_position.y = maxf(cam.global_position.y, main_node.ground_height(cam.global_position.x, cam.global_position.z) + 0.35)
-	var look_dir := (cam_basis * Vector3(0, 0, -1)).rotated(right, aim_pitch)
+	var look_dir := (cam_basis * Vector3(0, 0, -1)).rotated(right, view_pitch)
 	cam.look_at(cam.global_position + look_dir * 10.0, Vector3.UP)
+	# ADS 收窄视野；开火瞬间小幅镜头抖动（旋转偏移，不影响瞄准基准）
+	cam.fov = lerpf(68.0, float(_ads_cfg.get("fov", 52.0)), _ads_t)
+	if _fire_shake > 0.001:
+		cam.rotate_object_local(Vector3.RIGHT, randf_range(-1.0, 1.0) * _fire_shake * 0.4)
+		cam.rotate_object_local(Vector3.FORWARD, randf_range(-1.0, 1.0) * _fire_shake * 0.35)
 	# 枪身随俯仰角指向瞄点，开火瞬间后坐上抬；sway/蹲姿下放统一在 _apply_gun
 	_apply_gun(delta)
 	main_node.hud.set_combat_aim(look_dir, cam.global_position)
@@ -481,7 +586,7 @@ func _try_fire() -> void:
 		main_node.hud.toast("靠近窗射孔或尾射孔开枪")
 		fire_cd = 0.8
 		return
-	if fire_cd > 0.0:
+	if fire_cd > 0.0 or _switch_t > 0.0:
 		return
 	var cfg := _cfg()
 	var mag := int(cfg["mag_size"])
@@ -496,6 +601,10 @@ func _try_fire() -> void:
 	_ammo_map[_gun_order[_gun_idx]] -= 1
 	fire_cd = float(cfg["fire_interval"])
 	_recoil = float(cfg["recoil"])
+	# 开火上抬累积 + 镜头轻抖 + 抛壳
+	_kick = minf(_kick + float(_anim_cfg.get("kick_pitch", 0.018)), float(_anim_cfg.get("kick_max", 0.10)))
+	_fire_shake = float(_anim_cfg.get("fire_shake", 0.06))
+	_eject_shell()
 	main_node.sfx.play("gunshot", 1.0, 0.05, 2.0)
 	# 准星收敛弹道：先求相机中心射线目标点，实弹从枪口朝该点飞（排除自身与房车）
 	var exclude := [self.get_rid(), main_node.rv.get_rid()]

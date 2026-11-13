@@ -235,6 +235,9 @@ var _dump := false          # --dump：截帧时刻打印房车周边节点并�
 var _save_t := 0.0          # 自动存档计时
 var _saved_parked := false  # 上次存档时的驻车状态（变化即存）
 var _no_save := false       # 从头开始重载时禁止旧实例在 _exit_tree 回写存档
+var _no_story := false      # --nostory：截帧验收时禁用剧情触发，避免冻结战斗准备
+var _shot_ads := false      # --ads：截帧验收时强制 ADS 瞄准
+var _shot_fire := false     # --fire：截帧当帧开一枪，验收枪口闪焰
 var settings: Dictionary = {"master": 1.0, "music": 0.85, "sfx": 1.0, "fullscreen": false, "res_w": 1280, "res_h": 720}
 
 func _ready() -> void:
@@ -288,6 +291,12 @@ func _ready() -> void:
 		elif a == "--dump":
 			_dump = true
 			_shot_at = 3.0
+		elif a == "--nostory":
+			_no_story = true
+		elif a == "--ads":
+			_shot_ads = true
+		elif a == "--fire":
+			_shot_fire = true
 	_load_survivors()
 	# 有存档则续档：里程直接走 --jump 同一套游标对齐逻辑，数值在初始化末尾恢复（调试命令行/无头回归不读写档）
 	var sv := {} if not OS.get_cmdline_user_args().is_empty() or DisplayServer.get_name() == "headless" else _read_save()
@@ -337,6 +346,8 @@ func _ready() -> void:
 	story.set_script(STORY_SCRIPT)
 	add_child(story)
 	story.setup(self)
+	if _no_story:
+		story.set_process(false)
 	hud.story_node = story
 	quest = Node.new()
 	quest.set_script(QUEST_SCRIPT)
@@ -664,6 +675,8 @@ func _process(delta: float) -> void:
 				start_combat(0)
 				if _shot_fps:
 					get_player_body().toggle_fps()
+				if _shot_ads:
+					get_player_body().set_ads(true)
 				_shot_at = 1.5
 				_shot_t = 0.0
 				return
@@ -758,6 +771,8 @@ func _process(delta: float) -> void:
 				story.active = false
 				story_active = false
 				hud.hide_story()
+			if _shot_fire and get_player_body() != null:
+				get_player_body()._try_fire()
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(_shot_path)
 			get_tree().quit()
@@ -3453,23 +3468,39 @@ func on_player_dead() -> void:
 	end_combat()
 	_do_game_over()
 
-## 枪口火光：自发光短寿命点光
+## 枪口火光：短寿命点光 + 软边光晕贴片（队友/掠夺者共用）
 func spawn_muzzle_flash(muzzle_ws: Vector3) -> void:
 	var flash := OmniLight3D.new()
 	flash.light_color = Color(1.0, 0.78, 0.42)
-	flash.light_energy = 6.0
-	flash.omni_range = 9.0
+	flash.light_energy = 3.0
+	flash.omni_range = 6.0
 	flash.position = muzzle_ws
 	add_child(flash)
+	# 光晕：大小两层软边贴片，0.06s 收缩消失
+	if _flash_tex == null:
+		_flash_tex = _fx_soft()
+	var spark := Node3D.new()
+	spark.global_position = muzzle_ws
+	add_child(spark)
+	for i in 2:
+		var sp := Sprite3D.new()
+		sp.texture = _flash_tex
+		sp.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		sp.pixel_size = 0.0007 if i == 0 else 0.0004
+		sp.modulate = Color(1.0, 0.72, 0.32, 0.9) if i == 0 else Color(1.0, 0.95, 0.75, 1.0)
+		spark.add_child(sp)
 	var tw := create_tween()
 	tw.tween_property(flash, "light_energy", 0.0, 0.09)
+	tw.parallel().tween_property(spark, "scale", Vector3.ONE * 0.25, 0.06)
 	tw.tween_callback(flash.queue_free)
+	tw.tween_callback(spark.queue_free)
 
 # ---------- 实弹弹道 ----------
 ## 弹丸按真实弹速飞行：扫掠射线防穿透、重力下坠、曳光长亮条，命中延迟结算
 var _bullets: Array = []
 var _trail_mesh: BoxMesh
 var _trail_mat: StandardMaterial3D
+var _flash_tex: Texture2D
 
 ## 发射一发实弹（exclude：不参与的碰撞 RID，如射手自身与房车）
 func spawn_bullet(from: Vector3, dir: Vector3, speed: float, exclude: Array, dmg := 1.0) -> void:
@@ -3480,8 +3511,8 @@ func spawn_bullet(from: Vector3, dir: Vector3, speed: float, exclude: Array, dmg
 	# 全部弹迹共享单位网格和材质；仅缩放节点，避免每帧修改 PrimitiveMesh 触发重建
 	if _trail_mesh == null:
 		_trail_mesh = BoxMesh.new()
-		_trail_mesh.size = Vector3(0.03, 0.03, 1.0)
-		_trail_mat = _emis_mat(Color(1.0, 0.85, 0.5), 4.0)
+		_trail_mesh.size = Vector3(0.008, 0.008, 1.0)
+		_trail_mat = _emis_mat(Color(1.0, 0.82, 0.45), 2.0)
 	var trail := MeshInstance3D.new()
 	trail.mesh = _trail_mesh
 	trail.material_override = _trail_mat
@@ -3537,22 +3568,151 @@ func _update_bullets(delta: float) -> void:
 			node.queue_free()
 			_bullets.remove_at(i)
 
-## 命中结算：丧尸中弹（命中头颈算爆头，伤害 ×2）+ 命中点火花
+## 命中结算：丧尸中弹（命中头颈算爆头，伤害 ×2）+ 按表面类型出反馈
 func _bullet_impact(hit: Dictionary, dmg: float, dir: Vector3) -> void:
 	var col: Object = hit["collider"]
-	if col is RigidBody3D and col.has_method("on_shot"):
+	var flesh: bool = col is RigidBody3D and col.has_method("on_shot")
+	if flesh:
 		# 命中点高于碰撞原点 1.05m（胶囊上半球=头颈）算爆头，伤害 ×2
 		var headshot: bool = hit["position"].y > col.global_position.y + 1.05
 		on_zombie_shot(col.on_shot(dmg, headshot, dir), headshot)
+	var pos: Vector3 = hit["position"]
+	var nrm: Vector3 = hit["normal"]
+	_spawn_impact_fx(pos, nrm, flesh)
+	if not flesh:
+		_spawn_bullet_hole(pos, nrm)
 	var flash := OmniLight3D.new()
 	flash.light_color = Color(1.0, 0.8, 0.45)
-	flash.light_energy = 2.5
+	flash.light_energy = 1.2 if flesh else 2.5
 	flash.omni_range = 4.0
-	flash.position = hit["position"] + Vector3(0, 0.06, 0)
+	flash.position = pos + Vector3(0, 0.06, 0)
 	add_child(flash)
 	var tw := create_tween()
 	tw.tween_property(flash, "light_energy", 0.0, 0.08)
 	tw.tween_callback(flash.queue_free)
+
+# ---------- 命中特效（血雾 / 火花 / 扬尘 / 弹孔） ----------
+var _fx_soft_tex: GradientTexture2D
+var _fx_spark_mat: StandardMaterial3D
+var _fx_dust_mat: StandardMaterial3D
+var _fx_blood_mat: StandardMaterial3D
+var _hole_mesh: QuadMesh
+var _hole_mat: StandardMaterial3D
+var _holes: Array = []
+
+## 软圆点贴图：粒子统一使用的径向渐变，只建一次
+func _fx_soft() -> GradientTexture2D:
+	if _fx_soft_tex != null:
+		return _fx_soft_tex
+	var g := Gradient.new()
+	g.add_point(0.0, Color(1, 1, 1, 1))
+	g.add_point(0.55, Color(1, 1, 1, 0.6))
+	g.add_point(1.0, Color(1, 1, 1, 0))
+	_fx_soft_tex = GradientTexture2D.new()
+	_fx_soft_tex.gradient = g
+	_fx_soft_tex.width = 64
+	_fx_soft_tex.height = 64
+	_fx_soft_tex.fill = GradientTexture2D.FILL_RADIAL
+	_fx_soft_tex.fill_from = Vector2(0.5, 0.5)
+	_fx_soft_tex.fill_to = Vector2(0.9, 0.9)
+	return _fx_soft_tex
+
+func _fx_particle_mat(col: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_texture = _fx_soft()
+	m.albedo_color = col
+	m.vertex_color_use_as_albedo = true
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	m.billboard_keep_scale = true
+	return m
+
+## 一次性粒子团：肉体出红雾，硬表面出扬尘 + 火星
+func _spawn_impact_fx(pos: Vector3, nrm: Vector3, flesh: bool) -> void:
+	var p := CPUParticles3D.new()
+	p.one_shot = true
+	p.emitting = true
+	p.amount = 12 if flesh else 8
+	p.lifetime = 0.5 if flesh else 0.42
+	p.explosiveness = 0.95
+	p.direction = nrm
+	p.spread = 42.0
+	p.initial_velocity_min = 1.2 if flesh else 2.0
+	p.initial_velocity_max = 3.2 if flesh else 4.5
+	p.gravity = Vector3(0, -9.0, 0) if flesh else Vector3(0, -4.0, 0)
+	p.scale_amount_min = 0.5
+	p.scale_amount_max = 1.1
+	var q := QuadMesh.new()
+	q.size = Vector2(0.12, 0.12) if flesh else Vector2(0.08, 0.08)
+	if flesh:
+		if _fx_blood_mat == null:
+			_fx_blood_mat = _fx_particle_mat(Color(0.5, 0.05, 0.04, 0.9))
+		q.material = _fx_blood_mat
+	else:
+		if _fx_dust_mat == null:
+			_fx_dust_mat = _fx_particle_mat(Color(0.62, 0.58, 0.5, 0.5))
+		q.material = _fx_dust_mat
+	p.mesh = q
+	p.position = pos
+	add_child(p)
+	get_tree().create_timer(p.lifetime + 0.2).timeout.connect(p.queue_free)
+	if not flesh:
+		_spawn_sparks(pos, nrm)
+
+func _spawn_sparks(pos: Vector3, nrm: Vector3) -> void:
+	if _fx_spark_mat == null:
+		_fx_spark_mat = StandardMaterial3D.new()
+		_fx_spark_mat.albedo_color = Color(1.0, 0.75, 0.35)
+		_fx_spark_mat.emission_enabled = true
+		_fx_spark_mat.emission = Color(1.0, 0.65, 0.25)
+		_fx_spark_mat.emission_energy_multiplier = 3.0
+		_fx_spark_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var p := CPUParticles3D.new()
+	p.one_shot = true
+	p.emitting = true
+	p.amount = 6
+	p.lifetime = 0.26
+	p.explosiveness = 1.0
+	p.direction = nrm
+	p.spread = 55.0
+	p.initial_velocity_min = 3.0
+	p.initial_velocity_max = 6.5
+	p.gravity = Vector3(0, -12.0, 0)
+	var q := QuadMesh.new()
+	q.size = Vector2(0.035, 0.035)
+	q.material = _fx_spark_mat
+	p.mesh = q
+	p.position = pos
+	add_child(p)
+	get_tree().create_timer(0.5).timeout.connect(p.queue_free)
+
+## 弹孔：贴在命中表面的小暗片，8s 内收没；共享网格/材质，池上限 24
+func _spawn_bullet_hole(pos: Vector3, nrm: Vector3) -> void:
+	if _hole_mesh == null:
+		_hole_mesh = QuadMesh.new()
+		_hole_mesh.size = Vector2(0.09, 0.09)
+		_hole_mat = StandardMaterial3D.new()
+		_hole_mat.albedo_color = Color(0.05, 0.045, 0.04, 0.85)
+		_hole_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_hole_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var mi := MeshInstance3D.new()
+	mi.mesh = _hole_mesh
+	mi.material_override = _hole_mat
+	add_child(mi)
+	mi.global_position = pos + nrm * 0.01
+	# QuadMesh 正面朝 +Z：look_at 目标取法线负向，让片面向外贴合表面；近垂直法线换备用上方向
+	var up := Vector3.FORWARD if absf(nrm.dot(Vector3.UP)) > 0.99 else Vector3.UP
+	mi.look_at(mi.global_position - nrm, up)
+	_holes.append(mi)
+	if _holes.size() > 24:
+		var old: Node = _holes.pop_front()
+		if is_instance_valid(old):
+			old.queue_free()
+	var tw := create_tween()
+	tw.tween_interval(6.0)
+	tw.tween_property(mi, "scale", Vector3.ONE * 0.01, 1.5)
+	tw.tween_callback(mi.queue_free)
 
 # ---------- 手雷 ----------
 ## 玩家 X 键投掷：刚体重力与实体碰撞负责弹道/弹跳，引信到点爆炸 AOE

@@ -82,6 +82,26 @@
 		"look_max_y": 0.05,
 		"look_recover": 8.0
 	},
+	"ads": {
+		"fov": 52.0,
+		"pos": [-0.10, 1.24, 0.24],
+		"sway_scale": 0.28,
+		"move_mul": 0.62,
+		"in": 0.13,
+		"out": 0.18
+	},
+	"anim": {
+		"reload_dip": 0.16,
+		"reload_roll": 0.55,
+		"switch_time": 0.16,
+		"run_drop": 0.10,
+		"run_tilt": 0.30,
+		"kick_pitch": 0.018,
+		"kick_max": 0.10,
+		"kick_recover": 7.0,
+		"fire_shake": 0.06,
+		"eject": true
+	},
 	"npc_gunner": {
 		"mag_size": 30,
 		"reload_time": 1.7
