@@ -110,6 +110,7 @@ var _birds: Array = []           # 路边鸟群，房车靠近惊飞
 var bird_z := -180.0             # 鸟群生成前沿
 var _wet := 0.0             # 路面湿度 0..1，雨天缓动升高驱动材质与 SSR
 var headlight: SpotLight3D
+var headlight_fill: OmniLight3D
 
 # ---- 游戏状态 ----
 var durability := 100.0
@@ -174,6 +175,10 @@ var _pole_prev: Array = []         # 上一根电线杆两侧挂线点（世界�
 var _world_seed := 1               # 确定性世界种子（data/world.json）
 var _places: Array = []            # 沿途地点（km 升序，data/world.json）
 var _detours: Array = []           # 可探索支路 POI 类型表（data/world.json）
+var _vignettes_cfg: Dictionary = {}  # 叙事小场景配置（data/vignettes.json）
+var _vignette_km := 2.2            # 下一个叙事场景里程游标
+var _vignette_idx := 0             # 叙事场景类型序号（循环取 entries）
+var _vignette_live: Array = []     # 在场叙事场景 [{node, entry, shown}]，驶近触发一句旁白
 var _hamlet_cfg: Dictionary = {}   # 小聚落填充配置（data/world.json hamlets）
 var _time_rates := Vector2(0.03, 0.15)  # 时间流速（现实秒→游戏小时）：x=行驶 y=驻车（data/world.json time）
 var _rv_growl_attenuation_db := 0.0     # 车内丧尸叫声衰减（data/world.json audio）
@@ -444,6 +449,7 @@ func _physics_process(delta: float) -> void:
 		_park_brake = false
 		_toggle_park()
 	_update_frontier()
+	_update_vignettes()
 	_recycle_world()
 	# 终点前 8km 方舟营地进入视野
 	if not ark_spawned and dist_km >= GOAL_KM - 8.0:
@@ -490,6 +496,9 @@ func _load_world() -> void:
 		_world_seed = int(parsed.get("world_seed", 1))
 		_places = parsed.get("places", [])
 		_detours = parsed.get("detours", [])
+		var vg = JSON.parse_string(FileAccess.get_file_as_string("res://data/vignettes.json"))
+		if vg is Dictionary:
+			_vignettes_cfg = vg
 		_hamlet_cfg = parsed.get("hamlets", {})
 		var tm: Dictionary = parsed.get("time", {})
 		_time_rates = Vector2(float(tm.get("drive_rate", 0.03)), float(tm.get("park_rate", 0.15)))
@@ -1456,10 +1465,14 @@ func _update_sun() -> void:
 		_:
 			env.fog_density = 0.00065
 			env.fog_light_color = Color(0.58, 0.75, 0.9)
-	# 夜间/低能见度天气自动开灯
+	# 夜间/低能见度天气自动开灯：聚光远照 + 近场补光，亮度按能见度分级
 	var dark := deg > -15.0 or deg < -165.0
-	headlight.light_energy = 11.0 if dark or weather == "fog" else (4.0 if weather in ["heavy_rain", "snow"] else (2.6 if weather == "rain" else 0.0))
+	var beams := 1.0 if dark else (0.8 if weather == "fog" else (0.55 if weather in ["heavy_rain", "snow"] else (0.35 if weather == "rain" else 0.0)))
+	headlight.light_energy = 22.0 * beams
+	headlight_fill.light_energy = 6.0 * beams
 	lamp_mat.emission_energy_multiplier = 3.2 if dark else (1.2 if weather != "clear" else 0.0)
+	for l in get_tree().get_nodes_in_group("lamp_light"):
+		(l as OmniLight3D).light_energy = 4.0 if dark else 0.0
 	if dark:
 		# 夜色：雾色压暗，改用月光色环境光保证剪影可辨
 		env.fog_light_color = Color(0.07, 0.09, 0.13)
@@ -1783,12 +1796,20 @@ func _build_rv() -> void:
 	headlight = SpotLight3D.new()
 	headlight.light_color = Color(1.0, 0.93, 0.78)
 	headlight.light_energy = 0.0
-	headlight.spot_range = 90.0
-	headlight.spot_angle = 46.0
-	headlight.spot_attenuation = 0.9
-	headlight.position = Vector3(0, 2.1, -4.4)
-	headlight.rotation_degrees = Vector3(-11, 0, 0)
+	headlight.spot_range = 110.0
+	headlight.spot_angle = 55.0
+	headlight.spot_attenuation = 0.6
+	headlight.position = Vector3(0, 1.95, -4.5)
+	headlight.rotation_degrees = Vector3(-9, 0, 0)
 	rv.add_child(headlight)
+	# 近场补光：照亮车头正前方路面，避免聚光灯在近距离只有掠过角而看不清
+	headlight_fill = OmniLight3D.new()
+	headlight_fill.light_color = Color(1.0, 0.9, 0.72)
+	headlight_fill.light_energy = 0.0
+	headlight_fill.omni_range = 16.0
+	headlight_fill.omni_attenuation = 1.4
+	headlight_fill.position = Vector3(0, 1.2, -6.5)
+	rv.add_child(headlight_fill)
 	_build_interior()
 	_build_underbody_storage()
 	_build_crew()
@@ -4146,12 +4167,12 @@ func _explode_grenade(pos: Vector3, dmg: float, radius: float) -> void:
 	add_trauma(0.5)
 	alert_gunshot(pos)
 
-func zombie_bite() -> void:
+func zombie_bite(mul := 1.0) -> void:
 	# 全局冷却：同一时刻只允许一只丧尸生效，避免多只叠加秒杀
 	if game_over or bite_cd > 0.0:
 		return
 	bite_cd = 1.2
-	var bite := 1.0 + minf(dist_km / 2.0, 3.0)
+	var bite := (1.0 + minf(dist_km / 2.0, 3.0)) * mul
 	if _has_passive("tang_tang"):
 		bite *= 0.6
 	# 低士气时反应迟钝，咬伤更重；高士气时配合更默契
@@ -4269,6 +4290,16 @@ func _update_frontier() -> void:
 		if not _hamlet_near_place(_hamlet_km):
 			_spawn_hamlet(hz)
 		_hamlet_km = _next_hamlet_km(_hamlet_km)
+	# 叙事场景点：每 2.4-3.8km 一处手工小场景（翻车/检查站/营地/纪念点），避开剧情地点
+	while _vignette_km < 664.0:
+		var vz: float = rvz - (_vignette_km - dist_km) * KMH_FACTOR
+		if vz <= rvz - VIEW_AHEAD:
+			break
+		if not _hamlet_near_place(_vignette_km):
+			_spawn_vignette(vz, _vignette_idx)
+		_vignette_idx += 1
+		var iv: Array = _vignettes_cfg.get("interval_km", [2.4, 3.8])
+		_vignette_km += lerpf(float(iv[0]), float(iv[1]), _jh(_vignette_idx * 13 + 3))
 	# 清理身后
 	for s in get_children():
 		if s.is_in_group("consumable") and s.global_position.z > rvz + 40.0:
@@ -5105,6 +5136,18 @@ func _spawn_lamp(z: float) -> void:
 	head.position = Vector3(-lamp_side * 1.62, 5.02, 0)
 	head.material_override = lamp_mat
 	root.add_child(head)
+	# 夜间向路面投下暖光（远处灯靠 distance fade 淡出，避免全图灯光开销）
+	var ll := OmniLight3D.new()
+	ll.light_color = Color(1.0, 0.72, 0.38)
+	ll.light_energy = 0.0
+	ll.omni_range = 18.0
+	ll.omni_attenuation = 1.2
+	ll.position = Vector3(-lamp_side * 1.62, 4.8, 0)
+	ll.distance_fade_enabled = true
+	ll.distance_fade_begin = 55.0
+	ll.distance_fade_length = 25.0
+	ll.add_to_group("lamp_light")
+	root.add_child(ll)
 	add_child(root)
 
 ## 里程碑路牌：每 50km 一块绿底白字高速指示牌，路右、面向来车
@@ -6879,6 +6922,89 @@ func _build_facility(root: Node3D, kind: int) -> void:
 		3: _prop_tire_stack(root)
 		4: _prop_dumpster(root)
 		_: _prop_fence(root)
+
+## 叙事小场景：护栏外 8-12m 的一处手工点位，驶近 16m 时触发一句旁白（只触发一次）
+func _spawn_vignette(z: float, idx: int) -> void:
+	var entries: Array = _vignettes_cfg.get("entries", [])
+	if entries.is_empty():
+		return
+	var entry: Dictionary = entries[idx % entries.size()]
+	var side := 1.0 if idx % 2 == 0 else -1.0
+	var x: float = road_x(z) + side * randf_range(ROAD_HALF + 8.0, ROAD_HALF + 12.0)
+	if loop_road_distance(x, z) < 5.0 or _in_water(x, z):
+		return
+	var root := Node3D.new()
+	root.name = "Vignette"
+	root.position = Vector3(x, ground_height(x, z), z)
+	root.rotation.y = side * PI * 0.5 + randf_range(-0.1, 0.1)
+	root.add_to_group("consumable")
+	add_child(root)
+	_build_vignette(root, String(entry.get("kind", "crash")), idx)
+	_vignette_live.append({"node": root, "entry": entry, "shown": false})
+
+func _update_vignettes() -> void:
+	for i in range(_vignette_live.size() - 1, -1, -1):
+		var v: Dictionary = _vignette_live[i]
+		var n: Node3D = v["node"]
+		if not is_instance_valid(n):
+			_vignette_live.remove_at(i)
+			continue
+		if bool(v["shown"]):
+			continue
+		if n.global_position.distance_to(rv.global_position) < 16.0:
+			v["shown"] = true
+			hud.toast("%s · %s" % [String(v["entry"].get("title", "")), String(v["entry"].get("text", ""))])
+
+func _build_vignette(root: Node3D, kind: String, idx: int) -> void:
+	match kind:
+		"checkpoint":
+			_prop_cones(root)
+			for bx in [-2.4, 2.4]:
+				_prop_box(root, Vector3(0.22, 1.0, 0.22), Vector3(bx, 0.5, -1.0), Color(0.55, 0.53, 0.48))
+			_prop_box(root, Vector3(5.2, 0.20, 0.18), Vector3(0, 1.0, -1.0), Color(0.86, 0.70, 0.24), Vector3(0.06, 0, 0))
+			_prop_box(root, Vector3(1.5, 1.8, 1.3), Vector3(3.4, 0.9, 1.4), Color(0.46, 0.47, 0.42))
+			_prop_box(root, Vector3(1.6, 0.12, 1.4), Vector3(3.4, 1.86, 1.4), Color(0.22, 0.24, 0.24))
+			_prop_box(root, Vector3(1.2, 0.75, 0.06), Vector3(3.4, 1.35, 0.74), Color(0.14, 0.17, 0.19))
+			_solid_box(root, Vector3(1.5, 1.8, 1.3), Vector3(3.4, 0.9, 1.4))
+		"camp":
+			_prop_box(root, Vector3(2.8, 0.10, 2.6), Vector3(0, 0.05, 0), Color(0.26, 0.28, 0.22))
+			var tent := MeshInstance3D.new()
+			var pm := PrismMesh.new()
+			pm.size = Vector3(2.6, 1.7, 2.4)
+			tent.mesh = pm
+			tent.position = Vector3(0, 0.85, 0)
+			tent.material_override = _mat(Color(0.36, 0.42, 0.30))
+			root.add_child(tent)
+			_prop_box(root, Vector3(0.9, 0.02, 1.6), Vector3(0, 0.12, -1.4), Color(0.18, 0.18, 0.16))
+			for a in 7:
+				var ang := TAU * float(a) / 7.0
+				_prop_cyl(root, 0.09, 0.11, 0.12, Vector3(cos(ang) * 0.55, 0.06, -1.4 + sin(ang) * 0.55), Color(0.42, 0.40, 0.36))
+			for l in 3:
+				_prop_cyl(root, 0.05, 0.05, 0.8, Vector3(0, 0.16, -1.4), Color(0.24, 0.16, 0.10), Vector3(PI * 0.5, l * PI / 3.0, 0))
+			_prop_box(root, Vector3(0.55, 0.42, 0.55), Vector3(-1.8, 0.21, -1.9), Color(0.30, 0.26, 0.20))
+			_prop_box(root, Vector3(0.55, 0.42, 0.55), Vector3(1.7, 0.21, -2.0), Color(0.30, 0.26, 0.20))
+		"memorial":
+			for c in 3:
+				var cx := -1.7 + float(c) * 1.7
+				_prop_box(root, Vector3(0.14, 1.05, 0.14), Vector3(cx, 0.53, 0), Color(0.50, 0.38, 0.26))
+				_prop_box(root, Vector3(0.62, 0.12, 0.07), Vector3(cx, 0.82, 0), Color(0.50, 0.38, 0.26))
+				_prop_cyl(root, 0.05, 0.07, 0.16, Vector3(cx, 0.08, 0.34), Color(0.72, 0.55, 0.20) if c % 2 == 0 else Color(0.62, 0.24, 0.22))
+			_prop_box(root, Vector3(1.4, 1.0, 0.10), Vector3(0, 1.1, -0.9), Color(0.34, 0.28, 0.22))
+			var board := MeshInstance3D.new()
+			var qm := QuadMesh.new()
+			qm.size = Vector2(1.15, 0.72)
+			board.mesh = qm
+			board.position = Vector3(0, 1.18, -0.95)
+			board.rotation.y = PI
+			var pm2 := StandardMaterial3D.new()
+			pm2.albedo_texture = _poster_tex(idx)
+			pm2.cull_mode = BaseMaterial3D.CULL_DISABLED
+			board.material_override = pm2
+			root.add_child(board)
+		_:
+			_build_wreck(root)
+			_prop_box(root, Vector3(0.82, 0.52, 0.46), Vector3(-2.2, 0.26, 1.2), Color(0.50, 0.34, 0.22), Vector3(0, 0.4, 0))
+			_prop_box(root, Vector3(0.62, 0.42, 0.40), Vector3(2.3, 0.21, -0.7), Color(0.28, 0.33, 0.42), Vector3(0, -0.3, 0))
 
 ## 公交站：混凝土台 + 背板 + 顶棚 + 长椅 + 侧灯箱海报
 func _prop_bus_stop(root: Node3D) -> void:

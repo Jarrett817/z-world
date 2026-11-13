@@ -4,7 +4,7 @@
 		"m4": {
 			"name": "M4 卡宾枪",
 			"model": "res://assets/guns/m4.glb",
-			"scale": 0.124,
+			"scale": 0.106,
 			"rot_deg": [0.0, 180.0, 0.0],
 			"auto": true,
 		"fire_interval": 0.11,
@@ -84,7 +84,7 @@
 	},
 	"ads": {
 		"fov": 52.0,
-		"pos": [-0.10, 1.24, 0.24],
+		"pos": [0.0, 1.36, 0.36],
 		"sway_scale": 0.28,
 		"move_mul": 0.62,
 		"in": 0.13,

@@ -1,0 +1,11 @@
+{
+	"interval_km": [2.4, 3.8],
+	"entries": [
+		{"kind": "crash", "title": "翻车的家", "text": "后备箱里还塞着没拆封的儿童座椅"},
+		{"kind": "checkpoint", "title": "废弃检查站", "text": "路障后的咖啡杯结了黑壳，人早走了"},
+		{"kind": "camp", "title": "熄灭的篝火", "text": "三只碗围着余烬，像在等谁回来"},
+		{"kind": "memorial", "title": "路边的木牌", "text": "最后一块写着：往南，还有光"},
+		{"kind": "crash", "title": "抛锚的车队", "text": "油箱被抽干，轮胎整整齐齐摆成一排"},
+		{"kind": "camp", "title": "临时营地", "text": "帐篷里留着半张地图，潦草标着方舟"}
+	]
+}

@@ -176,6 +176,11 @@ func _equip_current() -> void:
 	var mz: Array = cfg["muzzle"]
 	muzzle.position = Vector3(mz[0], mz[1], mz[2])
 	wm.add_child(muzzle)
+	# 去掉模型自带的 GPS/弹药箱/弹链等外挂杂物，只保留枪体与瞄具
+	for p in ["gps", "bullets", "belt"]:
+		var part := wm.find_child(p, true, false)
+		if part is Node3D:
+			part.visible = false
 	main_node.hud.set_combat_gun(cfg["name"], ammo(), int(cfg["mag_size"]))
 	main_node.hud.set_combat_grenades(_grenades)
 
@@ -228,9 +233,8 @@ func toggle_fps(force := false) -> void:
 	fps = not fps
 	if not fps and _head_bone >= 0:
 		_skel.set_bone_pose_scale(_head_bone, Vector3.ONE)
-	if mode == Mode.SUNROOF:
-		for mesh in _body_meshes:
-			mesh.visible = not fps
+	for mesh in _body_meshes:
+		mesh.visible = not fps
 	main_node.hud.toast("第一人称" if fps else "第三人称")
 
 ## FPS 期间每帧把 Head 骨缩零（动画每帧重写 pose，须在 pose_updated 后覆盖）
@@ -468,6 +472,9 @@ func _apply_gun(delta: float) -> void:
 	if mode == Mode.ON_FOOT and _ads_t > 0.0:
 		var ap: Array = _ads_cfg.get("pos", [-0.10, 1.24, 0.24])
 		base_pos = base_pos.lerp(Vector3(ap[0], ap[1], ap[2]), _ads_t)
+	# 第一人称把枪前移：让枪托越过镜头，画面里不再出现一大块枪托底板；ADS 时保持原校准距离
+	if fps and mode == Mode.ON_FOOT:
+		base_pos.z += 0.22 * (1.0 - _ads_t)
 	# 换弹单峰包络下沉；换枪起手重压后抬回；跑动低持侧倾
 	var reload_env := sin(PI * _reload_p) if _reload_p > 0.0 else 0.0
 	var switch_env := 0.0

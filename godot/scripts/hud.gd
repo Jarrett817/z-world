@@ -164,68 +164,63 @@ func build(rv_node: Node) -> void:
 	add_child(root)
 	hud_root = root
 
-	# 左上状态面板
-	var panel := _panel(Vector2(12, 12), Vector2(348, 196))
+	# 左上生存卡：车况四栏 + 资源/里程/车速（紧凑，任务卡贴其下不重叠）
+	var panel := _panel(Vector2(12, 12), Vector2(310, 178))
 	root.add_child(panel)
-	panel.add_child(_label("车况", 15, TEXT_DIM, Vector2(14, 10)))
-	dur_fill = _add_bar(panel, Vector2(58, 13))
-	panel.add_child(_label("燃料", 15, TEXT_DIM, Vector2(14, 34)))
-	fuel_fill = _add_bar(panel, Vector2(58, 37))
-	panel.add_child(_label("电量", 15, TEXT_DIM, Vector2(14, 58)))
-	battery_fill = _add_bar(panel, Vector2(58, 61))
-	panel.add_child(_label("士气", 15, TEXT_DIM, Vector2(14, 82)))
-	morale_fill = _add_bar(panel, Vector2(58, 85))
-	res_label = _label("食物 0 · 队伍 0 人", 15, TEXT_MAIN, Vector2(14, 112))
-	panel.add_child(res_label)
-	energy_label = _label("燃料 0/0 · 电量 0/0", 14, TEXT_MAIN, Vector2(14, 136))
-	panel.add_child(energy_label)
-	info_label = _label("里程 0.0 km · 第 1 天 09:00", 15, TEXT_DIM, Vector2(14, 162))
+	info_label = _label("里程 0.0 km · 第 1 天 09:00", 13, TEXT_DIM, Vector2(14, 8))
+	info_label.size = Vector2(200, 20)
 	panel.add_child(info_label)
+	speed_label = _label("0 km/h", 26, TEXT_MAIN, Vector2(196, 2))
+	speed_label.size = Vector2(100, 30)
+	speed_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	panel.add_child(speed_label)
+	panel.add_child(_label("车况", 13, TEXT_DIM, Vector2(14, 32)))
+	dur_fill = _add_bar(panel, Vector2(58, 32))
+	panel.add_child(_label("燃料", 13, TEXT_DIM, Vector2(14, 56)))
+	fuel_fill = _add_bar(panel, Vector2(58, 56))
+	panel.add_child(_label("电量", 13, TEXT_DIM, Vector2(14, 80)))
+	battery_fill = _add_bar(panel, Vector2(58, 80))
+	panel.add_child(_label("士气", 13, TEXT_DIM, Vector2(14, 104)))
+	morale_fill = _add_bar(panel, Vector2(58, 104))
+	res_label = _label("食物 0 · 队伍 0 人", 13, TEXT_MAIN, Vector2(14, 128))
+	panel.add_child(res_label)
+	energy_label = _label("燃料 0/0 · 电量 0/0", 12, TEXT_DIM, Vector2(14, 148))
+	panel.add_child(energy_label)
 
-	# 右上操作提示
-	var hint := _label("W/A/S/D 驾驶 · C 换视角 · F 驻车 · G 下车战斗 · T 天窗 · Q 起身/回座 · E 设施 · V 射击视角 · J 任务 · Tab 队伍 · Esc 菜单", 14, TEXT_DIM)
-	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	hint.offset_left = -1042
-	hint.offset_right = -410
-	hint.offset_top = 14
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	# 底部单行操作提示（不再与右上按钮抢顶栏）
+	var hint := _label("WASD 驾驶 · F 驻车 · G 战斗 · T 天窗 · Q 起身 · E 设施 · V 视角 · J 任务 · Tab 队伍 · Esc 菜单", 13, TEXT_DIM)
+	hint.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	hint.offset_left = 16
+	hint.offset_right = -160
+	hint.offset_top = -30
+	hint.offset_bottom = -8
 	root.add_child(hint)
 
 	# 天气
-	weather_label = _label("天气 晴", 15, TEXT_DIM)
+	weather_label = _label("天气 晴", 13, TEXT_DIM)
 	weather_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	weather_label.offset_left = -200
+	weather_label.offset_left = -220
 	weather_label.offset_right = -14
-	weather_label.offset_top = 50
+	weather_label.offset_top = 54
 	weather_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	root.add_child(weather_label)
 
-	# 顶部旅程条：前方地点 + 距离（在操作提示下一行，避免重叠）
-	journey_label = _label("", 15, TEXT_DIM)
+	# 顶部旅程条：前方地点 + 距离（单行细条，右侧留给按钮）
+	journey_label = _label("", 14, TEXT_DIM)
 	journey_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	journey_label.offset_left = -400
-	journey_label.offset_right = 400
-	journey_label.offset_top = 38
+	journey_label.offset_left = -215
+	journey_label.offset_right = 215
+	journey_label.offset_top = 14
 	journey_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(journey_label)
-
-	# 车速表
-	speed_label = _label("0 km/h", 40, TEXT_MAIN)
-	speed_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	speed_label.offset_left = -120
-	speed_label.offset_right = 120
-	speed_label.offset_top = -88
-	speed_label.offset_bottom = -30
-	speed_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	root.add_child(speed_label)
 
 	# toast 提示
 	toast_label = _label("", 20, ACCENT)
 	toast_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	toast_label.offset_left = -320
 	toast_label.offset_right = 320
-	toast_label.offset_top = 60
-	toast_label.offset_bottom = 96
+	toast_label.offset_top = 92
+	toast_label.offset_bottom = 128
 	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	toast_label.modulate.a = 0.0
 	root.add_child(toast_label)
@@ -244,26 +239,26 @@ func build(rv_node: Node) -> void:
 	drive_joystick.moved.connect(func(v: Vector2) -> void:
 		rv.touch_throttle = -v.y
 		rv.touch_steer = -v.x)
-	drive_view_btn = _touch_button(root, "视角", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -222, 78, 56), "view")
+	drive_view_btn = _touch_button(root, "视角", Control.PRESET_BOTTOM_RIGHT, Rect2(-148, -116, 64, 44), "view", 15)
 	drive_misc_buttons.append(drive_view_btn)
-	drive_misc_buttons.append(_touch_button(root, "驻车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -222, 78, 56), "park"))
-	drive_misc_buttons.append(_touch_button(root, "天窗", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -284, 78, 56), "sunroof"))
-	drive_misc_buttons.append(_touch_button(root, "下车", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -284, 78, 56), "exitveh"))
-	rvwalk_btn = _touch_button(root, "起身", Control.PRESET_BOTTOM_RIGHT, Rect2(-176, -346, 78, 56), "rvwalk")
+	drive_misc_buttons.append(_touch_button(root, "驻车", Control.PRESET_BOTTOM_RIGHT, Rect2(-76, -116, 64, 44), "park", 15))
+	drive_misc_buttons.append(_touch_button(root, "天窗", Control.PRESET_BOTTOM_RIGHT, Rect2(-148, -66, 64, 44), "sunroof", 15))
+	drive_misc_buttons.append(_touch_button(root, "下车", Control.PRESET_BOTTOM_RIGHT, Rect2(-76, -66, 64, 44), "exitveh", 15))
+	rvwalk_btn = _touch_button(root, "起身", Control.PRESET_BOTTOM_RIGHT, Rect2(-148, -166, 64, 44), "rvwalk", 15)
 	drive_misc_buttons.append(rvwalk_btn)
-	crew_drive_btn = _touch_button(root, "队友开", Control.PRESET_BOTTOM_RIGHT, Rect2(-90, -346, 78, 56), "crewdrive")
+	crew_drive_btn = _touch_button(root, "队友开", Control.PRESET_BOTTOM_RIGHT, Rect2(-76, -166, 64, 44), "crewdrive", 15)
 	drive_misc_buttons.append(crew_drive_btn)
 	# 右上：任务 / 署名 / 队伍 / 设施（手游触屏替代 J/Tab/E 快捷键）
-	_touch_button(root, "任务", Control.PRESET_TOP_RIGHT, Rect2(-388, 14, 88, 46), "quest")
-	_touch_button(root, "署名", Control.PRESET_TOP_RIGHT, Rect2(-292, 14, 88, 46), "credits")
-	_touch_button(root, "队伍", Control.PRESET_TOP_RIGHT, Rect2(-196, 14, 88, 46), "crew")
-	_touch_button(root, "设施", Control.PRESET_TOP_RIGHT, Rect2(-100, 14, 88, 46), "fac")
+	_touch_button(root, "任务", Control.PRESET_TOP_RIGHT, Rect2(-284, 12, 64, 36), "quest", 15)
+	_touch_button(root, "署名", Control.PRESET_TOP_RIGHT, Rect2(-216, 12, 64, 36), "credits", 15)
+	_touch_button(root, "队伍", Control.PRESET_TOP_RIGHT, Rect2(-148, 12, 64, 36), "crew", 15)
+	_touch_button(root, "设施", Control.PRESET_TOP_RIGHT, Rect2(-80, 12, 64, 36), "fac", 15)
 
 	# 队伍面板（Tab 开关）
 	crew_panel = _panel(Vector2.ZERO, Vector2.ZERO)
 	crew_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	crew_panel.offset_left = -342
-	crew_panel.offset_top = 70
+	crew_panel.offset_top = 78
 	crew_panel.offset_right = -14
 	crew_panel.offset_bottom = 470
 	crew_panel.visible = false
@@ -1044,10 +1039,10 @@ func hide_story() -> void:
 
 # ---------- 任务追踪 + 日志 ----------
 func _build_quests(root: Control) -> void:
-	# 左上常驻追踪条：状态面板（高 164，底边 y≈176）下方
+	# 左上常驻追踪条：生存卡（底边 y≈190）下方
 	quest_track = PanelContainer.new()
-	quest_track.position = Vector2(12, 182)
-	quest_track.custom_minimum_size = Vector2(348, 0)
+	quest_track.position = Vector2(12, 200)
+	quest_track.custom_minimum_size = Vector2(310, 0)
 	quest_track.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var tsb := StyleBoxFlat.new()
 	tsb.bg_color = Color(0.105, 0.085, 0.07, 0.82)
@@ -1467,7 +1462,7 @@ func update_stats(main: Node3D) -> void:
 	crew_drive_btn.visible = not main.crew_members.is_empty() and not main.combat_active
 	crew_drive_btn.text = "自己开" if main.crew_driving else "队友开"
 	if main.crew_driving and not main.parked:
-		info_label.text += "\n%s 代驾中 · 自动拾取/救人 · 自己开接管" % main.crew_members[0].get("name", "")
+		energy_label.text += " · %s代驾中" % String(main.crew_members[0].get("name", ""))
 	var legs := PackedStringArray()
 	for pl in main.next_places(3):
 		legs.append("%s %.0fkm" % [pl[0], pl[1]])
@@ -1544,7 +1539,7 @@ func _add_bar(panel: Control, pos: Vector2) -> ColorRect:
 	panel.add_child(fill)
 	return fill
 
-func _touch_button(parent: Control, text: String, preset: int, rect: Rect2, action: String) -> Button:
+func _touch_button(parent: Control, text: String, preset: int, rect: Rect2, action: String, fs := 22) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.set_anchors_preset(preset)
@@ -1565,7 +1560,7 @@ func _touch_button(parent: Control, text: String, preset: int, rect: Rect2, acti
 	sbp.bg_color = Color(0.91, 0.53, 0.18, 0.35)
 	b.add_theme_stylebox_override("pressed", sbp)
 	b.add_theme_stylebox_override("hover", sb)
-	b.add_theme_font_size_override("font_size", 22)
+	b.add_theme_font_size_override("font_size", fs)
 	b.add_theme_color_override("font_color", TEXT_MAIN)
 	b.button_down.connect(_on_btn_down.bind(action))
 	b.button_up.connect(_on_btn_up.bind(action))

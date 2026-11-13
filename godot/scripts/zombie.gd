@@ -24,6 +24,11 @@ const ROOF_SAFE_DY := 2.2         # 玩家高出丧尸该米数时处于车顶/�
 const PLAYER_SUNROOF := 1         # player.Mode.SUNROOF 枚举值（避免跨脚本类型依赖）
 
 enum St { WANDER, IDLE, CHASE }
+enum Kind { SHAMBLER, RUNNER, BRUTE }
+
+var kind := Kind.SHAMBLER
+var bite_mul := 1.0
+var wander_speed := WANDER_SPEED
 
 var main_node: Node3D
 var rv: Node3D
@@ -59,8 +64,21 @@ func setup(main: Node3D) -> void:
 	rv = main.rv
 	speed = CHASE_SPEED_BASE + randf_range(-0.8, 1.4) * (1.0 + clampf(main.dist_km * 0.05, 0.0, 0.5))
 	hp = 2.0 + clampf(main.dist_km / 150.0, 0.0, 2.0)  # 后期更耐打：150km 后 3、300km 后 4
+	# 三种行为变体：蹒跚者（默认）/ 疾行者（快而脆）/ 巨尸（慢而肉、咬得更狠）
+	var roll := randf()
+	if roll < 0.22:
+		kind = Kind.RUNNER
+		speed = 8.0 + randf_range(-0.5, 1.0) * (1.0 + clampf(main.dist_km * 0.02, 0.0, 0.3))
+		hp = maxf(1.0, hp * 0.6)
+		wander_speed = WANDER_SPEED * 1.8
+	elif roll < 0.42:
+		kind = Kind.BRUTE
+		speed = 3.5 + randf_range(-0.4, 0.6)
+		hp *= 2.3
+		bite_mul = 1.6
+		wander_speed = WANDER_SPEED * 0.65
 	max_hp = hp
-	mass = 70.0
+	mass = 70.0 * (1.6 if kind == Kind.BRUTE else (0.85 if kind == Kind.RUNNER else 1.0))
 	linear_damp = 1.2
 	# layer=层3(丧尸独占)：房车不再与丧尸物理互撞（碾压由房车触发区接管），子弹射线仍正常命中
 	collision_layer = 4
@@ -71,10 +89,16 @@ func setup(main: Node3D) -> void:
 	angular_velocity = Vector3.ZERO
 	_agent = NavigationAgent3D.new()
 	_agent.radius = 0.5
-	_agent.max_speed = 8.0
+	_agent.max_speed = speed + 1.0
 	_agent.avoidance_enabled = true
 	_agent.velocity_computed.connect(_on_velocity_computed)
 	add_child(_agent)
+	# 变体体型：巨尸放大、疾行者精瘦（只缩模型，不动刚体与碰撞胶囊）
+	for c in get_children():
+		if c is Node3D and not (c is CollisionShape3D) and c != _agent \
+				and not c.find_children("*", "MeshInstance3D", true, false).is_empty():
+			c.scale *= 1.18 if kind == Kind.BRUTE else (0.92 if kind == Kind.RUNNER else 1.0)
+			break
 	_vary_materials(self)
 	anim = _find_anim_player(self)
 	state = St.WANDER if randf() < 0.7 else St.IDLE
@@ -105,7 +129,13 @@ func _vary_materials(node: Node) -> void:
 		Color(0.86, 0.78, 0.62),
 		Color(0.68, 0.66, 0.62),
 	]
-	var tint: Color = tints.pick_random()
+	var tint: Color
+	if kind == Kind.RUNNER:
+		tint = Color(0.92, 0.74, 0.68)   # 疾行者：新鲜尸变，泛血红
+	elif kind == Kind.BRUTE:
+		tint = Color(0.66, 0.70, 0.62)   # 巨尸：干瘪灰绿
+	else:
+		tint = tints.pick_random()
 	var brightness := randf_range(0.85, 1.05)
 	for c in node.get_children():
 		if c is MeshInstance3D:
@@ -253,7 +283,7 @@ func _wander(delta: float) -> void:
 		linear_velocity = Vector3(0, linear_velocity.y, 0)
 		return
 	var dir := to.normalized()
-	_agent.velocity = dir * WANDER_SPEED
+	_agent.velocity = dir * wander_speed
 	rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), delta * 4.0)
 	if anim != null:
 		anim.speed_scale = 0.7
@@ -337,7 +367,7 @@ func _chase(delta: float) -> void:
 			elif is_instance_valid(player):
 				main_node.on_player_bitten(self)
 			else:
-				main_node.zombie_bite()
+				main_node.zombie_bite(bite_mul)
 			main_node.sfx.play3d("zombie_bite", global_position, 1.0, 0.1)
 			_play_once(ATTACK)
 
@@ -368,10 +398,11 @@ func on_shot(dmg: float, headshot: bool, dir: Vector3) -> bool:
 	_spawn_damage_number(dealt, headshot)
 	if hp > 0.0:
 		_update_hp_bar()
-		stagger_t = 0.32
+		stagger_t = 0.22 if kind == Kind.BRUTE else (0.26 if kind == Kind.RUNNER else 0.32)
 		var push := Vector3(dir.x, 0.0, dir.z)
 		if push.length() > 0.01:
-			apply_central_impulse(push.normalized() * mass * 0.9)
+			apply_central_impulse(push.normalized() * mass * (0.55 if kind == Kind.BRUTE else 0.9))
+			rotation.y += randf_range(-0.22, 0.22)   # 踉跄偏转：命中方向读得出来
 		return false
 	return _die()
 
