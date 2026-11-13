@@ -13,6 +13,22 @@ const RAIL_SEG := 4.0
 
 var _main: Node3D
 var _mats: Array[Material] = []
+const ROAD_DRY := Color(0.12, 0.145, 0.17)
+var _wet := 0.0
+
+## 雨天湿路面：压低粗糙度、加一点金属感并压暗底色，配合 SSR 才有可见反光
+func set_wetness(w: float) -> void:
+	if _mats.is_empty() or absf(w - _wet) < 0.002:
+		return
+	_wet = clampf(w, 0.0, 1.0)
+	var m := _mats[3] as StandardMaterial3D
+	if m == null:
+		return
+	m.albedo_color = ROAD_DRY.lerp(ROAD_DRY.darkened(0.35), _wet)
+	m.roughness = lerpf(0.95, 0.12, _wet)
+	m.metallic = 0.05 * _wet
+	# 卡通高光模式不产生环境反射：湿路面切到 GGX 才有天光反光
+	m.specular_mode = BaseMaterial3D.SPECULAR_SCHLICK_GGX if _wet > 0.3 else BaseMaterial3D.SPECULAR_TOON
 var _col_shape: CollisionShape3D
 var _build_active := false
 var _pending_mesh: ArrayMesh

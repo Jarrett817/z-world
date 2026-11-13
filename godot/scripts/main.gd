@@ -94,6 +94,8 @@ var terrain: MeshInstance3D
 var rain: CPUParticles3D
 var snow: CPUParticles3D
 var motes: CPUParticles3D   # 晴天空气漂浮光点（花粉/尘光）
+var splash: CPUParticles3D  # 雨滴落地溅射（相机周围地面）
+var _wet := 0.0             # 路面湿度 0..1，雨天缓动升高驱动材质与 SSR
 var headlight: SpotLight3D
 
 # ---- 游戏状态 ----
@@ -1271,25 +1273,38 @@ func _build_sky() -> void:
 	environment.fog_density = 0.00065
 	environment.fog_sky_affect = 0.12
 	environment.glow_enabled = true
-	environment.glow_intensity = 0.28
-	environment.glow_bloom = 0.06
-	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	environment.tonemap_exposure = 0.95
+	environment.glow_intensity = 0.45
+	environment.glow_bloom = 0.10
+	environment.glow_hdr_threshold = 0.9
+	environment.tonemap_mode = Environment.TONE_MAPPER_ACES
+	environment.tonemap_exposure = 1.05
 	# 卡通明暗保留接触阴影与间接光，用清晰色块而不是灰雾统一环境
 	environment.ssao_enabled = true
 	environment.ssil_enabled = true
 	environment.adjustment_enabled = true
-	environment.adjustment_saturation = 1.08
-	environment.adjustment_contrast = 1.03
+	environment.adjustment_saturation = 1.12
+	environment.adjustment_contrast = 1.05
+	# SSR 仅雨天由 _update_sun 开启：晴天关闭省性能
+	environment.ssr_enabled = false
+	environment.ssr_max_steps = 48
+	environment.ssr_fade_in = 0.15
+	environment.ssr_fade_out = 2.0
+	environment.ssr_depth_tolerance = 0.2
+	# 体积雾默认关，晨昏与雨雾天气才开（正午晴天保持清澈）
+	environment.volumetric_fog_enabled = false
+	environment.volumetric_fog_length = 64.0
+	environment.volumetric_fog_temporal_reprojection_enabled = true
 	self.env = environment
 	get_viewport().world_3d.environment = environment
 	sun = DirectionalLight3D.new()
 	sun.light_color = Color(1.0, 0.97, 0.9)
 	sun.light_energy = 1.75
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 180.0
+	sun.directional_shadow_max_distance = 160.0
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	sun.directional_shadow_blend_splits = true
+	sun.directional_shadow_fade_start = 0.88
+	sun.light_angular_distance = 0.6
 	sun.rotation_degrees = Vector3(-42, 24, 0)
 	add_child(sun)
 	# 路灯灯头共享材质：夜间开自发光，靠 glow 发亮，不用真实光源
@@ -1457,6 +1472,20 @@ func _update_sun() -> void:
 		cloud_mat.set_shader_parameter("cloud_color", cc)
 		cloud_mat.set_shader_parameter("opacity", cop)
 		cloud_mat.set_shader_parameter("coverage", cov)
+	# 湿路面 + 雨天 SSR；体积雾只在晨昏与雨雾天气开，正午晴天保持清澈蓝天
+	_wet = move_toward(_wet, 1.0 if weather in ["rain", "heavy_rain"] else 0.0, 0.05)
+	if terrain != null and terrain.has_method("set_wetness"):
+		terrain.set_wetness(_wet)
+	env.ssr_enabled = _wet > 0.2
+	var dusk := elev > -0.02 and elev < 0.18
+	var misty := weather in ["fog", "rain", "heavy_rain"]
+	env.volumetric_fog_enabled = dusk or misty
+	if env.volumetric_fog_enabled:
+		env.volumetric_fog_density = 0.012
+		env.volumetric_fog_albedo = Color(0.82, 0.86, 0.9)
+		env.volumetric_fog_anisotropy = 0.35
+		env.volumetric_fog_ambient_inject = 0.2
+		env.fog_density *= 0.65
 
 # ---------- 地形（无限重建） ----------
 func _build_terrain() -> void:
@@ -3033,6 +3062,38 @@ func _build_weather() -> void:
 	motes.emitting = true
 	add_child(motes)
 
+	# 雨滴落地溅射：相机周围一小片地面水花，仅雨天发射
+	splash = CPUParticles3D.new()
+	splash.amount = 48
+	splash.lifetime = 0.32
+	splash.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	splash.emission_box_extents = Vector3(9, 0.05, 9)
+	splash.direction = Vector3(0, 1, 0)
+	splash.spread = 55.0
+	splash.gravity = Vector3(0, -9.0, 0)
+	splash.initial_velocity_min = 0.6
+	splash.initial_velocity_max = 1.6
+	splash.scale_amount_min = 0.4
+	splash.scale_amount_max = 0.9
+	var spq := QuadMesh.new()
+	spq.size = Vector2(0.1, 0.1)
+	var simg := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	for py in 16:
+		for px in 16:
+			var sd: float = Vector2(px - 7.5, py - 7.5).length() / 7.5
+			simg.set_pixel(px, py, Color(1, 1, 1, clampf(1.0 - smoothstep(0.0, 1.0, sd), 0.0, 1.0)))
+	var spm := StandardMaterial3D.new()
+	spm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	spm.albedo_color = Color(0.78, 0.86, 0.92, 0.45)
+	spm.albedo_texture = ImageTexture.create_from_image(simg)
+	spm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	spm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	spq.material = spm
+	splash.mesh = spq
+	splash.emitting = false
+	splash.visible = false
+	add_child(splash)
+
 func _apply_weather() -> void:
 	var raining := weather in ["rain", "heavy_rain"]
 	var heavy := weather == "heavy_rain"
@@ -3047,6 +3108,8 @@ func _apply_weather() -> void:
 	rain.visible = raining
 	snow.emitting = weather == "snow"
 	snow.visible = weather == "snow"
+	splash.emitting = raining
+	splash.visible = raining
 	var clear := weather == "clear"
 	motes.emitting = clear
 	motes.visible = clear
@@ -3062,6 +3125,8 @@ func _update_weather(delta: float) -> void:
 	rain.global_position = rv.global_position + Vector3(0, 9.0, -14.0)
 	snow.global_position = rv.global_position + Vector3(0, 9.0, -14.0)
 	motes.global_position = rv.global_position + Vector3(0, 2.5, -10.0)
+	if splash != null:
+		splash.global_position = Vector3(cam.global_position.x, ground_height(cam.global_position.x, cam.global_position.z) + 0.03, cam.global_position.z)
 	weather_timer -= delta
 	if weather_timer > 0.0:
 		return
