@@ -221,6 +221,7 @@ var banter_t := 9.0
 var banter_busy := false
 
 var _wander_t := 8.0   # 舱内闲置队员随机漫游计时（仅非战斗的生活位）
+var _idle_motion_t := 5.0  # 岗位微动作计时：坐姿聊谈 / 站立张望 / 伸懒腰，用现成动画
 
 var _shot_at := -1.0  # --shot=路径 命令行截帧：启动后计时保存并退出
 var _shot_path := ""
@@ -872,6 +873,7 @@ func _process(delta: float) -> void:
 		driver_figure.visible = view_mode == 2 and not combat_active and not crew_driving
 	_update_banter(delta)
 	_update_crew_wander(delta)
+	_update_idle_motions(delta)
 	if view_mode == 1:
 		cam.global_position = rv.to_global(Vector3(-0.55, 1.2, -3.05) * INTERIOR_SCALE)
 		cam.look_at(rv.to_global(Vector3(-0.55, 0.9, -30.0) * INTERIOR_SCALE))
@@ -2381,8 +2383,9 @@ func _build_life_props() -> void:
 	var mattress_col := Color(0.72, 0.70, 0.62)
 	var pillow_col := Color(0.85, 0.82, 0.72)
 	var blanket_col := Color(0.30, 0.34, 0.42)
-	# 左墙窄灶台：保留旧模型的锅、水槽和炊具，柜体内缩到座椅之外，尾端避开床铺隔断
-	box.call(Vector3(0.48, 0.845, 2.20), Vector3(-1.06, 0.0225, -0.20), wood.darkened(0.04), 0.85)
+	# 左墙窄灶台：柜体用现成厨房柜三连拼，保留原台面与台面炊具
+	for i in 3:
+		furn.call("kitchen_cabinet", Vector3(0.72, 0.845, 0.48), Vector3(-1.06, -0.40, -0.94 + float(i) * 0.74), PI * 0.5)
 	box.call(Vector3(0.48, 0.05, 2.20), Vector3(-1.06, 0.47, -0.20), Color(0.65, 0.62, 0.54), 0.65)
 	_add_interior_collision(Vector3(0.48, 0.895, 2.20), Vector3(-1.06, 0.0475, -0.20))
 	# 左墙上下铺：现成 BunkBed1 替换程序化床体，保留爬梯与布帘
@@ -2492,8 +2495,11 @@ func _build_life_props() -> void:
 	(shade.material_override as StandardMaterial3D).emission_energy_multiplier = 0.55
 	cyl.call(0.012, 0.012, 0.14, Vector3(0, 1.92, 0.4), Color(0.2, 0.2, 0.2), 0.6)
 	# 右后角储物箱堆（贴尾墙摞放，避开右墙长凳与尾射孔火线）+ 帆布袋压箱顶
-	box.call(Vector3(0.45, 0.34, 0.50), Vector3(1.00, -0.23, 2.54), wood.darkened(0.1))
-	box.call(Vector3(0.35, 0.26, 0.40), Vector3(1.00, 0.07, 2.54), Color(0.50, 0.42, 0.30))
+	for cp in [Vector3(1.00, -0.40, 2.54), Vector3(1.00, -0.06, 2.54)]:
+		var stack_crate := FOOD_CRATE_SCENE.instantiate() as Node3D
+		stack_crate.scale = Vector3.ONE * 0.42
+		stack_crate.position = cp
+		interior.add_child(stack_crate)
 	var sack := MeshInstance3D.new()
 	var sm2 := SphereMesh.new()
 	sm2.radius = 0.17
@@ -2926,6 +2932,41 @@ var _wander_points := [
 	Vector3(-0.20, -0.4, 0.00) * INTERIOR_SCALE,
 	Vector3(-0.20, -0.4, 0.70) * INTERIOR_SCALE,
 ]
+
+## 岗位微动作：非战斗时随机让生活位队员用现成动画张望/伸懒腰/低声交谈，避免全员静止
+func _update_idle_motions(delta: float) -> void:
+	if combat_active or rv_walk_active or game_over or story_active:
+		return
+	_idle_motion_t -= delta
+	if _idle_motion_t > 0.0:
+		return
+	_idle_motion_t = randf_range(6.0, 12.0)
+	var pool: Array = []
+	for i in range(ARMED_STATIONS, mini(crew_members.size(), crew_figures.size())):
+		var f: Node3D = crew_figures[i]
+		if bool(f.get_meta("wandering", false)) or f.get_meta("banter_until", 0.0) > Time.get_ticks_msec() / 1000.0:
+			continue
+		pool.append(f)
+	if pool.is_empty():
+		return
+	var f: Node3D = pool[randi() % pool.size()]
+	var ap := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if ap == null:
+		return
+	var sitting := String(f.get_meta("duty")) == "sit"
+	var base := "sit" if sitting else "idle"
+	var anim_name := "sit_talk"
+	if not sitting:
+		anim_name = ["idle_look", "idle_stretch"][randi() % 2]
+	if not ap.has_animation(anim_name):
+		return
+	var anim := ap.get_animation(anim_name)
+	anim.loop_mode = Animation.LOOP_NONE
+	ap.play(anim_name, 0.25)
+	get_tree().create_timer(anim.length).timeout.connect(func() -> void:
+		if is_instance_valid(f) and not bool(f.get_meta("wandering", false)) and ap.has_animation(base):
+			ap.play(base, 0.25)
+	, CONNECT_ONE_SHOT)
 
 func _update_crew_wander(delta: float) -> void:
 	if combat_active or rv_walk_active or game_over or story_active or crew_members.size() <= ARMED_STATIONS:
