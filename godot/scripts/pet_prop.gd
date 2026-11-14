@@ -278,10 +278,10 @@ func _build_chick(spec: Dictionary) -> void:
 		foot.position = Vector3(sx * 0.04, 0.008, 0.02)
 		_model.add_child(foot)
 
-func _box(size: Vector3, mat: Material) -> MeshInstance3D:
+func _box(p_size: Vector3, mat: Material) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var bm := BoxMesh.new()
-	bm.size = size
+	bm.size = p_size
 	mi.mesh = bm
 	mi.material_override = mat
 	return mi

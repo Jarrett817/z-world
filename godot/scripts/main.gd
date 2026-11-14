@@ -1628,7 +1628,7 @@ void fragment() {
 	_blade_mesh.surface_set_material(0, _grass_mat)
 
 ## 树风摆 shader：阵风沿世界 xz 传播（同草叶机制），顶点色 r 编码风摆权重（根/干 0、枝梢/叶球 1）
-func _wind_shader_code(textured: bool) -> String:
+func _wind_shader_code(_textured: bool) -> String:
 	return """
 shader_type spatial;
 render_mode cull_disabled, diffuse_toon, specular_toon;
@@ -2051,7 +2051,7 @@ func _build_dust() -> void:
 	dust.position = Vector3(0, 0.12, 4.75)
 	rv.add_child(dust)
 
-func _add_interior_collision(size: Vector3, pos: Vector3) -> void:
+func _add_interior_collision(p_size: Vector3, pos: Vector3) -> void:
 	var body := AnimatableBody3D.new()
 	# 由房车物理节点带动，而非动画直接驱动；关闭反向同步，避免碰撞停留在初始局部位置
 	body.sync_to_physics = false
@@ -2060,7 +2060,7 @@ func _add_interior_collision(size: Vector3, pos: Vector3) -> void:
 	var col := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	# 碰撞体直接挂在房车下，避免旋转与非均匀缩放的视觉父节点叠加出剪切变换
-	box.size = size * INTERIOR_SCALE
+	box.size = p_size * INTERIOR_SCALE
 	col.shape = box
 	body.add_child(col)
 	body.position = pos * INTERIOR_SCALE
@@ -2327,12 +2327,12 @@ func _build_life_props() -> void:
 		var combined: AABB
 		var first := true
 		for n in meshes:
-			var m := n as MeshInstance3D
-			var ab: AABB = m.get_aabb()
+			var mesh_node := n as MeshInstance3D
+			var ab: AABB = mesh_node.get_aabb()
 			# 沿父链累积到 inst 空间（不依赖 global_transform，避免未入树报错）
 			var sc := Vector3.ONE
 			var off := Vector3.ZERO
-			var node: Node3D = m
+			var node: Node3D = mesh_node
 			while node != inst and node != null:
 				off = off * node.scale + node.position
 				sc *= node.scale
@@ -2399,9 +2399,6 @@ func _build_life_props() -> void:
 		return mi
 	# 左墙上下铺睡眠隔间：纵置两层铺（头朝车尾），床尾半墙 + 过道侧布帘围出私人角落
 	var wood := Color(0.42, 0.33, 0.24)
-	var mattress_col := Color(0.72, 0.70, 0.62)
-	var pillow_col := Color(0.85, 0.82, 0.72)
-	var blanket_col := Color(0.30, 0.34, 0.42)
 	# 左墙窄灶台：柜体用现成厨房柜三连拼，保留原台面与台面炊具
 	for i in 3:
 		furn.call("kitchen_cabinet", Vector3(0.72, 0.845, 0.48), Vector3(-1.06, -0.40, -0.94 + float(i) * 0.74), PI * 0.5)
@@ -2964,10 +2961,10 @@ func _update_idle_motions(delta: float) -> void:
 	_idle_motion_t = randf_range(6.0, 12.0)
 	var pool: Array = []
 	for i in range(ARMED_STATIONS, mini(crew_members.size(), crew_figures.size())):
-		var f: Node3D = crew_figures[i]
-		if bool(f.get_meta("wandering", false)) or f.get_meta("banter_until", 0.0) > Time.get_ticks_msec() / 1000.0:
+		var member: Node3D = crew_figures[i]
+		if bool(member.get_meta("wandering", false)) or member.get_meta("banter_until", 0.0) > Time.get_ticks_msec() / 1000.0:
 			continue
-		pool.append(f)
+		pool.append(member)
 	if pool.is_empty():
 		return
 	var f: Node3D = pool[randi() % pool.size()]
@@ -2999,14 +2996,14 @@ func _update_crew_wander(delta: float) -> void:
 	var now := Time.get_ticks_msec() / 1000.0
 	var candidates: Array = []
 	for i in range(ARMED_STATIONS, mini(crew_members.size(), crew_figures.size())):
-		var f: Node3D = crew_figures[i]
-		var home: Vector3 = f.get_meta("home_pos")
+		var member: Node3D = crew_figures[i]
+		var seat_home: Vector3 = member.get_meta("home_pos")
 		# 只有灶台前站位有直接通向过道的净空；坐姿、上铺和尾舱岗位保持原位，避免离座时穿过家具
-		if String(f.get_meta("duty")) != "idle" or home.z > 1.0:
+		if String(member.get_meta("duty")) != "idle" or seat_home.z > 1.0:
 			continue
-		if bool(f.get_meta("wandering", false)) or f.get_meta("banter_until", 0.0) > now:
+		if bool(member.get_meta("wandering", false)) or member.get_meta("banter_until", 0.0) > now:
 			continue
-		candidates.append(f)
+		candidates.append(member)
 	if candidates.is_empty():
 		return
 	var f: Node3D = candidates[randi() % candidates.size()]
@@ -3287,14 +3284,14 @@ func _gunner_test_tick(delta: float) -> void:
 		return
 	if all_pass and dry_count >= gunner_count:
 		for f in _gt_state:
-			var st: Dictionary = _gt_state[f]
-			print("GUNNERTEST gunner ", f.name, ": fired=", st.fired, " reloaded=", st.reloaded, " refired=", st.refired, " dry=", st.dry)
+			var state: Dictionary = _gt_state[f]
+			print("GUNNERTEST gunner ", f.name, ": fired=", state.fired, " reloaded=", state.reloaded, " refired=", state.refired, " dry=", state.dry)
 		print("GUNNERTEST PASS t=", snappedf(_gt_t, 0.1), "s (reserve exhausted, all gunners cease fire)")
 		get_tree().quit(0)
 	elif _gt_t > 180.0:
 		for f in _gt_state:
-			var st: Dictionary = _gt_state[f]
-			print("GUNNERTEST gunner ", f.name, ": fired=", st.fired, " reloaded=", st.reloaded, " refired=", st.refired, " ammo=", st.prev_ammo)
+			var state: Dictionary = _gt_state[f]
+			print("GUNNERTEST gunner ", f.name, ": fired=", state.fired, " reloaded=", state.reloaded, " refired=", state.refired, " ammo=", state.prev_ammo)
 		print("GUNNERTEST FAIL: timeout")
 		get_tree().quit(1)
 
@@ -5456,8 +5453,8 @@ func on_obstacle_hit(hard: bool, speed_kmh: float, obstacle: Node3D = null) -> v
 			obstacle.set_meta("knocked", true)
 			rv.add_collision_exception_with(obstacle)
 			obstacle.freeze = false
-			var drive_dir := -1.0 if rv.reversing else 1.0
-			var dir := -rv.global_transform.basis.z * drive_dir
+			var hit_dir := -1.0 if rv.reversing else 1.0
+			var dir := -rv.global_transform.basis.z * hit_dir
 			obstacle.apply_central_impulse((dir * (4.0 + speed_kmh * 0.06) + Vector3(0.0, 2.2, 0.0)) * obstacle.mass)
 			obstacle.apply_torque_impulse(Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * 3.0 * obstacle.mass)
 			_wrecks.append(obstacle)
@@ -6469,18 +6466,18 @@ func _facade_tex(cols: int, rows: int, base: Color, win: Color) -> Texture2D:
 	return tex
 
 ## 给景物加实心碰撞（layer 1 默认层：房车/玩家/丧尸都会撞上），随 consumable 一并回收；report=true 时进 obstacle_hard 组（撞上有伤害/提示反馈）
-func _solid_box(parent: Node3D, size: Vector3, pos: Vector3, report := false) -> void:
+func _solid_box(parent: Node3D, p_size: Vector3, pos: Vector3, report := false) -> void:
 	var body := StaticBody3D.new()
 	var cs := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = size
+	box.size = p_size
 	cs.shape = box
 	cs.position = pos
 	body.add_child(cs)
-	var half := size * 0.5
+	var half := p_size * 0.5
 	var nav_obstacle := NavigationObstacle3D.new()
 	nav_obstacle.avoidance_enabled = true
-	nav_obstacle.height = size.y
+	nav_obstacle.height = p_size.y
 	nav_obstacle.position = Vector3(pos.x, pos.y - half.y, pos.z)
 	nav_obstacle.vertices = PackedVector3Array([
 		Vector3(-half.x, 0, -half.z), Vector3(half.x, 0, -half.z),
@@ -7000,10 +6997,10 @@ var _poster_cache: Dictionary = {}
 var _grid_cache: Texture2D
 
 ## 通用盒体零件
-func _prop_box(parent: Node3D, size: Vector3, pos: Vector3, col: Color, rot := Vector3.ZERO) -> MeshInstance3D:
+func _prop_box(parent: Node3D, p_size: Vector3, pos: Vector3, col: Color, rot := Vector3.ZERO) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var bm := BoxMesh.new()
-	bm.size = size
+	bm.size = p_size
 	mi.mesh = bm
 	mi.position = pos
 	mi.rotation = rot
@@ -7318,7 +7315,7 @@ func _build_wreck(root: Node3D) -> void:
 	var paint: Color = paints[randi() % paints.size()].darkened(randf_range(0.05, 0.25))
 	var rust := Color(0.34, 0.20, 0.12)
 	var glass := Color(0.12, 0.15, 0.17)
-	var size := Vector3(2.0, 1.6, 4.4)
+	var wreck_size := Vector3(2.0, 1.6, 4.4)
 	match kind:
 		0:
 			_prop_box(root, Vector3(1.8, 0.55, 4.2), Vector3(0, 0.62, 0), paint)
@@ -7337,7 +7334,7 @@ func _build_wreck(root: Node3D) -> void:
 			for wx in [-0.92, 0.92]:
 				for wz in [-1.55, 1.55]:
 					_wreck_wheel(root, wx, wz)
-			size = Vector3(2.1, 1.7, 4.9)
+			wreck_size = Vector3(2.1, 1.7, 4.9)
 		2:
 			_prop_box(root, Vector3(2.35, 2.5, 9.4), Vector3(0, 1.55, 0), paint)
 			_prop_box(root, Vector3(2.40, 0.85, 8.4), Vector3(0, 2.0, 0), glass)
@@ -7345,7 +7342,7 @@ func _build_wreck(root: Node3D) -> void:
 			for wx in [-1.05, 1.05]:
 				for wz in [-3.3, 0.0, 3.2]:
 					_wreck_wheel(root, wx, wz, 0.42)
-			size = Vector3(2.45, 3.0, 9.5)
+			wreck_size = Vector3(2.45, 3.0, 9.5)
 		_:
 			_prop_box(root, Vector3(2.15, 2.25, 2.7), Vector3(0, 1.55, -2.6), paint)
 			_prop_box(root, Vector3(2.02, 0.72, 1.2), Vector3(0, 2.05, -3.55), glass)
@@ -7353,8 +7350,8 @@ func _build_wreck(root: Node3D) -> void:
 			for wx in [-1.02, 1.02]:
 				for wz in [-2.9, 1.3, 2.6]:
 					_wreck_wheel(root, wx, wz, 0.40)
-			size = Vector3(2.4, 2.9, 8.3)
-	_solid_box(root, size, Vector3(0, size.y * 0.5, 0))
+			wreck_size = Vector3(2.4, 2.9, 8.3)
+	_solid_box(root, wreck_size, Vector3(0, wreck_size.y * 0.5, 0))
 
 var _scene_aabbs: Dictionary = {}
 

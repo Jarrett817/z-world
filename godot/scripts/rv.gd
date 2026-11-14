@@ -120,10 +120,10 @@ func _physics_process(delta: float) -> void:
 		# 水平化速度：y 分量由贴地逻辑接管，带坡度会被 move_and_slide 当碰撞损耗（爬坡难的根因）
 		var fwd0 := -global_transform.basis.z
 		fwd0.y = 0.0
-		var drive_dir := -1.0 if reversing else 1.0
-		var drive_velocity := fwd0.normalized() * (speed_kmh * KMH_TO_UNITS * drive_dir)
-		velocity.x = drive_velocity.x
-		velocity.z = drive_velocity.z
+		var dir0 := -1.0 if reversing else 1.0
+		var vel0 := fwd0.normalized() * (speed_kmh * KMH_TO_UNITS * dir0)
+		velocity.x = vel0.x
+		velocity.z = vel0.z
 		_move_with_support(delta)
 		_update_water(0.0)   # 移动后用新位置重算浮水状态，姿态与支撑保持同帧
 		_align_to_terrain(_water_f)
@@ -210,9 +210,9 @@ func _physics_process(delta: float) -> void:
 				elif reversing or speed_kmh > desired_speed:
 					speed_kmh = maxf(speed_kmh - BRAKE * braking * delta, desired_speed)
 				elif speed_kmh < desired_speed:
-					var climb := 1.0 + maxf(slope, 0.0) * 0.5
-					var accel := lerpf(ACCEL * grip * climb, WATER_ACCEL, _water_f)
-					speed_kmh = minf(speed_kmh + accel * delta, desired_speed)
+					var crew_climb := 1.0 + maxf(slope, 0.0) * 0.5
+					var crew_accel := lerpf(ACCEL * grip * crew_climb, WATER_ACCEL, _water_f)
+					speed_kmh = minf(speed_kmh + crew_accel * delta, desired_speed)
 				# 低速已经贴住障碍时先倒出空间，再沿上次选定的空侧绕行，杜绝反复顶墙
 				if center_hit > 0.0 and center_hit <= 7.0 and speed_kmh < 2.0 and not reversing and not engine_dead:
 					_crew_stuck_t += delta
@@ -223,15 +223,15 @@ func _physics_process(delta: float) -> void:
 					_crew_stuck_t = 0.0
 			var fwd1 := -global_transform.basis.z
 			fwd1.y = 0.0
-			var drive_dir := -1.0 if reversing else 1.0
-			var drive_velocity := fwd1.normalized() * (speed_kmh * KMH_TO_UNITS * drive_dir)
-			velocity.x = drive_velocity.x
-			velocity.z = drive_velocity.z
+			var dir1 := -1.0 if reversing else 1.0
+			var vel1 := fwd1.normalized() * (speed_kmh * KMH_TO_UNITS * dir1)
+			velocity.x = vel1.x
+			velocity.z = vel1.z
 			_move_with_support(delta)
 			if not combat_in:
 				_report_collisions()
 				if is_on_wall():
-					speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd1 * drive_dir) / KMH_TO_UNITS))
+					speed_kmh = minf(speed_kmh, maxf(0.0, get_real_velocity().dot(fwd1 * dir1) / KMH_TO_UNITS))
 		_update_water(0.0)
 		_align_to_terrain(_water_f)
 		main_node.rv_model.rotation.x = lerpf(main_node.rv_model.rotation.x, 0.0, delta * 3.0)

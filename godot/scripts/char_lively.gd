@@ -105,7 +105,7 @@ func end_combat() -> void:
 	_in_combat = false
 	_hold = &""
 
-func _on_one_shot_done(name: StringName) -> void:
+func _on_one_shot_done(_anim_name: StringName) -> void:
 	if _hold != &"":
 		var back := _hold
 		_hold = &""

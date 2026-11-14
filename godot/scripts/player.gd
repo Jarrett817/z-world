@@ -704,7 +704,6 @@ func _try_fire() -> void:
 	if fire_cd > 0.0 or _switch_t > 0.0:
 		return
 	var cfg := _cfg()
-	var mag := int(cfg["mag_size"])
 	if ammo() == 0:
 		if reload_t == 0.0:
 			reload_t = float(cfg["reload_time"])

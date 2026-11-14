@@ -151,11 +151,11 @@ func build(rv_node: Node) -> void:
 	rv = rv_node
 	# Esc 暂停菜单需要暂停期间仍能响应点击
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	var theme := Theme.new()
+	var th := Theme.new()
 	var f := SystemFont.new()
 	f.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "sans-serif"])
-	theme.default_font = f
-	theme.default_font_size = 16
+	th.default_font = f
+	th.default_font_size = 16
 
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -916,7 +916,7 @@ func _build_story(root: Control) -> void:
 	story_root.resized.connect(_layout_story_right)
 
 ## 打字机效果：正文逐字显示，显示完再放出选项按钮
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	var tab := Input.is_physical_key_pressed(KEY_TAB)
 	if tab and not _tab_down:
 		crew_visible = not crew_visible
@@ -1356,7 +1356,7 @@ func _refresh_facilities() -> void:
 		facilities_rows.add_child(card)
 
 ## 拼接动作当前收益描述
-func _action_detail(main: Node, act: Dictionary, lv: int) -> String:
+func _action_detail(_main: Node, act: Dictionary, lv: int) -> String:
 	var cost_parts := []
 	if float(act.get("food", 0)) > 0:
 		cost_parts.append("食物 -%d" % int(act["food"]))
@@ -1496,10 +1496,10 @@ func show_victory(main: Node3D) -> void:
 	victory_root.visible = true
 
 # ---------- 控件工厂 ----------
-func _panel(pos: Vector2, size: Vector2) -> Panel:
+func _panel(pos: Vector2, p_size: Vector2) -> Panel:
 	var p := Panel.new()
 	p.position = pos
-	p.size = size
+	p.size = p_size
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.165, 0.137, 0.125, 0.78)
@@ -1512,12 +1512,12 @@ func _panel(pos: Vector2, size: Vector2) -> Panel:
 	p.add_theme_stylebox_override("panel", sb)
 	return p
 
-func _label(text: String, size: int, col: Color, pos := Vector2.ZERO) -> Label:
+func _label(text: String, f_size: int, col: Color, pos := Vector2.ZERO) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.position = pos
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_font_size_override("font_size", f_size)
 	l.add_theme_color_override("font_color", col)
 	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
 	l.add_theme_constant_override("shadow_offset_x", 2)
