@@ -31,8 +31,8 @@ var model_root: Node3D
 var _body_meshes: Array[MeshInstance3D] = []
 var muzzle: Node3D
 var gun: Node3D          # 当前枪的挂点（grip 对齐点），俯仰/后坐作用在它身上
-var _fps_arms: Node3D    # 从 hero 抽取的手部精模，跟随枪挂点运动后坐/换弹
-var _fps_sleeves: Array[MeshInstance3D] = []
+var _fps_arms: Node3D    # 从 hero 抽取的手臂网格（含战术外套袖），跟随枪挂点运动后坐/换弹
+var _fps_arms_skel: Skeleton3D
 var _fps_support: Node3D
 var _fps_support_pos := Vector3.ZERO
 var _fps_left_hand := -1
@@ -233,43 +233,18 @@ func _equip_current() -> void:
 	_fps_left_hand = arms_skel.find_bone("J_Bip_L_Hand")
 	var hand_basis := (arms_skel.global_transform * arms_skel.get_bone_global_pose(_fps_left_hand)).basis
 	_fps_support.basis = gun.global_transform.basis.inverse() * hand_basis
-	_fps_sleeves.clear()
-	var sleeve_mat := StandardMaterial3D.new()
-	sleeve_mat.albedo_color = Color(0.12, 0.15, 0.16)
-	sleeve_mat.roughness = 0.92
-	for i in 2:
-		var sleeve := MeshInstance3D.new()
-		var sm := CapsuleMesh.new()
-		sm.radius = 0.042
-		sm.height = 0.24
-		sm.radial_segments = 16
-		sm.rings = 6
-		sleeve.mesh = sm
-		sleeve.material_override = sleeve_mat
-		arms_skel.add_child(sleeve)
-		_fps_sleeves.append(sleeve)
-	arms_skel.pose_updated.connect(_update_fps_sleeves)
-	_update_fps_sleeves()
+	_fps_arms_skel = arms_skel
+	arms_skel.pose_updated.connect(_apply_fps_fingers)
+	_apply_fps_fingers()
 	main_node.hud.set_combat_gun(cfg["name"], ammo(), int(cfg["mag_size"]))
 	main_node.hud.set_combat_grenades(_grenades)
 
-func _update_fps_sleeves() -> void:
-	if _fps_sleeves.size() != 2:
+## 每帧动画重写指骨后套用握把屈曲，避免近景张开手掌
+func _apply_fps_fingers() -> void:
+	if _fps_arms_skel == null:
 		return
-	var skel := _fps_sleeves[0].get_parent() as Skeleton3D
 	for bone in _fps_finger_pose:
-		skel.set_bone_pose_rotation(bone, _fps_finger_pose[bone])
-	for i in 2:
-		var side := "L" if i == 0 else "R"
-		var elbow := skel.get_bone_global_pose(skel.find_bone("J_Bip_%s_LowerArm" % side)).origin
-		var wrist := skel.get_bone_global_pose(skel.find_bone("J_Bip_%s_Hand" % side)).origin
-		var dir := (wrist - elbow).normalized()
-		var start := elbow - dir * 0.10
-		var end := wrist + dir * 0.035
-		var sleeve := _fps_sleeves[i]
-		sleeve.position = (start + end) * 0.5
-		sleeve.quaternion = Quaternion(Vector3.UP, dir)
-		sleeve.scale = Vector3(1.0, start.distance_to(end) / 0.24, 1.0)
+		_fps_arms_skel.set_bone_pose_rotation(bone, _fps_finger_pose[bone])
 
 ## 切换武器（数字键直选 / HUD 按钮循环）
 func switch_gun(idx: int) -> void:
@@ -561,9 +536,9 @@ func _apply_gun(delta: float) -> void:
 	if mode == Mode.ON_FOOT and _ads_t > 0.0:
 		var ap: Array = _ads_cfg.get("pos", [-0.10, 1.24, 0.24])
 		base_pos = base_pos.lerp(Vector3(ap[0], ap[1], ap[2]), _ads_t)
-	# 第一人称把枪前移：让枪托越过镜头，画面里不再出现一大块枪托底板；ADS 时保持原校准距离
+	# 第一人称不再把整枪前移：手臂与枪共用挂点，前移会把肩部顶到镜头前变成大块黑袖
 	if fps and mode != Mode.SUNROOF:
-		base_pos.z += 0.30 * (1.0 - _ads_t)
+		base_pos.z += 0.06 * (1.0 - _ads_t)
 	# 换弹单峰包络下沉；换枪起手重压后抬回；跑动低持侧倾
 	var reload_env := sin(PI * _reload_p) if _reload_p > 0.0 else 0.0
 	if _fps_support != null:
@@ -595,9 +570,8 @@ func _apply_gun(delta: float) -> void:
 func _align_fps_support() -> void:
 	if not _fps_arms.visible:
 		return
-	var skel := _fps_sleeves[0].get_parent() as Skeleton3D
-	var pose := skel.global_transform.affine_inverse() * _fps_support.global_transform
-	skel.set_bone_global_pose_override(_fps_left_hand, pose, 1.0, true)
+	var pose := _fps_arms_skel.global_transform.affine_inverse() * _fps_support.global_transform
+	_fps_arms_skel.set_bone_global_pose_override(_fps_left_hand, pose, 1.0, true)
 
 ## 抛壳：轻量弹壳按抛物线飞出，落地即消失（不用刚体，避免每发创建物理体）
 func _eject_shell() -> void:

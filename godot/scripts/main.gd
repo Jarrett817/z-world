@@ -871,6 +871,12 @@ func _process(delta: float) -> void:
 		crew_figures[i].visible = i < crew_members.size() and ((on_roof and view_mode == 0) or (not on_roof and view_mode != 0))
 	if driver_figure != null:
 		driver_figure.visible = view_mode == 2 and not combat_active and not crew_driving
+	# 内饰前挡比车壳碰撞盒更靠前：车内视角隐藏贴在这一带之外的丧尸，避免看起来钻进驾驶室
+	for zb in zombies:
+		if not is_instance_valid(zb):
+			continue
+		var lz := rv.to_local((zb as Node3D).global_position).z
+		(zb as Node3D).visible = view_mode == 0 or lz <= -6.6 or lz >= -4.5
 	_update_banter(delta)
 	_update_crew_wander(delta)
 	_update_idle_motions(delta)
@@ -1909,9 +1915,11 @@ func _build_interior() -> void:
 	# 驾驶位前挡：车壳在车内视角隐藏，因此玻璃与窗框必须由内饰层提供
 	var glass_mat := StandardMaterial3D.new()
 	glass_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	glass_mat.albedo_color = Color(0.52, 0.76, 0.86, 0.16)
-	glass_mat.roughness = 0.08
-	glass_mat.metallic = 0.15
+	glass_mat.albedo_color = Color(0.52, 0.76, 0.86, 0.05)
+	glass_mat.roughness = 0.35
+	glass_mat.metallic = 0.0
+	# 前挡正对低角度阳光时的高光会把整个驾驶视角洗白，玻璃不再产生镜面反射
+	glass_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	var frame_mat := StandardMaterial3D.new()
 	frame_mat.albedo_color = Color(0.12, 0.14, 0.15)
 	frame_mat.metallic = 0.35
