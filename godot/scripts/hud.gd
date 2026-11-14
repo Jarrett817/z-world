@@ -160,7 +160,7 @@ func build(rv_node: Node) -> void:
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.theme = theme
+	root.theme = th
 	add_child(root)
 	hud_root = root
 
@@ -916,7 +916,7 @@ func _build_story(root: Control) -> void:
 	story_root.resized.connect(_layout_story_right)
 
 ## 打字机效果：正文逐字显示，显示完再放出选项按钮
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	var tab := Input.is_physical_key_pressed(KEY_TAB)
 	if tab and not _tab_down:
 		crew_visible = not crew_visible

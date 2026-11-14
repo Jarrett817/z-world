@@ -1628,7 +1628,7 @@ void fragment() {
 	_blade_mesh.surface_set_material(0, _grass_mat)
 
 ## 树风摆 shader：阵风沿世界 xz 传播（同草叶机制），顶点色 r 编码风摆权重（根/干 0、枝梢/叶球 1）
-func _wind_shader_code(_textured: bool) -> String:
+func _wind_shader_code(textured: bool) -> String:
 	return """
 shader_type spatial;
 render_mode cull_disabled, diffuse_toon, specular_toon;
