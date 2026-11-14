@@ -1825,30 +1825,39 @@ func _build_interior() -> void:
 	for n in interior.find_children("*", "CollisionObject3D", true, false):
 		n.free()  # 未入树，立即删除避免延迟一帧的推挤
 	rv.add_child(interior)
-	# 压低仪表与顶灯自发光，避免 ACES 下小面积光源曝成白墙
-	var glow_levels := {"gauge_strip": 0.30, "gauges_face": 0.18, "nav_screen": 0.28, "lamp0": 0.35, "lamp1": 0.35}
+	# 仪表与灯具保持清晰可读，但不用高自发光代替实际照明
+	var glow_levels := {"gauge_strip": 0.45, "gauges_face": 0.30, "nav_screen": 0.40, "lamp0": 0.65, "lamp1": 0.65}
 	for glow_name in glow_levels:
 		var glow_mesh := interior.find_child(glow_name, true, false) as MeshInstance3D
 		if glow_mesh != null:
 			var glow_mat := glow_mesh.get_active_material(0) as StandardMaterial3D
 			if glow_mat != null:
 				glow_mat.emission_energy_multiplier = glow_levels[glow_name]
-	# 舱内低亮度暖光：两个原顶灯分区照明，避免单灯把整车照白
+	# 驾驶室顶灯直接复用内饰 GLB 的灯具，与原生活舱两盏灯形成分区照明
+	var source_lamp := interior.find_child("lamp0", true, false) as Node3D
+	var source_base := interior.find_child("lamp_base0", true, false) as Node3D
+	if source_lamp != null and source_base != null:
+		var cab_lamp := source_lamp.duplicate() as Node3D
+		cab_lamp.position.z = -2.65
+		interior.add_child(cab_lamp)
+		var cab_base := source_base.duplicate() as Node3D
+		cab_base.position.z = -2.65
+		interior.add_child(cab_base)
 	var cab_light := OmniLight3D.new()
-	cab_light.light_color = Color(1.0, 0.82, 0.6)
-	cab_light.light_energy = 0.22
-	cab_light.omni_range = 4.6
+	cab_light.light_color = Color(1.0, 0.86, 0.68)
+	cab_light.light_energy = 0.65
+	cab_light.omni_range = 4.8
 	cab_light.position = Vector3(0, 1.72, -2.65)
 	interior.add_child(cab_light)
 	for lp in [Vector3(0, 1.82, -1.2), Vector3(0, 1.82, 1.6)]:
 		var lamp := OmniLight3D.new()
-		lamp.light_color = Color(1.0, 0.80, 0.56)
-		lamp.light_energy = 0.18
-		lamp.omni_range = 3.2
+		lamp.light_color = Color(1.0, 0.84, 0.64)
+		lamp.light_energy = 0.38
+		lamp.omni_range = 3.4
 		lamp.position = lp
 		interior.add_child(lamp)
-	# 顶棚两侧连续灯带：发光条与柔和补光分离，灯带本身不过曝
-	var strip_mat := _emis_mat(Color(1.0, 0.78, 0.46), 0.35)
+	# 顶棚两侧连续灯带：发光条可见，独立弱补光避免局部过曝
+	var strip_mat := _emis_mat(Color(1.0, 0.82, 0.54), 0.60)
 	for side in [-1.0, 1.0]:
 		var strip := MeshInstance3D.new()
 		var strip_mesh := BoxMesh.new()
@@ -1858,21 +1867,29 @@ func _build_interior() -> void:
 		strip.position = Vector3(side * 1.18, 1.92, 0.20)
 		interior.add_child(strip)
 		var fill := OmniLight3D.new()
-		fill.light_color = Color(1.0, 0.83, 0.62)
-		fill.light_energy = 0.08
-		fill.omni_range = 2.8
+		fill.light_color = Color(1.0, 0.86, 0.68)
+		fill.light_energy = 0.16
+		fill.omni_range = 3.0
 		fill.position = Vector3(side * 0.92, 1.70, 0.20)
 		interior.add_child(fill)
-	# 双排座椅前移 1.47m：坐垫中心 -1.5 → -2.97，驾驶员双手正好落在方向盘下缘
+	# 双排座椅前移 1.47m；椅背放在坐垫后缘，避免髋部和腰背陷入椅背
 	for sn in ["seat_c0", "seat_c1", "seat_b0", "seat_b1", "headrest0", "headrest1"]:
 		var seat_mesh: Node3D = interior.find_child(sn, true, false)
 		if seat_mesh != null:
 			seat_mesh.position.z -= 1.47
-	# steer_col 导入后拆成静态碰撞体与 steer 网格；网格原向座椅伸出 0.6m，缩短后只连接仪表台与方向盘
+	for sn in ["seat_b0", "seat_b1", "headrest0", "headrest1"]:
+		var seat_back: Node3D = interior.find_child(sn, true, false)
+		if seat_back != null:
+			seat_back.position.z += 0.08
+	# steer_col 导入后拆成静态碰撞体与 steer 网格；与方向盘同步移到 drive 动画的腕部高度
 	var steer_col: Node3D = interior.find_child("steer", true, false)
 	if steer_col != null:
 		steer_col.scale.z = 0.25
-		steer_col.position.z = -2.5575
+		steer_col.position = Vector3(0, -0.115, -2.3375)
+	var wheel_pivot: Node3D = interior.find_child("wheel_pivot", true, false)
+	if wheel_pivot != null:
+		wheel_pivot.position.y -= 0.115
+		wheel_pivot.position.z += 0.16
 	# 生活舱由 _build_life_props 统一布局；隐藏旧床、宽柜台、落地货架、餐桌及依附摆件，避免两套家具叠在一起
 	for part_name in [
 		"bed", "bed_pad", "blanket", "pillow", "roll",
@@ -2446,7 +2463,7 @@ func _build_life_props() -> void:
 	var shade: MeshInstance3D = cyl.call(0.05, 0.16, 0.14, Vector3(0, 1.80, 0.4), Color(0.85, 0.70, 0.45), 0.6)
 	(shade.material_override as StandardMaterial3D).emission_enabled = true
 	(shade.material_override as StandardMaterial3D).emission = Color(1.0, 0.75, 0.45)
-	(shade.material_override as StandardMaterial3D).emission_energy_multiplier = 0.35
+	(shade.material_override as StandardMaterial3D).emission_energy_multiplier = 0.55
 	cyl.call(0.012, 0.012, 0.14, Vector3(0, 1.92, 0.4), Color(0.2, 0.2, 0.2), 0.6)
 	# 右后角储物箱堆（贴尾墙摞放，避开右墙长凳与尾射孔火线）+ 帆布袋压箱顶
 	box.call(Vector3(0.45, 0.34, 0.50), Vector3(1.00, -0.23, 2.54), wood.darkened(0.1))
@@ -2691,7 +2708,7 @@ func _sync_crew() -> void:
 	if crew_driving and not crew_members.is_empty():
 		# 招募/换班重建人物后，代驾队友仍留在主驾
 		var f: Node3D = crew_figures[0]
-		f.position = Vector3(-0.55, -0.42, -2.95) * INTERIOR_SCALE
+		f.position = Vector3(-0.55, -0.42, -2.85) * INTERIOR_SCALE
 		f.rotation.y = PI
 		var driver_anim := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
 		driver_anim.play("drive", 0.15)
@@ -2789,8 +2806,8 @@ func _set_life_combat(on: bool) -> void:
 ## 主角驾驶位：hero 坐主驾播 drive 动画（坐姿+双手握方向盘已烘焙，仅车内视角可见）
 func _build_driver() -> void:
 	var fig := Node3D.new()
-	# 主驾坐垫后部（坐垫 z -3.24..-2.70）；前移后 drive 双手落在方向盘下缘，不再握着长转向柱
-	fig.position = Vector3(-0.55, -0.42, -2.95) * INTERIOR_SCALE
+	# 现成 drive 动作的定版位置：坐姿落在坐垫上，双手对准方向盘下部轮缘
+	fig.position = Vector3(-0.55, -0.42, -2.85) * INTERIOR_SCALE
 	fig.rotation.y = PI  # 朝车头
 	var lb := Label3D.new()
 	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -3827,7 +3844,7 @@ func set_crew_driving(v: bool) -> void:
 		var driver_anim := f.find_child("AnimationPlayer", true, false) as AnimationPlayer
 		var lb: Label3D = f.get_meta("label")
 		if crew_driving:
-			f.position = Vector3(-0.55, -0.42, -2.95) * INTERIOR_SCALE
+			f.position = Vector3(-0.55, -0.42, -2.85) * INTERIOR_SCALE
 			f.rotation.y = PI
 			driver_anim.play("drive", 0.15)
 			lb.text = "%s · 代驾" % crew_members[0].get("name", "")
