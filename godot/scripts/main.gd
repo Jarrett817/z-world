@@ -1835,7 +1835,7 @@ func _build_interior() -> void:
 		n.free()  # 未入树，立即删除避免延迟一帧的推挤
 	rv.add_child(interior)
 	# 仪表与灯具保持清晰可读，但不用高自发光代替实际照明
-	var glow_levels := {"gauge_strip": 0.45, "gauges_face": 0.30, "nav_screen": 0.40, "lamp0": 0.65, "lamp1": 0.65}
+	var glow_levels := {"gauge_strip": 0.22, "gauges_face": 0.14, "nav_screen": 0.22, "lamp0": 0.45, "lamp1": 0.45}
 	for glow_name in glow_levels:
 		var glow_mesh := interior.find_child(glow_name, true, false) as MeshInstance3D
 		if glow_mesh != null:
@@ -1854,19 +1854,19 @@ func _build_interior() -> void:
 		interior.add_child(cab_base)
 	var cab_light := OmniLight3D.new()
 	cab_light.light_color = Color(1.0, 0.86, 0.68)
-	cab_light.light_energy = 0.65
+	cab_light.light_energy = 0.40
 	cab_light.omni_range = 4.8
 	cab_light.position = Vector3(0, 1.72, -2.65)
 	interior.add_child(cab_light)
 	for lp in [Vector3(0, 1.82, -1.2), Vector3(0, 1.82, 1.6)]:
 		var lamp := OmniLight3D.new()
 		lamp.light_color = Color(1.0, 0.84, 0.64)
-		lamp.light_energy = 0.38
+		lamp.light_energy = 0.22
 		lamp.omni_range = 3.4
 		lamp.position = lp
 		interior.add_child(lamp)
 	# 顶棚两侧连续灯带：发光条可见，独立弱补光避免局部过曝
-	var strip_mat := _emis_mat(Color(1.0, 0.82, 0.54), 0.60)
+	var strip_mat := _emis_mat(Color(1.0, 0.82, 0.54), 0.30)
 	for side in [-1.0, 1.0]:
 		var strip := MeshInstance3D.new()
 		var strip_mesh := BoxMesh.new()
@@ -1877,7 +1877,7 @@ func _build_interior() -> void:
 		interior.add_child(strip)
 		var fill := OmniLight3D.new()
 		fill.light_color = Color(1.0, 0.86, 0.68)
-		fill.light_energy = 0.16
+		fill.light_energy = 0.10
 		fill.omni_range = 3.0
 		fill.position = Vector3(side * 0.92, 1.70, 0.20)
 		interior.add_child(fill)
@@ -2516,7 +2516,7 @@ func _build_life_props() -> void:
 	var shade: MeshInstance3D = cyl.call(0.05, 0.16, 0.14, Vector3(0, 1.80, 0.4), Color(0.85, 0.70, 0.45), 0.6)
 	(shade.material_override as StandardMaterial3D).emission_enabled = true
 	(shade.material_override as StandardMaterial3D).emission = Color(1.0, 0.75, 0.45)
-	(shade.material_override as StandardMaterial3D).emission_energy_multiplier = 0.55
+	(shade.material_override as StandardMaterial3D).emission_energy_multiplier = 0.32
 	cyl.call(0.012, 0.012, 0.14, Vector3(0, 1.92, 0.4), Color(0.2, 0.2, 0.2), 0.6)
 	# 右后角储物箱堆（贴尾墙摞放，避开右墙长凳与尾射孔火线）+ 帆布袋压箱顶
 	for cp in [Vector3(1.00, -0.40, 2.54), Vector3(1.00, -0.06, 2.54)]:
@@ -2990,7 +2990,7 @@ func _update_idle_motions(delta: float) -> void:
 	anim.loop_mode = Animation.LOOP_NONE
 	ap.play(anim_name, 0.25)
 	get_tree().create_timer(anim.length).timeout.connect(func() -> void:
-		if is_instance_valid(f) and not bool(f.get_meta("wandering", false)) and ap.has_animation(base):
+		if is_instance_valid(f) and is_instance_valid(ap) and not bool(f.get_meta("wandering", false)) and ap.has_animation(base):
 			ap.play(base, 0.25)
 	, CONNECT_ONE_SHOT)
 
