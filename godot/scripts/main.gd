@@ -2353,6 +2353,21 @@ func _build_life_props() -> void:
 		inst.position = pos - Vector3(combined.get_center().x * s.x, combined.position.y * s.y, combined.get_center().z * s.z)
 		inst.rotation.y = rot_y
 		return inst
+	# 程序化做旧纹理：木件/织物用三平面噪声打散纯色，避免死板方块感
+	var grain := FastNoiseLite.new()
+	grain.noise_type = FastNoiseLite.TYPE_CELLULAR
+	grain.frequency = 0.035
+	grain.fractal_octaves = 3
+	var grain_tex := NoiseTexture2D.new()
+	grain_tex.noise = grain
+	grain_tex.seamless = true
+	grain_tex.width = 256
+	grain_tex.height = 256
+	# 只做轻微明暗斑驳，不把基色压暗
+	var ramp := Gradient.new()
+	ramp.set_color(0, Color(0.80, 0.80, 0.80))
+	ramp.set_color(1, Color(1.0, 1.0, 1.0))
+	grain_tex.color_ramp = ramp
 	var box := func(size: Vector3, pos: Vector3, color: Color, rough := 0.95) -> void:
 		var mi := MeshInstance3D.new()
 		var bm := BoxMesh.new()
@@ -2361,6 +2376,10 @@ func _build_life_props() -> void:
 		var m := StandardMaterial3D.new()
 		m.albedo_color = color
 		m.roughness = rough
+		if rough >= 0.85:
+			m.albedo_texture = grain_tex
+			m.uv1_triplanar = true
+			m.uv1_scale = Vector3(2.2, 2.2, 2.2)
 		mi.material_override = m
 		mi.position = pos
 		interior.add_child(mi)
