@@ -209,6 +209,7 @@ var _shift_cd := 0.0
 var _npc_gun_cfg: Dictionary = {}   # guns.json "npc_gunner" 节：射手弹匣/换弹/射界（首次用到时加载）
 var driver_figure: Node3D   # 主角驾驶位模型（坐姿 + 双手 IK 握方向盘）
 var crew_font: SystemFont
+var _furn_cache: Dictionary = {}
 
 var music_a: AudioStreamPlayer
 var music_b: AudioStreamPlayer
@@ -2314,6 +2315,42 @@ func _build_roof_props() -> void:
 
 ## 生活道具：床铺/吊柜/地毯/水壶/罐头/盆栽/吊灯罩/照片墙/储物箱（纯装饰，随内饰显隐；坐标为 rv 本地，地板顶 y=-0.4）
 func _build_life_props() -> void:
+	# 现成家具：按目标尺寸自动缩放，底部贴地、中心对齐 pos，rot_y 绕 Y 旋转
+	var furn := func(res_name: String, target_size: Vector3, pos: Vector3, rot_y := 0.0) -> Node3D:
+		if not _furn_cache.has(res_name):
+			_furn_cache[res_name] = load("res://assets/furniture/%s.glb" % res_name)
+		var inst: Node3D = (_furn_cache[res_name] as PackedScene).instantiate()
+		interior.add_child(inst)
+		var meshes: Array = inst.find_children("*", "MeshInstance3D", true, false)
+		var combined: AABB
+		var first := true
+		for n in meshes:
+			var m := n as MeshInstance3D
+			var ab: AABB = m.get_aabb()
+			# 沿父链累积到 inst 空间（不依赖 global_transform，避免未入树报错）
+			var sc := Vector3.ONE
+			var off := Vector3.ZERO
+			var node: Node3D = m
+			while node != inst and node != null:
+				off = off * node.scale + node.position
+				sc *= node.scale
+				node = node.get_parent()
+			var ab_inst := AABB(ab.position * sc + off, ab.size * sc)
+			if first:
+				combined = ab_inst
+				first = false
+			else:
+				combined = combined.merge(ab_inst)
+		var s_y: float = target_size.y / combined.size.y
+		var s := Vector3(s_y, s_y, s_y)
+		if target_size.x > 0.0:
+			s.x = target_size.x / combined.size.x
+		if target_size.z > 0.0:
+			s.z = target_size.z / combined.size.z
+		inst.scale = s
+		inst.position = pos - Vector3(combined.get_center().x * s.x, combined.position.y * s.y, combined.get_center().z * s.z)
+		inst.rotation.y = rot_y
+		return inst
 	var box := func(size: Vector3, pos: Vector3, color: Color, rough := 0.95) -> void:
 		var mi := MeshInstance3D.new()
 		var bm := BoxMesh.new()
@@ -2348,21 +2385,8 @@ func _build_life_props() -> void:
 	box.call(Vector3(0.48, 0.845, 2.20), Vector3(-1.06, 0.0225, -0.20), wood.darkened(0.04), 0.85)
 	box.call(Vector3(0.48, 0.05, 2.20), Vector3(-1.06, 0.47, -0.20), Color(0.65, 0.62, 0.54), 0.65)
 	_add_interior_collision(Vector3(0.48, 0.895, 2.20), Vector3(-1.06, 0.0475, -0.20))
-	# 四根角柱自地板通到上铺床板，兼作下铺支架
-	for px in [-1.30, -0.74]:
-		for pz in [1.12, 2.72]:
-			box.call(Vector3(0.06, 1.02, 0.06), Vector3(px, 0.19, pz), wood.darkened(0.08))
-	# 下铺：床板/床垫/枕头/毯子（头朝车尾）
-	box.call(Vector3(0.62, 0.10, 1.66), Vector3(-1.02, -0.27, 1.92), wood)
-	box.call(Vector3(0.60, 0.10, 1.58), Vector3(-1.02, -0.17, 1.90), mattress_col)
-	box.call(Vector3(0.46, 0.08, 0.20), Vector3(-1.02, -0.08, 2.55), pillow_col)
-	box.call(Vector3(0.60, 0.04, 1.00), Vector3(-1.02, -0.10, 1.60), blanket_col)
-	# 上铺：床板/床垫/枕头/毯子 + 过道侧防护横杆（床尾半段留空给爬梯）
-	box.call(Vector3(0.62, 0.08, 1.66), Vector3(-1.02, 0.62, 1.92), wood)
-	box.call(Vector3(0.60, 0.10, 1.58), Vector3(-1.02, 0.72, 1.90), mattress_col)
-	box.call(Vector3(0.46, 0.08, 0.20), Vector3(-1.02, 0.81, 2.55), pillow_col)
-	box.call(Vector3(0.60, 0.04, 1.00), Vector3(-1.02, 0.79, 1.60), blanket_col)
-	box.call(Vector3(0.04, 0.12, 0.52), Vector3(-0.68, 0.89, 2.46), wood.darkened(0.08))
+	# 左墙上下铺：现成 BunkBed1 替换程序化床体，保留爬梯与布帘
+	furn.call("bunk_bed", Vector3(0.0, 1.42, 1.62), Vector3(-1.02, -0.40, 1.92), 0.0)
 	# 床尾爬梯：双竖杆 + 四级横档（立于半墙前的过道侧）
 	box.call(Vector3(0.04, 0.90, 0.04), Vector3(-0.60, 0.23, 0.96), wood.darkened(0.12))
 	box.call(Vector3(0.04, 0.90, 0.04), Vector3(-0.76, 0.23, 0.96), wood.darkened(0.12))
@@ -2380,9 +2404,9 @@ func _build_life_props() -> void:
 	var fold_col := canvas_col.darkened(0.25)
 	for fz in [1.45, 1.80]:
 		box.call(Vector3(0.012, 0.40, 0.03), Vector3(-0.683, 0.10, fz), fold_col, 1.0)
-	# 左墙吊柜 ×2，只覆盖灶台，不伸进上铺和爬梯空间
+	# 左墙吊柜 ×2：现成 upper_cabinet，只覆盖灶台，不伸进上铺和爬梯空间
 	for i in 2:
-		box.call(Vector3(0.40, 0.48, 0.55), Vector3(-1.08, 1.32, -0.55 + float(i) * 0.75), wood.darkened(0.15), 0.85)
+		furn.call("upper_cabinet", Vector3(0.40, 0.48, 0.30), Vector3(-1.08, 0.84, -0.55 + float(i) * 0.75), 0.0)
 	# 右排座椅上方开放式行李架：尾部止于射孔站位之前
 	box.call(Vector3(0.42, 0.05, 1.80), Vector3(1.08, 1.37, -0.10), wood.darkened(0.12), 0.85)
 	for rx in [0.86, 1.28]:
@@ -2395,8 +2419,10 @@ func _build_life_props() -> void:
 		crate.scale = Vector3.ONE * 0.20
 		crate.position = Vector3(1.08, 1.40, -0.62 + float(i) * 0.55)
 		interior.add_child(crate)
-	# 生活舱地毯（暗红棕做旧）
-	box.call(Vector3(1.20, 0.02, 1.60), Vector3(0.05, -0.39, 0.40), Color(0.35, 0.18, 0.14), 1.0)
+	# 生活舱地毯：现成 rug_rect
+	furn.call("rug_rect", Vector3(1.20, 0.0, 1.60), Vector3(0.05, -0.40, 0.40), 0.0)
+	# 灶台本体：现成 stove 模型（带炉盘与旋钮），放在台面上
+	furn.call("stove", Vector3(0.40, 0.12, 0.35), Vector3(-1.06, 0.495, -0.20), PI * 0.5)
 	# 灶台上的水壶与罐头，全部落在台面高度
 	cyl.call(0.07, 0.08, 0.22, Vector3(-1.16, 0.605, 0.80), Color(0.62, 0.64, 0.66), 0.45)
 	cyl.call(0.06, 0.07, 0.18, Vector3(-0.96, 0.585, 0.80), Color(0.55, 0.52, 0.45), 0.6)
@@ -2480,9 +2506,8 @@ func _build_life_props() -> void:
 	sack.scale = Vector3(1.0, 0.72, 1.0)
 	sack.position = Vector3(1.00, 0.32, 2.54)
 	interior.add_child(sack)
-	# 右墙贴墙长凳：两个朝舱内的坐姿生活位，尾部留出储物与收拾站位
-	box.call(Vector3(0.50, 0.12, 0.82), Vector3(1.00, -0.16, 1.80), mattress_col)
-	box.call(Vector3(0.08, 0.62, 0.82), Vector3(1.23, 0.15, 1.80), wood.darkened(0.05))
+	# 右墙贴墙长凳：现成 couch 替换程序化座椅，面朝舱内
+	furn.call("couch", Vector3(0.0, 0.50, 0.82), Vector3(1.00, -0.40, 1.80), PI * 0.5)
 	_add_interior_collision(Vector3(0.45, 0.60, 0.50), Vector3(1.00, -0.10, 2.54))
 	_add_interior_collision(Vector3(0.54, 0.86, 0.82), Vector3(1.02, 0.03, 1.80))
 	# 14 个普通座椅与生活位一一对应；椅面中心比人物 root 靠后 0.20m，中央过道保持贯通
@@ -2494,8 +2519,8 @@ func _build_life_props() -> void:
 		for sx in [0.35, 0.90]:
 			seats.append(Vector2(sx, -0.85 + float(row) * 0.50))
 	for seat in seats:
-		box.call(Vector3(0.43, 0.12, 0.42), Vector3(seat.x, -0.16, seat.y), mattress_col)
-		box.call(Vector3(0.43, 0.62, 0.08), Vector3(seat.x, 0.15, seat.y + 0.21), wood.darkened(0.05))
+		var ry := -PI * 0.5 if seat.x > 0.0 else PI * 0.5
+		furn.call("chair", Vector3(0.0, 0.50, 0.42), Vector3(seat.x, -0.40, seat.y), ry)
 		for lx in [seat.x - 0.13, seat.x + 0.13]:
 			box.call(Vector3(0.05, 0.24, 0.05), Vector3(lx, -0.28, seat.y), wood.darkened(0.12))
 		_add_interior_collision(Vector3(0.43, 0.92, 0.50), Vector3(seat.x, 0.06, seat.y + 0.04))
