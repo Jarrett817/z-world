@@ -2911,7 +2911,9 @@ func _start_banter() -> void:
 		if la0 != null:
 			la0.talk(3.0)
 		return
-	var bubble: Label3D = fa.get_meta("bubble", null)
+	var bubble: Label3D = null
+	if fa.has_meta("bubble"):
+		bubble = fa.get_meta("bubble") as Label3D
 	if bubble == null:
 		bubble = Label3D.new()
 		bubble.billboard = BaseMaterial3D.BILLBOARD_ENABLED
