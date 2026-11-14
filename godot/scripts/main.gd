@@ -1533,7 +1533,7 @@ func _recycle_world() -> void:
 	var rvz := rv.global_position.z
 	# 地形重建：覆盖区间 [terrain_front-SPAN, terrain_front]（碰撞高度图另向后延 40m）
 	# 前进时可视前沿接近末端重建；倒车时接近后沿也重建，否则会撞上隐形高度图后沿
-	if rvz - VIEW_AHEAD < terrain_front - terrain.SPAN + 60.0 or rvz + 20.0 > terrain_front:
+	if not terrain._build_active and (rvz - VIEW_AHEAD < terrain_front - terrain.SPAN + 60.0 or rvz + 20.0 > terrain_front):
 		terrain_front = rvz + 100.0
 		terrain.rebuild(terrain_front)
 	# 路肩景物回收：原地反向清理，避免每帧 filter 分配新数组

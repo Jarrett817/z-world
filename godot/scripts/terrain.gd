@@ -34,9 +34,6 @@ var _build_active := false
 var _pending_mesh: ArrayMesh
 var _pending_start := 0.0
 var _pending_surface := 0
-var _col_map := PackedFloat32Array()
-var _col_row := 0
-var _col_z0 := 0.0
 
 # 碰撞高度图：x ∈ ±400m 步长 2.5，z 覆盖条带前后各留余量（与视觉地面同一高度函数）
 const COL_HALF_X := 400.0
@@ -44,7 +41,6 @@ const COL_STEP := 2.5
 const COL_BACK := 40.0    # 条带起点向后（+Z）覆盖
 const COL_FWD := 900.0    # 向前（-Z）覆盖
 const SURFACE_COUNT := 19
-const COL_ROWS_PER_FRAME := 12
 
 func _ready() -> void:
 	# 静态碰撞体常驻，shape 随 rebuild 换新（真实地形高度，丧尸/车/人贴地）
@@ -56,54 +52,33 @@ func _ready() -> void:
 
 func rebuild(start_z: float, immediate := false) -> void:
 	_main = get_parent()
-	# 开局与里程跳转没有可保留的就近地形，必须同步完成；常规行驶重建分帧执行
+	# 开局与里程跳转没有可保留的就近地形，必须同步完成；常规行驶仅视觉网格分帧执行
 	if immediate or mesh == null:
 		_build_active = false
 		_pending_mesh = null
-		_col_map = PackedFloat32Array()
 		mesh = _make_mesh(start_z)
 		_rebuild_collision(start_z)
 		return
 	_pending_start = start_z
 	_pending_mesh = ArrayMesh.new()
 	_pending_surface = 0
-	_col_row = 0
-	_col_map = PackedFloat32Array()
 	_ensure_materials()
+	# 车辆不能在旧碰撞边界前等待分帧生成，碰撞必须在本次重建返回前就绪
+	_rebuild_collision(start_z)
 	_build_active = true
 
-## 每帧只生成一个视觉 surface 或一段碰撞行，旧网格与旧碰撞保留到新地形完整就绪
+## 每帧只生成一个视觉 surface，旧网格保留到新地形完整就绪
 func _process(_delta: float) -> void:
 	if not _build_active:
 		return
+	var index := _pending_surface
+	_pending_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _surface_arrays(index, _pending_start))
+	_pending_mesh.surface_set_material(index, _mats[index])
+	_pending_surface += 1
 	if _pending_surface < SURFACE_COUNT:
-		var index := _pending_surface
-		_pending_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _surface_arrays(index, _pending_start))
-		_pending_mesh.surface_set_material(index, _mats[index])
-		_pending_surface += 1
 		return
-	var w := int(COL_HALF_X * 2.0 / COL_STEP) + 1
-	var d := int((COL_BACK + COL_FWD) / COL_STEP) + 1
-	if _col_map.is_empty():
-		_col_map.resize(w * d)
-		_col_z0 = _pending_start + COL_BACK
-	var end_row := mini(_col_row + COL_ROWS_PER_FRAME, d)
-	while _col_row < end_row:
-		var z := _col_z0 - (d - 1 - _col_row) * COL_STEP
-		var gy: float = _main.ground_y(z)
-		var rx: float = _main.road_x(z)
-		var zone: String = _main.zone_at(z)
-		var base := _col_row * w
-		for xi in w:
-			var x := -COL_HALF_X + xi * COL_STEP
-			_col_map[base + xi] = _main.ground_height_c(x, z, gy, rx, zone) - 0.02
-		_col_row += 1
-	if _col_row < d:
-		return
-	_apply_collision(_col_map, w, d, _col_z0)
 	mesh = _pending_mesh
 	_pending_mesh = null
-	_col_map = PackedFloat32Array()
 	_build_active = false
 
 ## 碰撞高度图：行缓存 gy/rx/zone，逐点取 ground_height_c，与视觉地面严格一致
