@@ -5,7 +5,7 @@
 			"name": "M4 卡宾枪",
 			"model": "res://assets/guns/m4.glb",
 			"scale": 0.106,
-			"rot_deg": [0.0, 180.0, 0.0],
+			"rot_deg": [0.0, 0.0, 0.0],
 			"auto": true,
 		"fire_interval": 0.11,
 		"mag_size": 30,
@@ -21,7 +21,7 @@
 			"name": "AKM 突击步枪",
 			"model": "res://assets/guns/ak.glb",
 			"scale": 0.066,
-			"rot_deg": [0.0, 0.0, 0.0],
+			"rot_deg": [0.0, 180.0, 0.0],
 			"auto": true,
 		"fire_interval": 0.14,
 		"mag_size": 30,
@@ -37,7 +37,7 @@
 			"name": "格洛克 17",
 			"model": "res://assets/guns/glock.glb",
 			"scale": 0.058,
-			"rot_deg": [0.0, 180.0, 0.0],
+			"rot_deg": [0.0, -90.0, 0.0],
 			"auto": false,
 		"fire_interval": 0.18,
 		"mag_size": 17,
@@ -47,13 +47,14 @@
 			"recoil": 0.35,
 			"muzzle": [2.027, 1.9, -0.134],
 			"grip": [0.58, 0.8, -0.134],
-			"fps_support": [-0.025, 0.015, -0.045]
+			"fps_pos": [-0.10, 1.46, 0.20],
+			"fps_support": [0.025, 0.015, -0.045]
 		},
 		"deagle": {
 			"name": "沙漠之鹰",
 			"model": "res://assets/guns/deagle.glb",
 			"scale": 0.001,
-			"rot_deg": [0.0, 90.0, 0.0],
+			"rot_deg": [0.0, -90.0, 0.0],
 			"auto": false,
 		"fire_interval": 0.35,
 		"mag_size": 7,
@@ -63,7 +64,8 @@
 			"recoil": 1.2,
 			"muzzle": [134.4, 50.0, 0.0],
 			"grip": [-75.0, -45.0, 0.0],
-			"fps_support": [-0.025, 0.015, -0.045]
+			"fps_pos": [-0.10, 1.46, 0.20],
+			"fps_support": [0.025, 0.015, -0.045]
 		}
 	},
 	"grenade": {
@@ -88,7 +90,7 @@
 	},
 	"ads": {
 		"fov": 52.0,
-		"pos": [0.0, 1.44, 0.30],
+		"pos": [0.0, 1.44, 0.28],
 		"sway_scale": 0.28,
 		"move_mul": 0.62,
 		"in": 0.13,

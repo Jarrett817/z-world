@@ -4260,9 +4260,11 @@ func _spawn_bullet_hole(pos: Vector3, nrm: Vector3) -> void:
 	# QuadMesh 正面朝 +Z：look_at 目标取法线负向，让片面向外贴合表面；近垂直法线换备用上方向
 	var up := Vector3.FORWARD if absf(nrm.dot(Vector3.UP)) > 0.99 else Vector3.UP
 	mi.look_at(mi.global_position - nrm, up)
+	while not _holes.is_empty() and not is_instance_valid(_holes.front()):
+		_holes.pop_front()
 	_holes.append(mi)
 	if _holes.size() > 24:
-		var old: Node = _holes.pop_front()
+		var old: Variant = _holes.pop_front()
 		if is_instance_valid(old):
 			old.queue_free()
 	var tw := create_tween()

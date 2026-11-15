@@ -16,7 +16,6 @@ const GUN_POS_PRONE := Vector3(-0.3043, 0.1447, 0.4909)   # 免费卧姿第 0 �
 const FPS_EYE := 1.62        # 站立眼高
 const FPS_EYE_CROUCH := 1.05 # 下蹲眼高
 const FPS_EYE_PRONE := 0.56  # 与站立视角一致：相机高于 M4 枪线约 0.16m
-const FPS_ARMS_SCENE := preload("res://assets/roles_glb/fps_arms.glb")
 
 enum Mode { ON_FOOT, SUNROOF, RV_WALK }
 
@@ -31,11 +30,14 @@ var model_root: Node3D
 var _body_meshes: Array[MeshInstance3D] = []
 var muzzle: Node3D
 var gun: Node3D          # 当前枪的挂点（grip 对齐点），俯仰/后坐作用在它身上
-var _fps_arms: Node3D    # 从 hero 抽取的手臂网格（含战术外套袖），跟随枪挂点运动后坐/换弹
-var _fps_arms_skel: Skeleton3D
 var _fps_support: Node3D
 var _fps_support_pos := Vector3.ZERO
+var _fps_gun_pos := GUN_POS
 var _fps_left_hand := -1
+var _fps_right_hand := -1
+var _fps_right_ref := Transform3D.IDENTITY
+var _fps_left_ref := Transform3D.IDENTITY
+var _fps_arm_refs: Dictionary = {}
 var _fps_finger_pose: Dictionary = {}
 var cam: Camera3D
 var _camera_arm: SpringArm3D
@@ -142,6 +144,42 @@ func _ready() -> void:
 		_skel = skels[0]
 		_head_bone = _skel.find_bone("J_Bip_C_Head")
 		_skel.pose_updated.connect(_on_pose_updated)
+		# 复用同一人物骨架的 drive 指骨屈曲；记录 aim 手骨基准供 FPS 双手贴枪
+		var drive_pose: Dictionary = {}
+		_anim.play("drive")
+		_anim.advance(0.0)
+		for side in ["L", "R"]:
+			for finger in ["Index", "Middle", "Ring", "Little", "Thumb"]:
+				for joint in [1, 2, 3]:
+					var bone := _skel.find_bone("J_Bip_%s_%s%d" % [side, finger, joint])
+					drive_pose[bone] = _skel.get_bone_pose_rotation(bone)
+		_anim.play("aim")
+		_anim.advance(0.0)
+		for bone in drive_pose:
+			var aim_rot := _skel.get_bone_pose_rotation(bone)
+			var delta: Quaternion = aim_rot.inverse() * drive_pose[bone]
+			_fps_finger_pose[bone] = (aim_rot * delta * Quaternion().slerp(delta, 0.6)).normalized()
+		_skel.force_update_all_bone_transforms()
+		_fps_left_hand = _skel.find_bone("J_Bip_L_Hand")
+		_fps_right_hand = _skel.find_bone("J_Bip_R_Hand")
+		_fps_left_ref = model_root.global_transform.affine_inverse() * _skel.global_transform * _skel.get_bone_global_pose(_fps_left_hand)
+		_fps_right_ref = model_root.global_transform.affine_inverse() * _skel.global_transform * _skel.get_bone_global_pose(_fps_right_hand)
+		for side in ["L", "R"]:
+			var upper := _skel.find_bone("J_Bip_%s_UpperArm" % side)
+			var lower := _skel.find_bone("J_Bip_%s_LowerArm" % side)
+			var hand := _fps_left_hand if side == "L" else _fps_right_hand
+			var model_inv := model_root.global_transform.affine_inverse()
+			var upper_ref := model_inv * _skel.global_transform * _skel.get_bone_global_pose(upper)
+			var lower_ref := model_inv * _skel.global_transform * _skel.get_bone_global_pose(lower)
+			var hand_ref := _fps_left_ref if side == "L" else _fps_right_ref
+			_fps_arm_refs[side] = {
+				"upper": upper, "lower": lower, "hand": hand,
+				"upper_ref": upper_ref, "lower_ref": lower_ref,
+				"upper_axis": (upper_ref.basis.inverse() * (lower_ref.origin - upper_ref.origin)).normalized(),
+				"lower_axis": (lower_ref.basis.inverse() * (hand_ref.origin - lower_ref.origin)).normalized(),
+				"upper_length": upper_ref.origin.distance_to(lower_ref.origin),
+				"lower_length": lower_ref.origin.distance_to(hand_ref.origin),
+			}
 	_equip_current()
 	cam = Camera3D.new()
 	cam.fov = 68.0
@@ -177,7 +215,7 @@ func _equip_current() -> void:
 	var rd: Array = cfg["rot_deg"]
 	wm.rotation_degrees = Vector3(rd[0], rd[1], rd[2])
 	var grip: Array = cfg["grip"]
-	wm.position = -Vector3(grip[0], grip[1], grip[2]) * sc
+	wm.position = -(Basis.from_euler(wm.rotation) * Vector3(grip[0], grip[1], grip[2])) * sc
 	gun.add_child(wm)
 	muzzle = Node3D.new()
 	var mz: Array = cfg["muzzle"]
@@ -188,63 +226,17 @@ func _equip_current() -> void:
 		var part := wm.find_child(p, true, false)
 		if part is Node3D:
 			part.visible = false
-	# 手臂与枪共用挂点：原 aim 右手位置是 GUN_POS，平移回来后坐/换弹时双手不离开枪
-	_fps_arms = FPS_ARMS_SCENE.instantiate() as Node3D
-	_fps_arms.position = -GUN_POS
-	_fps_arms.visible = fps and mode != Mode.SUNROOF
-	gun.add_child(_fps_arms)
-	CharUtil._fix_materials(_fps_arms)
-	for arm_mesh in _fps_arms.find_children("*", "MeshInstance3D", true, false):
-		for surface in arm_mesh.mesh.get_surface_count():
-			var arm_mat := arm_mesh.get_active_material(surface) as StandardMaterial3D
-			if arm_mat != null:
-				arm_mat.emission_enabled = false
-				if arm_mesh.name == "Body":
-					arm_mat.albedo_color = Color(0.78, 0.62, 0.52)
-	var arms_anim := _fps_arms.find_child("AnimationPlayer", true, false) as AnimationPlayer
-	if arms_anim != null:
-		arms_anim.get_animation("aim").loop_mode = Animation.LOOP_LINEAR
-		arms_anim.play("aim")
-		arms_anim.advance(0.0)
-	# 右手保留原生握把位置，左手对齐护木；换弹时托枪手再独立下伸
+	# 完整人物双手跟随枪挂点：右手保持原生握把关系，左手对齐护木
 	_fps_support = Node3D.new()
 	var support_pos: Array = cfg["fps_support"]
 	_fps_support_pos = Vector3(support_pos[0], support_pos[1], support_pos[2])
 	_fps_support.position = _fps_support_pos
+	var fps_pos: Array = cfg.get("fps_pos", [GUN_POS.x, GUN_POS.y, GUN_POS.z])
+	_fps_gun_pos = Vector3(fps_pos[0], fps_pos[1], fps_pos[2])
 	gun.add_child(_fps_support)
-	var arms_skel := _fps_arms.find_child("Skeleton3D", true, false) as Skeleton3D
-	# 复用 drive 相对 aim 的指骨屈曲方向，小幅加强握持，避免近景张开手掌
-	_fps_finger_pose.clear()
-	var drive_pose: Dictionary = {}
-	arms_anim.play("drive")
-	arms_anim.advance(0.0)
-	for side in ["L", "R"]:
-		for finger in ["Index", "Middle", "Ring", "Little", "Thumb"]:
-			for joint in [1, 2, 3]:
-				var bone := arms_skel.find_bone("J_Bip_%s_%s%d" % [side, finger, joint])
-				drive_pose[bone] = arms_skel.get_bone_pose_rotation(bone)
-	arms_anim.play("aim")
-	arms_anim.advance(0.0)
-	for bone in drive_pose:
-		var aim_rot := arms_skel.get_bone_pose_rotation(bone)
-		var delta: Quaternion = aim_rot.inverse() * drive_pose[bone]
-		_fps_finger_pose[bone] = (aim_rot * delta * Quaternion().slerp(delta, 0.6)).normalized()
-	arms_skel.force_update_all_bone_transforms()
-	_fps_left_hand = arms_skel.find_bone("J_Bip_L_Hand")
-	var hand_basis := (arms_skel.global_transform * arms_skel.get_bone_global_pose(_fps_left_hand)).basis
-	_fps_support.basis = gun.global_transform.basis.inverse() * hand_basis
-	_fps_arms_skel = arms_skel
-	arms_skel.pose_updated.connect(_apply_fps_fingers)
-	_apply_fps_fingers()
+	_fps_support.basis = gun.global_transform.basis.inverse() * model_root.global_transform.basis * _fps_left_ref.basis
 	main_node.hud.set_combat_gun(cfg["name"], ammo(), int(cfg["mag_size"]))
 	main_node.hud.set_combat_grenades(_grenades)
-
-## 每帧动画重写指骨后套用握把屈曲，避免近景张开手掌
-func _apply_fps_fingers() -> void:
-	if _fps_arms_skel == null:
-		return
-	for bone in _fps_finger_pose:
-		_fps_arms_skel.set_bone_pose_rotation(bone, _fps_finger_pose[bone])
 
 ## 切换武器（数字键直选 / HUD 按钮循环）
 func switch_gun(idx: int) -> void:
@@ -288,23 +280,27 @@ func _exit() -> void:
 	else:
 		main_node.hud.set_combat_active(false, ammo(), hp)
 
-## 第一/第三人称切换：FPS 显示独立的真实手臂网格，原全身隐藏防躯干穿镜头
+## 第一/第三人称切换：FPS 沿用完整人物，仅隐藏头/发，避免切到独立手臂模型
 func toggle_fps(force := false) -> void:
 	if mode == Mode.RV_WALK and not force:
 		return
 	fps = not fps
-	if not fps and _head_bone >= 0:
-		_skel.set_bone_pose_scale(_head_bone, Vector3.ONE)
+	if fps:
+		aim_pitch = 0.0
+	_skel.set_bone_pose_scale(_head_bone, Vector3.ZERO if fps else Vector3.ONE)
+	if not fps:
+		_skel.clear_bones_global_pose_override()
 	for mesh in _body_meshes:
-		mesh.visible = not fps
-	if _fps_arms != null:
-		_fps_arms.visible = fps and mode != Mode.SUNROOF
+		mesh.visible = not (fps and mode == Mode.SUNROOF)
 	main_node.hud.toast("第一人称" if fps else "第三人称")
 
-## FPS 期间每帧把 Head 骨缩零（动画每帧重写 pose，须在 pose_updated 后覆盖）
+## FPS 期间每帧覆盖头骨与指骨（动画会重写 pose，须在 pose_updated 后处理）
 func _on_pose_updated() -> void:
-	if fps and _head_bone >= 0:
-		_skel.set_bone_pose_scale(_head_bone, Vector3.ZERO)
+	if not fps:
+		return
+	_skel.set_bone_pose_scale(_head_bone, Vector3.ZERO)
+	for bone in _fps_finger_pose:
+		_skel.set_bone_pose_rotation(bone, _fps_finger_pose[bone])
 
 func _unhandled_input(event: InputEvent) -> void:
 	var pitch_hi := 1.35 if fps else 0.35   # FPS 允许抬头看天
@@ -533,12 +529,11 @@ func _apply_gun(delta: float) -> void:
 	_recoil = maxf(0.0, _recoil - delta * 6.0)
 	var view_pitch := aim_pitch + _kick
 	var base_pos: Vector3 = GUN_POS_PRONE if mode == Mode.SUNROOF else GUN_POS
+	if fps and mode != Mode.SUNROOF:
+		base_pos = _fps_gun_pos
 	if mode == Mode.ON_FOOT and _ads_t > 0.0:
 		var ap: Array = _ads_cfg.get("pos", [-0.10, 1.24, 0.24])
 		base_pos = base_pos.lerp(Vector3(ap[0], ap[1], ap[2]), _ads_t)
-	# 第一人称不再把整枪前移：手臂与枪共用挂点，前移会把肩部顶到镜头前变成大块黑袖
-	if fps and mode != Mode.SUNROOF:
-		base_pos.z += 0.06 * (1.0 - _ads_t)
 	# 换弹单峰包络下沉；换枪起手重压后抬回；跑动低持侧倾
 	var reload_env := sin(PI * _reload_p) if _reload_p > 0.0 else 0.0
 	if _fps_support != null:
@@ -564,14 +559,43 @@ func _apply_gun(delta: float) -> void:
 		gun.position.y = lerpf(gun.position.y, target_y, delta * 10.0)
 	else:
 		gun.position.y = target_y
-	_align_fps_support()
+	_align_fps_hands()
 
-## 左手只有手部网格，直接对齐护木；程序袖口连接原生肘点与修正后的腕点。
-func _align_fps_support() -> void:
-	if not _fps_arms.visible:
+## 完整人物双手对齐枪挂点，后坐、换弹和 ADS 时仍保持握把/护木接触
+func _align_fps_hands() -> void:
+	if not fps or mode == Mode.SUNROOF:
 		return
-	var pose := _fps_arms_skel.global_transform.affine_inverse() * _fps_support.global_transform
-	_fps_arms_skel.set_bone_global_pose_override(_fps_left_hand, pose, 1.0, true)
+	var right_pose := gun.global_transform * Transform3D(Basis(), -GUN_POS) * _fps_right_ref
+	_pose_fps_arm("R", right_pose)
+	_pose_fps_arm("L", _fps_support.global_transform)
+
+## 两段手臂保持原骨长，只旋转肩/肘/腕，避免直接移动腕骨造成袖口拉皮
+func _pose_fps_arm(side: String, target: Transform3D) -> void:
+	var ref: Dictionary = _fps_arm_refs[side]
+	var root := model_root.global_transform
+	var upper_ref: Transform3D = root * ref["upper_ref"]
+	var lower_ref: Transform3D = root * ref["lower_ref"]
+	var shoulder := upper_ref.origin
+	var to_target := target.origin - shoulder
+	var upper_length: float = ref["upper_length"]
+	var lower_length: float = ref["lower_length"]
+	var dist := clampf(to_target.length(), absf(upper_length - lower_length) + 0.001, upper_length + lower_length - 0.001)
+	var dir := to_target.normalized()
+	var pole := lower_ref.origin - shoulder
+	var bend := (pole - dir * pole.dot(dir)).normalized()
+	var along := (upper_length * upper_length + dist * dist - lower_length * lower_length) / (2.0 * dist)
+	var height := sqrt(maxf(0.0, upper_length * upper_length - along * along))
+	var elbow := shoulder + dir * along + bend * height
+	var upper_axis: Vector3 = ref["upper_axis"]
+	var lower_axis: Vector3 = ref["lower_axis"]
+	var upper_dir := (upper_ref.basis * upper_axis).normalized()
+	var lower_dir := (lower_ref.basis * lower_axis).normalized()
+	var upper_basis := (Basis(Quaternion(upper_dir, dir)) * upper_ref.basis).orthonormalized()
+	var lower_basis := (Basis(Quaternion(lower_dir, (target.origin - elbow).normalized())) * lower_ref.basis).orthonormalized()
+	var skel_inv := _skel.global_transform.affine_inverse()
+	_skel.set_bone_global_pose_override(ref["upper"], skel_inv * Transform3D(upper_basis, shoulder), 1.0, true)
+	_skel.set_bone_global_pose_override(ref["lower"], skel_inv * Transform3D(lower_basis, elbow), 1.0, true)
+	_skel.set_bone_global_pose_override(ref["hand"], skel_inv * target, 1.0, true)
 
 ## 抛壳：轻量弹壳按抛物线飞出，落地即消失（不用刚体，避免每发创建物理体）
 func _eject_shell() -> void:
