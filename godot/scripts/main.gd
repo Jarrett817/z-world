@@ -58,7 +58,7 @@ const RV_PORT_POINTS := [
 	Vector3(-1.08, -0.4, -2.55),
 	Vector3(1.08, -0.4, -2.55),
 	Vector3(0.0, -0.4, 2.45) * INTERIOR_SCALE,
-	Vector3(1.05, -0.4, 1.60),
+	Vector3(1.05, -0.4, 0.85),
 ]
 const RV_PORT_RANGE := 0.85
 
@@ -2141,21 +2141,25 @@ func _build_crew() -> void:
 		[Vector3(0.55, -0.4, -1.50) * INTERIOR_SCALE, PI, "sit", "乘员", false],
 		[Vector3(-0.55, -0.4, -2.05) * INTERIOR_SCALE, PI, "sit", "乘员", false],
 		[Vector3(-0.60, -0.4, 0.15) * INTERIOR_SCALE, -PI * 0.5, "idle", "做饭", false],
-		[Vector3(0.55, -0.4, 2.60) * INTERIOR_SCALE, PI * 0.5, "idle", "收拾", false],
-		[Vector3(0.68, -0.4, 1.62) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],
-		[Vector3(0.68, -0.4, 2.08) * INTERIOR_SCALE, -PI * 0.5, "sit", "乘员", false],
+		[Vector3(0.45, -0.4, 2.60) * INTERIOR_SCALE, PI * 0.5, "idle", "收拾", false],
+		# 右侧上铺床沿两个朝舱内的休整位，与左侧上下铺共用垂直空间
+		[Vector3(0.72, 0.45, 1.45) * INTERIOR_SCALE, -PI * 0.5, "sit", "休整", false],
+		[Vector3(0.72, 0.45, 1.95) * INTERIOR_SCALE, -PI * 0.5, "sit", "休整", false],
 		# 左单座三席；中间留出的灶台工作位不再摆椅子
-		[Vector3(-0.60, -0.4, -1.05) * INTERIOR_SCALE, PI, "sit", "休整", false],
-		[Vector3(-0.60, -0.4, -0.55) * INTERIOR_SCALE, PI, "sit", "休整", false],
-		[Vector3(-0.60, -0.4, 0.45) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.60, -0.4, -0.95) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.60, -0.4, -0.40) * INTERIOR_SCALE, PI, "sit", "休整", false],
+		[Vector3(-0.60, -0.4, 0.55) * INTERIOR_SCALE, PI, "sit", "休整", false],
 		# 上铺床沿两个朝舱内的休整位；root 抬高到上铺坐姿高度，双脚自然垂下
 		[Vector3(-0.72, 0.45, 1.45) * INTERIOR_SCALE, PI * 0.5, "sit", "休整", false],
 		[Vector3(-0.72, 0.45, 1.95) * INTERIOR_SCALE, PI * 0.5, "sit", "休整", false],
 	]
-	# 右双座四排，最后一排之后留出右后射孔的站位
-	for row in 4:
-		for sx in [0.35, 0.90]:
-			stations.append([Vector3(sx, -0.4, -1.05 + float(row) * 0.50) * INTERIOR_SCALE, PI, "sit", "乘员", false])
+	# 右双座三排，后排与右后射孔、上下铺之间留出站位
+	for row in 3:
+		for sx in [0.45, 0.90]:
+			stations.append([Vector3(sx, -0.4, -0.95 + float(row) * 0.55) * INTERIOR_SCALE, PI, "sit", "乘员", false])
+	# 前舱补两席，保留 30 槽编制且不占用走道与射孔净空
+	stations.append([Vector3(0.55, -0.4, -2.05) * INTERIOR_SCALE, PI, "sit", "乘员", false])
+	stations.append([Vector3(0.45, -0.4, -2.60) * INTERIOR_SCALE, PI, "sit", "乘员", false])
 	for st in stations:
 		var fig := Node3D.new()
 		var lb := Label3D.new()
@@ -2337,15 +2341,13 @@ func _build_life_props() -> void:
 		for n in meshes:
 			var mesh_node := n as MeshInstance3D
 			var ab: AABB = mesh_node.get_aabb()
-			# 沿父链累积到 inst 空间（不依赖 global_transform，避免未入树报错）
-			var sc := Vector3.ONE
-			var off := Vector3.ZERO
+			# 沿父链累积完整变换到 inst 空间（不依赖 global_transform，避免未入树报错）
+			var relative := Transform3D.IDENTITY
 			var node: Node3D = mesh_node
 			while node != inst and node != null:
-				off = off * node.scale + node.position
-				sc *= node.scale
+				relative = node.transform * relative
 				node = node.get_parent()
-			var ab_inst := AABB(ab.position * sc + off, ab.size * sc)
+			var ab_inst := relative * ab
 			if first:
 				combined = ab_inst
 				first = false
@@ -2357,9 +2359,10 @@ func _build_life_props() -> void:
 			s.x = target_size.x / combined.size.x
 		if target_size.z > 0.0:
 			s.z = target_size.z / combined.size.z
+		var offset := Vector3(combined.get_center().x * s.x, combined.position.y * s.y, combined.get_center().z * s.z)
 		inst.scale = s
-		inst.position = pos - Vector3(combined.get_center().x * s.x, combined.position.y * s.y, combined.get_center().z * s.z)
 		inst.rotation.y = rot_y
+		inst.position = pos - Basis(Vector3.UP, rot_y) * offset
 		return inst
 	# 程序化做旧纹理：木件/织物用三平面噪声打散纯色，避免死板方块感
 	var grain := FastNoiseLite.new()
@@ -2518,42 +2521,22 @@ func _build_life_props() -> void:
 	(shade.material_override as StandardMaterial3D).emission = Color(1.0, 0.75, 0.45)
 	(shade.material_override as StandardMaterial3D).emission_energy_multiplier = 0.32
 	cyl.call(0.012, 0.012, 0.14, Vector3(0, 1.92, 0.4), Color(0.2, 0.2, 0.2), 0.6)
-	# 右后角储物箱堆（贴尾墙摞放，避开右墙长凳与尾射孔火线）+ 帆布袋压箱顶
-	for cp in [Vector3(1.00, -0.40, 2.54), Vector3(1.00, -0.06, 2.54)]:
-		var stack_crate := FOOD_CRATE_SCENE.instantiate() as Node3D
-		stack_crate.scale = Vector3.ONE * 0.42
-		stack_crate.position = cp
-		interior.add_child(stack_crate)
-	var sack := MeshInstance3D.new()
-	var sm2 := SphereMesh.new()
-	sm2.radius = 0.17
-	sm2.height = 0.34
-	sack.mesh = sm2
-	var smat := StandardMaterial3D.new()
-	smat.albedo_color = Color(0.38, 0.40, 0.28)
-	smat.roughness = 1.0
-	sack.material_override = smat
-	sack.scale = Vector3(1.0, 0.72, 1.0)
-	sack.position = Vector3(1.00, 0.32, 2.54)
-	interior.add_child(sack)
-	# 右墙贴墙长凳：现成 couch 替换程序化座椅，面朝舱内
-	furn.call("couch", Vector3(0.0, 0.50, 0.82), Vector3(1.00, -0.40, 1.80), PI * 0.5)
-	_add_interior_collision(Vector3(0.45, 0.60, 0.50), Vector3(1.00, -0.10, 2.54))
-	_add_interior_collision(Vector3(0.54, 0.86, 0.82), Vector3(1.02, 0.03, 1.80))
-	# 14 个普通座椅与生活位一一对应；椅面中心比人物 root 靠后 0.20m，中央过道保持贯通
+	# 右后角第二组上下铺：替代与射手重叠的沙发，床沿提供两个高位休整席
+	furn.call("bunk_bed", Vector3(0.0, 1.42, 1.62), Vector3(1.02, -0.40, 1.92), PI)
+	_add_interior_collision(Vector3(0.62, 1.20, 1.66), Vector3(1.02, 0.20, 1.92))
+	# 14 个前向普通座椅与生活位一一对应；实测坐姿髋部在 root 后 0.28m，换算到内饰缩放空间对位
 	var seats := [
-		Vector2(-0.55, -1.85), Vector2(-0.55, -1.30), Vector2(0.55, -1.30),
-		Vector2(-0.60, -0.85), Vector2(-0.60, -0.35), Vector2(-0.60, 0.65),
+		Vector2(-0.55, -1.50), Vector2(0.55, -1.50), Vector2(-0.55, -2.05),
+		Vector2(-0.60, -0.95), Vector2(-0.60, -0.40), Vector2(-0.60, 0.55),
+		Vector2(0.55, -2.05), Vector2(0.45, -2.60),
 	]
-	for row in 4:
-		for sx in [0.35, 0.90]:
-			seats.append(Vector2(sx, -0.85 + float(row) * 0.50))
+	for row in 3:
+		for sx in [0.45, 0.90]:
+			seats.append(Vector2(sx, -0.95 + float(row) * 0.55))
 	for seat in seats:
-		var ry := -PI * 0.5 if seat.x > 0.0 else PI * 0.5
-		furn.call("chair", Vector3(0.0, 0.50, 0.42), Vector3(seat.x, -0.40, seat.y), ry)
-		for lx in [seat.x - 0.13, seat.x + 0.13]:
-			box.call(Vector3(0.05, 0.24, 0.05), Vector3(lx, -0.28, seat.y), wood.darkened(0.12))
-		_add_interior_collision(Vector3(0.43, 0.92, 0.50), Vector3(seat.x, 0.06, seat.y + 0.04))
+		var chair_pos := Vector3(seat.x, -0.40, seat.y + 0.28 / INTERIOR_SCALE.z)
+		furn.call("chair", Vector3(0.0, 0.92, 0.36), chair_pos, PI)
+		_add_interior_collision(Vector3(0.43, 0.92, 0.36), chair_pos + Vector3(0.0, 0.46, 0.0))
 	# 四处射击孔：深色开孔板 + 枪灰钢框（两侧窗前射孔 ×2、右后窗、尾门）；坐标为内饰本地
 	var port_metal := StandardMaterial3D.new()
 	port_metal.albedo_color = Color(0.22, 0.21, 0.19)
@@ -2571,7 +2554,7 @@ func _build_life_props() -> void:
 		mi.position = pos
 		interior.add_child(mi)
 	# side=±1 侧窗射孔（x 为玻璃面），z_c 为射孔中心；开孔 0.60×0.24，中心 y=0.90（站姿据枪胸位）
-	for p in [[-1.0, -2.55 / INTERIOR_SCALE.z], [1.0, -2.55 / INTERIOR_SCALE.z], [1.0, 1.60 / INTERIOR_SCALE.z]]:
+	for p in [[-1.0, -2.55 / INTERIOR_SCALE.z], [1.0, -2.55 / INTERIOR_SCALE.z], [1.0, 0.85 / INTERIOR_SCALE.z]]:
 		var sx: float = p[0]
 		var zc: float = p[1]
 		mbox.call(Vector3(0.02, 0.24, 0.60), Vector3(sx * 1.30, 0.90, zc), port_dark)
@@ -2585,7 +2568,7 @@ func _build_life_props() -> void:
 	mbox.call(Vector3(0.66, 0.05, 0.06), Vector3(0.0, 0.755, 2.75), port_metal)
 	mbox.call(Vector3(0.05, 0.34, 0.06), Vector3(-0.325, 0.90, 2.75), port_metal)
 	mbox.call(Vector3(0.05, 0.34, 0.06), Vector3(0.325, 0.90, 2.75), port_metal)
-	# 尾舱左侧登顶梯：地板直达车顶舱口，与右后长凳、储物箱和尾射孔错位
+	# 尾舱左侧登顶梯：地板直达车顶舱口，与两侧上下铺和尾射孔错位
 	for lx in [-0.64, -0.26]:
 		mbox.call(Vector3(0.045, 2.12, 0.055), Vector3(lx, 0.66, 2.48), port_metal)
 	for i in 9:
