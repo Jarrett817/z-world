@@ -96,7 +96,9 @@ var snow: CPUParticles3D
 var motes: CPUParticles3D   # 晴天空气漂浮光点（花粉/尘光）
 var splash: CPUParticles3D  # 雨滴落地溅射（相机周围地面）
 var dust: CPUParticles3D    # 车尾扬尘 / 雨天轮胎水雾
+var _dust_cloud: CPUParticles3D  # 贴地扩散的粗尘团，和细水雾分层
 var _dust_mat: StandardMaterial3D
+var _dust_cloud_mat: StandardMaterial3D
 var cabin_motes: CPUParticles3D  # 车内阳光尘光
 var _pendant: Node3D             # 车顶悬挂摆件（随加减速与转向摆动）
 var _skids: Array = []           # 急刹胎痕 {mesh, mat, life}
@@ -1860,9 +1862,9 @@ func _build_interior() -> void:
 	interior.add_child(cab_light)
 	for lp in [Vector3(0, 1.82, -1.2), Vector3(0, 1.82, 1.6)]:
 		var lamp := OmniLight3D.new()
-		lamp.light_color = Color(1.0, 0.84, 0.64)
-		lamp.light_energy = 0.22
-		lamp.omni_range = 3.4
+		lamp.light_color = Color(1.0, 0.82, 0.60)
+		lamp.light_energy = 0.36
+		lamp.omni_range = 4.0
 		lamp.position = lp
 		interior.add_child(lamp)
 	# 顶棚两侧连续灯带：发光条可见，独立弱补光避免局部过曝
@@ -2024,40 +2026,74 @@ func _build_cabin_fx() -> void:
 	cabin_motes.emitting = false
 	rv.add_child(cabin_motes)
 
-## 车尾扬尘 / 轮胎水雾：挂在 rv 上，粒子留在世界空间形成拖尾；颜色随天气切换
+## 车尾扬尘 / 轮胎水雾：细雾 + 贴地尘团两层，颜色随天气切换，粒子留在世界空间形成拖尾
 func _build_dust() -> void:
-	dust = CPUParticles3D.new()
-	dust.amount = 80
-	dust.lifetime = 1.15
-	dust.preprocess = 0.2
-	dust.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
-	dust.emission_box_extents = Vector3(1.35, 0.14, 0.22)
-	dust.direction = Vector3(0, 0.3, 1)
-	dust.spread = 22.0
-	dust.gravity = Vector3(0, 0.5, 0)
-	dust.initial_velocity_min = 1.6
-	dust.initial_velocity_max = 3.0
-	dust.scale_amount_min = 0.6
-	dust.scale_amount_max = 1.5
-	var dq := QuadMesh.new()
-	dq.size = Vector2(0.6, 0.6)
-	var dimg := Image.create(24, 24, false, Image.FORMAT_RGBA8)
-	for py in 24:
-		for px in 24:
-			var dd: float = Vector2(px - 11.5, py - 11.5).length() / 11.5
-			var a: float = clampf(1.0 - smoothstep(0.0, 1.0, dd), 0.0, 1.0)
-			dimg.set_pixel(px, py, Color(1, 1, 1, a * a))
-	_dust_mat = StandardMaterial3D.new()
-	_dust_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_dust_mat.albedo_color = Color(0.72, 0.63, 0.48, 0.30)
-	_dust_mat.albedo_texture = ImageTexture.create_from_image(dimg)
-	_dust_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_dust_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	dq.material = _dust_mat
-	dust.mesh = dq
-	dust.emitting = false
-	dust.position = Vector3(0, 0.12, 4.75)
+	var soft_tex := func(res: int) -> ImageTexture:
+		var img := Image.create(res, res, false, Image.FORMAT_RGBA8)
+		for py in res:
+			for px in res:
+				var d: float = Vector2(px - float(res) * 0.5 + 0.5, py - float(res) * 0.5 + 0.5).length() / (float(res) * 0.5)
+				var a: float = clampf(1.0 - smoothstep(0.0, 1.0, d), 0.0, 1.0)
+				img.set_pixel(px, py, Color(1, 1, 1, a * a))
+		return ImageTexture.create_from_image(img)
+	var fade := Gradient.new()
+	fade.offsets = PackedFloat32Array([0.0, 0.12, 0.55, 1.0])
+	fade.colors = PackedColorArray([
+		Color(1, 1, 1, 0.0), Color(1, 1, 1, 0.40), Color(1, 1, 1, 0.18), Color(1, 1, 1, 0.0),
+	])
+	var grow := Curve.new()
+	grow.add_point(Vector2(0.0, 0.45))
+	grow.add_point(Vector2(1.0, 1.7))
+	var make_mat := func(img: ImageTexture) -> StandardMaterial3D:
+		var m := StandardMaterial3D.new()
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.albedo_color = Color(0.72, 0.63, 0.48, 1.0)
+		m.albedo_texture = img
+		m.vertex_color_use_as_albedo = true
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		return m
+	var make_emitter := func(amount: int, life: float, ext: Vector3, v0: float, v1: float,
+			s0: float, s1: float, quad: float, mat: StandardMaterial3D) -> CPUParticles3D:
+		var p := CPUParticles3D.new()
+		p.amount = amount
+		p.lifetime = life
+		p.preprocess = 0.3
+		p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+		p.emission_box_extents = ext
+		p.spread = 26.0
+		p.initial_velocity_min = v0
+		p.initial_velocity_max = v1
+		p.scale_amount_min = s0
+		p.scale_amount_max = s1
+		p.scale_amount_curve = grow
+		p.color_ramp = fade
+		p.damping_min = 0.25
+		p.damping_max = 0.7
+		var q := QuadMesh.new()
+		q.size = Vector2(quad, quad)
+		q.material = mat
+		p.mesh = q
+		p.emitting = false
+		return p
+	# 细雾：贴着后轮扬起、快速散开淡出
+	_dust_mat = make_mat.call(soft_tex.call(32))
+	dust = make_emitter.call(90, 1.4, Vector3(1.25, 0.12, 0.18), 1.5, 2.4, 0.6, 1.2, 0.9, _dust_mat)
+	dust.direction = Vector3(0, 0.6, 1)
+	dust.spread = 26.0
+	dust.gravity = Vector3(0, 0.45, 0)
+	dust.position = Vector3(0, 0.22, 4.95)
 	rv.add_child(dust)
+	# 粗尘团：更低更慢、更大更淡，补出贴地翻滚的体积感
+	_dust_cloud_mat = make_mat.call(soft_tex.call(48))
+	_dust_cloud = make_emitter.call(26, 2.8, Vector3(1.05, 0.10, 0.30), 0.5, 1.1, 1.4, 2.6, 1.8, _dust_cloud_mat)
+	_dust_cloud.direction = Vector3(0, 0.55, 1)
+	_dust_cloud.spread = 38.0
+	_dust_cloud.gravity = Vector3(0, 0.18, 0)
+	_dust_cloud.damping_min = 0.15
+	_dust_cloud.damping_max = 0.4
+	_dust_cloud.position = Vector3(0, 0.16, 4.85)
+	rv.add_child(_dust_cloud)
 
 func _add_interior_collision(p_size: Vector3, pos: Vector3) -> void:
 	var body := AnimatableBody3D.new()
@@ -2521,6 +2557,61 @@ func _build_life_props() -> void:
 	(shade.material_override as StandardMaterial3D).emission = Color(1.0, 0.75, 0.45)
 	(shade.material_override as StandardMaterial3D).emission_energy_multiplier = 0.32
 	cyl.call(0.012, 0.012, 0.14, Vector3(0, 1.92, 0.4), Color(0.2, 0.2, 0.2), 0.6)
+	# 暖色串灯：顶棚两侧微垂灯串，夜间和阴天补足"有人住"的暖光
+	var bulb_glow := _emis_mat(Color(1.0, 0.76, 0.46), 1.6)
+	var wire_col := Color(0.15, 0.14, 0.13)
+	var link := func(a: Vector3, b: Vector3) -> void:
+		var mi := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.005
+		cm.bottom_radius = 0.005
+		cm.height = a.distance_to(b)
+		mi.mesh = cm
+		var m := StandardMaterial3D.new()
+		m.albedo_color = wire_col
+		m.roughness = 0.8
+		mi.material_override = m
+		mi.position = (a + b) * 0.5
+		mi.basis = Basis(Quaternion(Vector3.UP, (b - a).normalized()))
+		interior.add_child(mi)
+	for side in [-1.0, 1.0]:
+		var prev := Vector3(side * 1.10, 1.86, -1.75)
+		for i in 7:
+			var t := float(i) / 6.0
+			var p := Vector3(side * 1.06, 1.78 - sin(t * PI) * 0.09, -1.75 + t * 4.2)
+			link.call(prev, p)
+			var bulb := MeshInstance3D.new()
+			var bm2 := SphereMesh.new()
+			bm2.radius = 0.024
+			bm2.height = 0.052
+			bulb.mesh = bm2
+			bulb.material_override = bulb_glow
+			bulb.position = p - Vector3(0, 0.026, 0)
+			interior.add_child(bulb)
+			prev = p
+	# 床铺软装：两只铺各放枕头和折好的毛毯，避免床面像军营铁架
+	var pillow_cols := [Color(0.78, 0.74, 0.62), Color(0.62, 0.34, 0.28), Color(0.72, 0.55, 0.36)]
+	for bunk_x in [-1.02, 1.02]:
+		for layer_y in [-0.02, 0.88]:
+			for i in 2:
+				box.call(Vector3(0.30, 0.11, 0.24), Vector3(bunk_x + (float(i) - 0.5) * 0.34, layer_y, 2.22), pillow_cols[(i + (0 if bunk_x < 0.0 else 1)) % 3], 1.0)
+			box.call(Vector3(0.62, 0.07, 0.34), Vector3(bunk_x, layer_y + 0.01, 1.42), pillow_cols[(1 if bunk_x < 0.0 else 2)], 1.0)
+	# 车窗布帘：后侧窗垂挂暖色织物，压住大片灰白钢墙
+	var curtain_col := Color(0.46, 0.29, 0.24)
+	for side in [-1.0, 1.0]:
+		for cz in [-1.72, 2.18]:
+			box.call(Vector3(0.025, 0.42, 0.32), Vector3(side * 1.245, 1.16, cz), curtain_col.darkened(0.08), 1.0)
+			for i in 3:
+				box.call(Vector3(0.018, 0.42, 0.032), Vector3(side * 1.235, 1.16, cz - 0.11 + float(i) * 0.11), curtain_col.darkened(0.02 * float(i)), 1.0)
+			box.call(Vector3(0.035, 0.035, 0.40), Vector3(side * 1.25, 1.39, cz), Color(0.22, 0.18, 0.14), 0.5)
+	# 床铺阅读灯：只照亮床头一小块，暖而不晃眼
+	for lx in [-1.02, 1.02]:
+		var read_lamp := OmniLight3D.new()
+		read_lamp.light_color = Color(1.0, 0.72, 0.44)
+		read_lamp.light_energy = 0.30
+		read_lamp.omni_range = 2.0
+		read_lamp.position = Vector3(lx, 1.05, 2.18)
+		interior.add_child(read_lamp)
 	# 右后角第二组上下铺：替代与射手重叠的沙发，床沿提供两个高位休整席
 	furn.call("bunk_bed", Vector3(0.0, 1.42, 1.62), Vector3(1.02, -0.40, 1.92), PI)
 	_add_interior_collision(Vector3(0.62, 1.20, 1.66), Vector3(1.02, 0.20, 1.92))
@@ -3473,13 +3564,22 @@ func _update_drive_fx(delta: float) -> void:
 	var moving: bool = rv.speed_kmh > 18.0 and not parked and view_mode == 0
 	if dust.emitting != moving:
 		dust.emitting = moving
-	var col := Color(0.72, 0.63, 0.48, 0.30)
+	if _dust_cloud.emitting != moving:
+		_dust_cloud.emitting = moving
+	# 车速越快，尘团推进越快；雨雾用冷灰蓝，雪天用冷白，晴天用暖土色
+	if moving:
+		var spd := clampf(float(rv.speed_kmh) / 90.0, 0.5, 1.6)
+		dust.speed_scale = spd
+		_dust_cloud.speed_scale = spd
+	var col := Color(0.58, 0.48, 0.36, 1.0)
 	if weather in ["rain", "heavy_rain"] or rv.in_water:
-		col = Color(0.80, 0.88, 0.93, 0.36)
+		col = Color(0.80, 0.88, 0.93, 1.0)
 	elif weather == "snow":
-		col = Color(0.92, 0.94, 0.97, 0.34)
+		col = Color(0.92, 0.94, 0.97, 1.0)
 	if _dust_mat.albedo_color != col:
 		_dust_mat.albedo_color = col
+	if _dust_cloud_mat.albedo_color != col:
+		_dust_cloud_mat.albedo_color = col
 	# 急刹/手刹：后轮在路面上留深色胎痕，9 秒淡出，最多 60 条
 	var decel: float = (_skid_prev_speed - float(rv.speed_kmh)) / maxf(delta, 1e-4)
 	_skid_prev_speed = float(rv.speed_kmh)

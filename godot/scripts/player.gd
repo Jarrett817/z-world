@@ -11,11 +11,12 @@ const RAY_DIST := 90.0
 const GRAVITY := 18.0
 const JUMP_VEL := 7.2
 const CROUCH_MUL := 0.45
-const GUN_POS := Vector3(-0.12, 1.30, 0.33)   # 枪挂点基准（下蹲时随手下放）
+const GUN_POS := Vector3(-0.12, 1.30, 0.33)   # 枪挂点基准（第三人称/车内基准，下蹲时随手下放）
 const GUN_POS_PRONE := Vector3(-0.3043, 0.1447, 0.4909)   # 免费卧姿第 0 帧右手 grip 关节实测位置
 const FPS_EYE := 1.62        # 站立眼高
 const FPS_EYE_CROUCH := 1.05 # 下蹲眼高
 const FPS_EYE_PRONE := 0.56  # 与站立视角一致：相机高于 M4 枪线约 0.16m
+const FPS_ARM_STRETCH := 1.28  # 第一人称把武器推远后，手臂沿骨轴轻微拉长补足握持距离（视角模型惯例）
 
 enum Mode { ON_FOOT, SUNROOF, RV_WALK }
 
@@ -39,6 +40,10 @@ var _fps_right_ref := Transform3D.IDENTITY
 var _fps_left_ref := Transform3D.IDENTITY
 var _fps_arm_refs: Dictionary = {}
 var _fps_finger_pose: Dictionary = {}
+var _head_meshes: Array[MeshInstance3D] = []   # Hair/Face：第一人称隐藏，避免头发糊在镜头前
+var _suppressed := false                        # 车内端枪自动加装消音器
+var _cam_bob := Vector2.ZERO                    # 第一人称步伐上下/左右浮动
+var _cam_roll := 0.0
 var cam: Camera3D
 var _camera_arm: SpringArm3D
 var _anim: AnimationPlayer
@@ -123,6 +128,8 @@ func _ready() -> void:
 	# 第三人称保留完整服装；车顶第一人称再统一隐藏自身网格，避免低机位穿模
 	for mesh in model_root.find_children("*", "MeshInstance3D", true, false):
 		_body_meshes.append(mesh)
+		if (mesh as Node).name in ["Hair", "Face"]:
+			_head_meshes.append(mesh)
 	# 武器数据
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://data/guns.json"))
 	_guns = parsed["guns"]
@@ -219,8 +226,30 @@ func _equip_current() -> void:
 	gun.add_child(wm)
 	muzzle = Node3D.new()
 	var mz: Array = cfg["muzzle"]
-	muzzle.position = Vector3(mz[0], mz[1], mz[2])
+	var mz_v := Vector3(mz[0], mz[1], mz[2])
+	muzzle.position = mz_v
 	wm.add_child(muzzle)
+	# 车内端枪加装消音器：沿枪管方向套在枪口，出膛点顺延到消音器前端
+	_suppressed = mode == Mode.RV_WALK
+	if _suppressed:
+		# 所有枪械在挂点空间里枪管都朝 +Z（模型自带旋转已在 wm 上抵消）
+		var barrel := Vector3(0, 0, 1)
+		var sup_len := 1.8
+		var sup := MeshInstance3D.new()
+		var sup_mesh := CylinderMesh.new()
+		sup_mesh.top_radius = 0.26
+		sup_mesh.bottom_radius = 0.26
+		sup_mesh.height = sup_len
+		sup.mesh = sup_mesh
+		var sup_mat := StandardMaterial3D.new()
+		sup_mat.albedo_color = Color(0.09, 0.09, 0.10)
+		sup_mat.metallic = 0.55
+		sup_mat.roughness = 0.45
+		sup.material_override = sup_mat
+		sup.basis = Basis(Vector3.RIGHT, PI * 0.5)
+		sup.position = mz_v + barrel * (sup_len * 0.5 - 0.25)
+		wm.add_child(sup)
+		muzzle.position = mz_v + barrel * (sup_len - 0.25)
 	# 去掉模型自带的 GPS/弹药箱/弹链等外挂杂物，只保留枪体与瞄具
 	for p in ["gps", "bullets", "belt"]:
 		var part := wm.find_child(p, true, false)
@@ -259,6 +288,7 @@ func _enter() -> void:
 	cam.current = true
 	if mode == Mode.RV_WALK:
 		cam.fov = 86.0   # 车内广角：狭长空间显大
+		_set_head_visible(false)
 		main_node.hud.set_rv_walk_active(true)
 	else:
 		main_node.hud.set_combat_active(true, ammo(), hp)
@@ -276,6 +306,9 @@ func _exit() -> void:
 	if fps:
 		toggle_fps()
 	if mode == Mode.RV_WALK:
+		_set_head_visible(true)
+		if _skel != null:
+			_skel.set_bone_pose_scale(_head_bone, Vector3.ONE)
 		main_node.hud.set_rv_walk_active(false)
 	else:
 		main_node.hud.set_combat_active(false, ammo(), hp)
@@ -292,11 +325,20 @@ func toggle_fps(force := false) -> void:
 		_skel.clear_bones_global_pose_override()
 	for mesh in _body_meshes:
 		mesh.visible = not (fps and mode == Mode.SUNROOF)
+	_set_head_visible(not fps)
 	main_node.hud.toast("第一人称" if fps else "第三人称")
+
+## 车内行走强制第一人称；第一人称统一隐藏头发/面部并压低头部
+func _first_person() -> bool:
+	return fps or mode == Mode.RV_WALK
+
+func _set_head_visible(v: bool) -> void:
+	for mesh in _head_meshes:
+		mesh.visible = v
 
 ## FPS 期间每帧覆盖头骨与指骨（动画会重写 pose，须在 pose_updated 后处理）
 func _on_pose_updated() -> void:
-	if not fps:
+	if not _first_person():
 		return
 	_skel.set_bone_pose_scale(_head_bone, Vector3.ZERO)
 	for bone in _fps_finger_pose:
@@ -523,13 +565,18 @@ func _update_sway(delta: float) -> void:
 	_breath_y *= sway_mul
 	_breath_roll *= sway_mul
 	_look_sway *= sway_mul
+	# 第一人称步伐浮动：镜头上下起伏 + 轻微侧移与翻滚，和枪身 bob 同相位
+	var cam_on := 1.0 if _first_person() else 0.0
+	_cam_bob.y = sin(_bob_phase * 2.0) * _bob_amp * 0.016 * cam_on
+	_cam_bob.x = cos(_bob_phase) * _bob_amp * 0.010 * cam_on
+	_cam_roll = cos(_bob_phase) * _bob_amp * 0.007 * cam_on
 
 ## 统一写枪挂点姿态：后坐 + 开火上抬 + sway + ADS 靠中 + 换弹/换枪/跑动程序动画
 func _apply_gun(delta: float) -> void:
 	_recoil = maxf(0.0, _recoil - delta * 6.0)
 	var view_pitch := aim_pitch + _kick
 	var base_pos: Vector3 = GUN_POS_PRONE if mode == Mode.SUNROOF else GUN_POS
-	if fps and mode != Mode.SUNROOF:
+	if _first_person() and mode != Mode.SUNROOF:
 		base_pos = _fps_gun_pos
 	if mode == Mode.ON_FOOT and _ads_t > 0.0:
 		var ap: Array = _ads_cfg.get("pos", [-0.10, 1.24, 0.24])
@@ -563,7 +610,7 @@ func _apply_gun(delta: float) -> void:
 
 ## 完整人物双手对齐枪挂点，后坐、换弹和 ADS 时仍保持握把/护木接触
 func _align_fps_hands() -> void:
-	if not fps or mode == Mode.SUNROOF:
+	if not _first_person() or mode == Mode.SUNROOF:
 		return
 	var right_pose := gun.global_transform * Transform3D(Basis(), -GUN_POS) * _fps_right_ref
 	_pose_fps_arm("R", right_pose)
@@ -577,8 +624,8 @@ func _pose_fps_arm(side: String, target: Transform3D) -> void:
 	var lower_ref: Transform3D = root * ref["lower_ref"]
 	var shoulder := upper_ref.origin
 	var to_target := target.origin - shoulder
-	var upper_length: float = ref["upper_length"]
-	var lower_length: float = ref["lower_length"]
+	var upper_length: float = float(ref["upper_length"]) * FPS_ARM_STRETCH
+	var lower_length: float = float(ref["lower_length"]) * FPS_ARM_STRETCH
 	var dist := clampf(to_target.length(), absf(upper_length - lower_length) + 0.001, upper_length + lower_length - 0.001)
 	var dir := to_target.normalized()
 	var pole := lower_ref.origin - shoulder
@@ -590,12 +637,22 @@ func _pose_fps_arm(side: String, target: Transform3D) -> void:
 	var lower_axis: Vector3 = ref["lower_axis"]
 	var upper_dir := (upper_ref.basis * upper_axis).normalized()
 	var lower_dir := (lower_ref.basis * lower_axis).normalized()
-	var upper_basis := (Basis(Quaternion(upper_dir, dir)) * upper_ref.basis).orthonormalized()
-	var lower_basis := (Basis(Quaternion(lower_dir, (target.origin - elbow).normalized())) * lower_ref.basis).orthonormalized()
+	var upper_basis := _stretch_basis((Basis(Quaternion(upper_dir, dir)) * upper_ref.basis).orthonormalized(), upper_axis, FPS_ARM_STRETCH)
+	var lower_basis := _stretch_basis((Basis(Quaternion(lower_dir, (target.origin - elbow).normalized())) * lower_ref.basis).orthonormalized(), lower_axis, FPS_ARM_STRETCH)
 	var skel_inv := _skel.global_transform.affine_inverse()
 	_skel.set_bone_global_pose_override(ref["upper"], skel_inv * Transform3D(upper_basis, shoulder), 1.0, true)
 	_skel.set_bone_global_pose_override(ref["lower"], skel_inv * Transform3D(lower_basis, elbow), 1.0, true)
 	_skel.set_bone_global_pose_override(ref["hand"], skel_inv * target, 1.0, true)
+
+## 沿骨骼自身轴向拉长（保持粗细），用于第一人称补足握枪臂展
+static func _stretch_basis(b: Basis, axis: Vector3, s: float) -> Basis:
+	var k := s - 1.0
+	var n := axis.normalized()
+	var sm := Basis(
+		Vector3(1.0 + k * n.x * n.x, k * n.x * n.y, k * n.x * n.z),
+		Vector3(k * n.y * n.x, 1.0 + k * n.y * n.y, k * n.y * n.z),
+		Vector3(k * n.z * n.x, k * n.z * n.y, 1.0 + k * n.z * n.z))
+	return b * sm
 
 ## 抛壳：轻量弹壳按抛物线飞出，落地即消失（不用刚体，避免每发创建物理体）
 func _eject_shell() -> void:
@@ -643,9 +700,10 @@ func _aim_and_camera(delta: float) -> void:
 	model_root.rotation.x = 0.0
 	model_root.position.y = 0.0
 	if mode == Mode.RV_WALK:
-		# 车内：aim_yaw 是 rv 本地朝向，相机直接用本地变换（车转弯不甩视角）
-		var eye := Vector3(0, FPS_EYE, 0)
-		cam.transform = Transform3D(Basis(Vector3.UP, aim_yaw) * Basis(Vector3.RIGHT, aim_pitch), eye)
+		# 车内：aim_yaw 是 rv 本地朝向，相机直接用本地变换（车转弯不甩视角）+ 步伐浮动
+		var eye := Vector3(_cam_bob.x, FPS_EYE + _cam_bob.y, 0)
+		var head_basis := Basis(Vector3.UP, aim_yaw) * Basis(Vector3.RIGHT, aim_pitch) * Basis(Vector3.BACK, _cam_roll)
+		cam.transform = Transform3D(head_basis, eye)
 		_apply_gun(delta)
 		return
 	var view_pitch := aim_pitch + _kick
@@ -655,11 +713,11 @@ func _aim_and_camera(delta: float) -> void:
 	if fps:
 		# 第一人称：相机贴眼位（下蹲降眼高；车顶卧姿眼位移到前伸的头部），全身可见仅头骨缩零
 		var eye_h := FPS_EYE_CROUCH if _crouching else FPS_EYE
-		var eye_back := 0.05
+		var eye_back := -0.12   # 眼位略前于躯干，避免自己的领口/兜帽挡住镜头（视角模型）
 		if mode == Mode.SUNROOF:
 			eye_h = FPS_EYE_PRONE
 			eye_back = -0.30   # 与站立视角保持相同的枪后距离
-		cam.global_position = global_position + Vector3(0, eye_h, 0) + back * eye_back
+		cam.global_position = global_position + Vector3(0, eye_h, 0) + back * eye_back + right * _cam_bob.x + Vector3.UP * _cam_bob.y
 	else:
 		if mode == Mode.ON_FOOT:
 			# 原生形状扫掠同时处理墙体与身后上坡，命中后自动缩短肩后距离
@@ -671,6 +729,8 @@ func _aim_and_camera(delta: float) -> void:
 			cam.global_position.y = maxf(cam.global_position.y, main_node.ground_height(cam.global_position.x, cam.global_position.z) + 0.35)
 	var look_dir := (cam_basis * Vector3(0, 0, -1)).rotated(right, view_pitch)
 	cam.look_at(cam.global_position + look_dir * 10.0, Vector3.UP)
+	if fps and _cam_roll != 0.0:
+		cam.rotate_object_local(Vector3.FORWARD, _cam_roll)
 	# ADS 收窄视野；开火瞬间小幅镜头抖动（旋转偏移，不影响瞄准基准）
 	cam.fov = lerpf(68.0, float(_ads_cfg.get("fov", 52.0)), _ads_t)
 	if _fire_shake > 0.001:
@@ -717,7 +777,7 @@ func _try_fire() -> void:
 	_kick = minf(_kick + float(_anim_cfg.get("kick_pitch", 0.018)), float(_anim_cfg.get("kick_max", 0.10)))
 	_fire_shake = float(_anim_cfg.get("fire_shake", 0.06))
 	_eject_shell()
-	main_node.sfx.play("gunshot", 1.0, 0.05, 2.0)
+	main_node.sfx.play("gunshot", 0.9 if _suppressed else 1.0, 0.05, -10.0 if _suppressed else 2.0)
 	# 准星收敛弹道：先求相机中心射线目标点，实弹从枪口朝该点飞（排除自身与房车）
 	var exclude := [self.get_rid(), main_node.rv.get_rid()]
 	var aim_from := cam.global_position
