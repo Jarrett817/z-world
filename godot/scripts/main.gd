@@ -2615,19 +2615,73 @@ func _build_life_props() -> void:
 	# 右后角第二组上下铺：替代与射手重叠的沙发，床沿提供两个高位休整席
 	furn.call("bunk_bed", Vector3(0.0, 1.42, 1.62), Vector3(1.02, -0.40, 1.92), PI)
 	_add_interior_collision(Vector3(0.62, 1.20, 1.66), Vector3(1.02, 0.20, 1.92))
-	# 14 个前向普通座椅与生活位一一对应；实测坐姿髋部在 root 后 0.28m，换算到内饰缩放空间对位
-	var seats := [
+	# 左墙 3 连长椅：固定安装在墙体，焊接金属腿 + 深棕皮革坐垫（稳定性）
+	var bench_wood := Color(0.34, 0.24, 0.18)
+	var bench_leg_col := Color(0.20, 0.19, 0.17)
+	var bench_skin := Color(0.22, 0.14, 0.10)
+	# 左墙 bench 覆盖 z=-0.95, -0.40, 0.55 三个休整位
+	var lb_z_lo := -0.95 - 0.20
+	var lb_z_hi :=  0.55 + 0.20
+	var lb_z_c := (lb_z_lo + lb_z_hi) * 0.5
+	var lb_seat_x := -0.60 + 0.22   # 座面中心，靠背贴左墙 x=-0.60
+	box.call(Vector3(0.44, 0.06, lb_z_hi - lb_z_lo), Vector3(lb_seat_x, 0.02, lb_z_c), bench_skin, 0.72)
+	box.call(Vector3(0.04, 0.56, lb_z_hi - lb_z_lo), Vector3(-0.60 - 0.02, 0.31, lb_z_c), bench_skin, 0.72)
+	for leg_z in [lb_z_lo + 0.10, lb_z_c, lb_z_hi - 0.10]:
+		box.call(Vector3(0.05, 0.42, 0.05), Vector3(lb_seat_x - 0.16, -0.19, leg_z), bench_leg_col, 0.5)
+		box.call(Vector3(0.05, 0.42, 0.05), Vector3(lb_seat_x + 0.16, -0.19, leg_z), bench_leg_col, 0.5)
+	_add_interior_collision(Vector3(0.50, 0.50, lb_z_hi - lb_z_lo), Vector3(lb_seat_x, 0.06, lb_z_c))
+	# 右墙双排 3 连长椅：两排固定安装，间距 0.45，靠背朝过道
+	var rb_z_lo := -0.95 - 0.20
+	var rb_z_hi :=  0.15 + 0.20
+	var rb_z_c := (rb_z_lo + rb_z_hi) * 0.5
+	for rb_x in [0.45 + 0.18, 0.90 + 0.18]:
+		box.call(Vector3(0.44, 0.06, rb_z_hi - rb_z_lo), Vector3(rb_x, 0.02, rb_z_c), bench_skin, 0.72)
+		box.call(Vector3(0.04, 0.56, rb_z_hi - rb_z_lo), Vector3(rb_x + 0.22, 0.31, rb_z_c), bench_skin, 0.72)
+		for leg_z in [rb_z_lo + 0.10, rb_z_c, rb_z_hi - 0.10]:
+			box.call(Vector3(0.05, 0.42, 0.05), Vector3(rb_x - 0.16, -0.19, leg_z), bench_leg_col, 0.5)
+			box.call(Vector3(0.05, 0.42, 0.05), Vector3(rb_x + 0.16, -0.19, leg_z), bench_leg_col, 0.5)
+		_add_interior_collision(Vector3(0.50, 0.50, rb_z_hi - rb_z_lo), Vector3(rb_x, 0.06, rb_z_c))
+	# 前舱独立小座：驾驶位周边 5 个保持原状（离驾驶舱太近，长 bench 会卡过道）
+	var front_seats := [
 		Vector2(-0.55, -1.50), Vector2(0.55, -1.50), Vector2(-0.55, -2.05),
-		Vector2(-0.60, -0.95), Vector2(-0.60, -0.40), Vector2(-0.60, 0.55),
 		Vector2(0.55, -2.05), Vector2(0.45, -2.60),
 	]
-	for row in 3:
-		for sx in [0.45, 0.90]:
-			seats.append(Vector2(sx, -0.95 + float(row) * 0.55))
-	for seat in seats:
+	for seat in front_seats:
 		var chair_pos := Vector3(seat.x, -0.40, seat.y + 0.28 / INTERIOR_SCALE.z)
 		furn.call("chair", Vector3(0.0, 0.92, 0.36), chair_pos, PI)
 		_add_interior_collision(Vector3(0.43, 0.92, 0.36), chair_pos + Vector3(0.0, 0.46, 0.0))
+	# 右排座椅上方第二层吊床：悬挂式上层卧铺，利用垂直空间（仅躺卧，不能直坐）
+	var hammock_frame := Color(0.25, 0.20, 0.15)
+	var hammock_matt := Color(0.62, 0.58, 0.48)
+	var rope_col := Color(0.40, 0.34, 0.24)
+	var hammock_z_lo := -0.95 - 0.15
+	var hammock_z_hi :=  0.80 - 0.05
+	var hammock_z_c := (hammock_z_lo + hammock_z_hi) * 0.5
+	for hx in [0.45, 0.90]:
+		# 床板：底 y=0.68，板厚 0.04，宽 0.38，长覆盖 3 连 bench + 延伸
+		box.call(Vector3(0.38, 0.04, hammock_z_hi - hammock_z_lo), Vector3(hx, 0.70, hammock_z_c), hammock_frame, 0.85)
+		# 床垫：薄棕垫，y=0.74 到 0.82
+		box.call(Vector3(0.34, 0.08, hammock_z_hi - hammock_z_lo - 0.10), Vector3(hx, 0.76, hammock_z_c), hammock_matt, 1.0)
+		# 护栏：沿外侧的小立柱（防翻身摔下）
+		for hz in [hammock_z_lo + 0.15, hammock_z_hi - 0.15]:
+			box.call(Vector3(0.03, 0.18, 0.03), Vector3(hx - 0.17, 0.87, hz), hammock_frame, 0.8)
+		box.call(Vector3(0.02, 0.02, hammock_z_hi - hammock_z_lo), Vector3(hx - 0.17, 0.95, hammock_z_c), rope_col, 1.0)
+		# 吊绳：4 根从天花板下挂到床板四角
+		for ro_idx in range(4):
+			var rx: float = hx + (0.17 if ro_idx % 2 == 0 else -0.17)
+			var rz: float = (hammock_z_lo + 0.12) if ro_idx < 2 else (hammock_z_hi - 0.12)
+			var rope := MeshInstance3D.new()
+			var rm := CylinderMesh.new()
+			rm.top_radius = 0.008
+			rm.bottom_radius = 0.008
+			rm.height = 1.92 - 0.72   # 从天花板 y≈1.92 到床板 y≈0.72
+			rope.mesh = rm
+			var rmat := StandardMaterial3D.new()
+			rmat.albedo_color = rope_col
+			rmat.roughness = 1.0
+			rope.material_override = rmat
+			rope.position = Vector3(rx, 1.32, rz)
+			interior.add_child(rope)
 	# 四处射击孔：深色开孔板 + 枪灰钢框（两侧窗前射孔 ×2、右后窗、尾门）；坐标为内饰本地
 	var port_metal := StandardMaterial3D.new()
 	port_metal.albedo_color = Color(0.22, 0.21, 0.19)
@@ -2669,6 +2723,93 @@ func _build_life_props() -> void:
 		mbox.call(Vector3(0.05, 0.06, 0.58), Vector3(hx, 1.47, 2.48), port_metal)
 	for hz in [2.19, 2.77]:
 		mbox.call(Vector3(0.75, 0.06, 0.05), Vector3(-0.45, 1.47, hz), port_metal)
+	# 右墙卫浴组合隔间：射孔(z=0.85)与后铺(z=1.92)之间空档，向过道敞开用布帘遮
+	# 两个隔间并排朝左（过道侧）：马桶间 z=0.90~1.30，淋浴间 z=1.35~1.75，共用 x=0.90~1.25
+	var bath_wall := Color(0.48, 0.46, 0.42)
+	var bath_floor := Color(0.30, 0.32, 0.34)
+	var bath_pipe := Color(0.32, 0.30, 0.28)
+	var bath_curtain := Color(0.68, 0.64, 0.56)
+	# 隔间外围半墙：右侧贴车壳 x=1.25（整块），前侧 z=0.90 和后侧 z=1.75 各一小段
+	box.call(Vector3(0.04, 0.60, 0.85), Vector3(1.25 - 0.02, -0.10, (0.90 + 1.75) * 0.5), bath_wall, 0.6)
+	box.call(Vector3(0.35, 0.60, 0.04), Vector3(0.90 + 0.175, -0.10, 0.90 + 0.02), bath_wall, 0.6)
+	box.call(Vector3(0.35, 0.60, 0.04), Vector3(0.90 + 0.175, -0.10, 1.75 - 0.02), bath_wall, 0.6)
+	# 中间分隔墙：马桶间 / 淋浴间之间，用半墙 + 顶帘
+	box.call(Vector3(0.04, 0.60, 0.10), Vector3(1.07, -0.10, (0.90 + 1.30) * 0.5), bath_wall, 0.6)
+	# 地板托盘：隔间整个区域的浅色防滑地面
+	box.call(Vector3(0.35, 0.02, 0.85), Vector3(1.07, -0.39, (0.90 + 1.75) * 0.5), bath_floor, 0.75)
+	# ---- 马桶间 ----
+	# 蹲位：两个矮圆台（简易蹲便器造型）
+	cyl.call(0.14, 0.14, 0.12, Vector3(1.07, -0.34, 1.02), Color(0.92, 0.90, 0.85), 0.3)
+	# 便池开孔（深色）
+	var hole_mi := MeshInstance3D.new()
+	var hole_m := CylinderMesh.new()
+	hole_m.top_radius = 0.09
+	hole_m.bottom_radius = 0.08
+	hole_m.height = 0.04
+	hole_mi.mesh = hole_m
+	var h_mat := StandardMaterial3D.new()
+	h_mat.albedo_color = Color(0.05, 0.06, 0.08)
+	h_mat.roughness = 1.0
+	hole_mi.material_override = h_mat
+	hole_mi.position = Vector3(1.07, -0.32, 1.02)
+	interior.add_child(hole_mi)
+	# 洗手台：角落小方台 + 水龙头
+	box.call(Vector3(0.22, 0.05, 0.16), Vector3(1.15, -0.04, 1.18), Color(0.70, 0.68, 0.62), 0.4)
+	cyl.call(0.015, 0.015, 0.12, Vector3(1.15, 0.02, 1.18), bath_pipe, 0.3)
+	# 马桶间布帘（过道侧）
+	box.call(Vector3(0.02, 0.70, 0.38), Vector3(0.90 - 0.01, 0.15, (0.90 + 1.30) * 0.5), bath_curtain, 1.0)
+	for i in 4:
+		box.call(Vector3(0.012, 0.70, 0.03), Vector3(0.90 - 0.006, 0.15, 0.98 + float(i) * 0.09), bath_curtain.darkened(0.02 * i), 1.0)
+	# ---- 淋浴间 ----
+	# 淋浴喷头：固定在隔间顶部下喷
+	cyl.call(0.02, 0.02, 0.14, Vector3(1.18, 0.92, 1.55), bath_pipe, 0.3)
+	var head_mi := MeshInstance3D.new()
+	var head_m := CylinderMesh.new()
+	head_m.top_radius = 0.045
+	head_m.bottom_radius = 0.01
+	head_m.height = 0.04
+	head_mi.mesh = head_m
+	var head_mat := StandardMaterial3D.new()
+	head_mat.albedo_color = Color(0.28, 0.26, 0.24)
+	head_mat.metallic = 0.6
+	head_mat.roughness = 0.4
+	head_mi.material_override = head_mat
+	head_mi.position = Vector3(1.18, 0.85, 1.55)
+	interior.add_child(head_mi)
+	# 淋浴出水：细水柱粒子（模拟水洒）
+	var water := GPUParticles3D.new()
+	water.amount = 20
+	water.lifetime = 0.8
+	water.position = Vector3(1.18, 0.82, 1.55)
+	var wpm := ParticleProcessMaterial.new()
+	wpm.direction = Vector3(0, -1, 0)
+	wpm.spread = 18.0
+	wpm.initial_velocity_min = 0.6
+	wpm.initial_velocity_max = 0.9
+	wpm.gravity = Vector3(0, -0.3, 0)
+	wpm.scale_min = 0.015
+	wpm.scale_max = 0.03
+	water.process_material = wpm
+	var wq := QuadMesh.new()
+	wq.size = Vector2(0.08, 0.08)
+	var wsm := StandardMaterial3D.new()
+	wsm.albedo_color = Color(0.70, 0.80, 0.92, 0.55)
+	wsm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	wsm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	wsm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	wq.material = wsm
+	water.draw_pass_1 = wq
+	interior.add_child(water)
+	# 淋浴间布帘（过道侧）
+	box.call(Vector3(0.02, 0.70, 0.38), Vector3(0.90 - 0.01, 0.15, (1.35 + 1.75) * 0.5), bath_curtain, 1.0)
+	for i in 4:
+		box.call(Vector3(0.012, 0.70, 0.03), Vector3(0.90 - 0.006, 0.15, 1.43 + float(i) * 0.09), bath_curtain.darkened(0.02 * i), 1.0)
+	# 卫浴隔间碰撞：半墙 + 布帘都算墙，防止穿模；顶部开放（头顶净空够用）
+	_add_interior_collision(Vector3(0.06, 0.62, 0.85), Vector3(1.25, -0.09, (0.90 + 1.75) * 0.5))
+	_add_interior_collision(Vector3(0.37, 0.62, 0.06), Vector3(1.07, -0.09, 0.90 + 0.02))
+	_add_interior_collision(Vector3(0.37, 0.62, 0.06), Vector3(1.07, -0.09, 1.75 - 0.02))
+	_add_interior_collision(Vector3(0.06, 0.02, 0.40), Vector3(0.90, 0.17, (0.90 + 1.30) * 0.5))
+	_add_interior_collision(Vector3(0.06, 0.02, 0.40), Vector3(0.90, 0.17, (1.35 + 1.75) * 0.5))
 
 ## 车内宠物角：尾墙中央软垫 + 按 pet_species 摆放的静态猫狗兔（内饰本地坐标，地板顶 y=-0.4）
 func _refresh_pet_corner() -> void:
